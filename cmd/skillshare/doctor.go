@@ -411,15 +411,16 @@ func checkSyncDrift(cfg *config.Config, result *doctorResult, discovered []sync.
 
 // checkGitStatus checks if source is a git repo and its status
 func checkGitStatus(source string, result *doctorResult) {
-	gitDir := filepath.Join(source, ".git")
-	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+	cmd := exec.Command("git", "status")
+	cmd.Dir = source
+	if _, err := cmd.Output(); err != nil {
 		ui.Warning("Git: not initialized (recommended for backup)")
 		result.addWarning()
 		return
 	}
 
 	// Check for uncommitted changes
-	cmd := exec.Command("git", "status", "--porcelain")
+	cmd = exec.Command("git", "status", "--porcelain")
 	cmd.Dir = source
 	output, err := cmd.Output()
 	if err != nil {
