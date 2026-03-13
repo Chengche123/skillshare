@@ -131,6 +131,113 @@ func TestPullSkill_NewSkill(t *testing.T) {
 	}
 }
 
+func TestPullSkill_NestedDirectories(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "source")
+	tgt := filepath.Join(tmp, "target")
+
+	os.MkdirAll(src, 0755)
+
+	// Create a skill with nested subdirectories in the target
+	localSkill := filepath.Join(tgt, "my-skill")
+	os.MkdirAll(filepath.Join(localSkill, "prompts"), 0755)
+	os.MkdirAll(filepath.Join(localSkill, "templates", "react"), 0755)
+	os.WriteFile(filepath.Join(localSkill, "SKILL.md"), []byte("# My Skill"), 0644)
+	os.WriteFile(filepath.Join(localSkill, "prompts", "default.md"), []byte("prompt content"), 0644)
+	os.WriteFile(filepath.Join(localSkill, "templates", "base.md"), []byte("base template"), 0644)
+	os.WriteFile(filepath.Join(localSkill, "templates", "react", "component.md"), []byte("react template"), 0644)
+
+	skill := LocalSkillInfo{
+		Name: "my-skill",
+		Path: localSkill,
+	}
+
+	if err := PullSkill(skill, src, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify ALL files were copied, including nested ones
+	checks := []struct {
+		path string
+		want string
+	}{
+		{"my-skill/SKILL.md", "# My Skill"},
+		{"my-skill/prompts/default.md", "prompt content"},
+		{"my-skill/templates/base.md", "base template"},
+		{"my-skill/templates/react/component.md", "react template"},
+	}
+	for _, c := range checks {
+		data, err := os.ReadFile(filepath.Join(src, c.path))
+		if err != nil {
+			t.Errorf("expected %s to exist in source after pull: %v", c.path, err)
+			continue
+		}
+		if string(data) != c.want {
+			t.Errorf("%s: got %q, want %q", c.path, string(data), c.want)
+		}
+	}
+}
+
+func TestPullSkill_GitRepoSkipsGit(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "source")
+	tgt := filepath.Join(tmp, "target")
+
+	os.MkdirAll(src, 0755)
+
+	// Simulate a git-cloned repo in the target (like superpowers)
+	localSkill := filepath.Join(tgt, "superpowers")
+	os.MkdirAll(filepath.Join(localSkill, ".git", "objects"), 0755)
+	os.MkdirAll(filepath.Join(localSkill, "agents", "brainstorming"), 0755)
+	os.MkdirAll(filepath.Join(localSkill, "commands", "commit"), 0755)
+	os.MkdirAll(filepath.Join(localSkill, "docs"), 0755)
+
+	// .git files
+	os.WriteFile(filepath.Join(localSkill, ".git", "HEAD"), []byte("ref: refs/heads/main"), 0644)
+	os.WriteFile(filepath.Join(localSkill, ".git", "config"), []byte("[core]"), 0644)
+
+	// Skill files
+	os.WriteFile(filepath.Join(localSkill, "agents", "brainstorming", "SKILL.md"), []byte("# Brainstorming"), 0644)
+	os.WriteFile(filepath.Join(localSkill, "commands", "commit", "SKILL.md"), []byte("# Commit"), 0644)
+	os.WriteFile(filepath.Join(localSkill, "docs", "README.md"), []byte("# Docs"), 0644)
+	os.WriteFile(filepath.Join(localSkill, "gemini-extension.js"), []byte("// ext"), 0644)
+
+	skill := LocalSkillInfo{
+		Name: "superpowers",
+		Path: localSkill,
+	}
+
+	if err := PullSkill(skill, src, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify skill files were copied
+	checks := []struct {
+		path string
+		want string
+	}{
+		{"superpowers/agents/brainstorming/SKILL.md", "# Brainstorming"},
+		{"superpowers/commands/commit/SKILL.md", "# Commit"},
+		{"superpowers/docs/README.md", "# Docs"},
+		{"superpowers/gemini-extension.js", "// ext"},
+	}
+	for _, c := range checks {
+		data, err := os.ReadFile(filepath.Join(src, c.path))
+		if err != nil {
+			t.Errorf("expected %s to exist in source after pull: %v", c.path, err)
+			continue
+		}
+		if string(data) != c.want {
+			t.Errorf("%s: got %q, want %q", c.path, string(data), c.want)
+		}
+	}
+
+	// Verify .git was NOT copied
+	if _, err := os.Stat(filepath.Join(src, "superpowers", ".git")); !os.IsNotExist(err) {
+		t.Error(".git directory should NOT be copied to source")
+	}
+}
+
 func TestPullSkill_AlreadyExists(t *testing.T) {
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source")

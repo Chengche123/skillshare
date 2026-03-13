@@ -364,12 +364,23 @@ func mergeDirectories(src, dst string) error {
 
 // copyDirectory copies a directory recursively
 func copyDirectory(src, dst string) error {
-	return copyDirectoryWithState(src, dst, map[string]bool{})
+	return copyDirectoryWithState(src, dst, map[string]bool{}, nil)
+}
+
+// copyDirectoryOpts controls behavior of copyDirectoryWithState.
+type copyDirectoryOpts struct {
+	SkipGit bool // skip .git directories
+}
+
+// copyDirectorySkipGit copies a directory recursively, skipping .git directories.
+// Use this for collect/pull operations where .git is not wanted in the destination.
+func copyDirectorySkipGit(src, dst string) error {
+	return copyDirectoryWithState(src, dst, map[string]bool{}, &copyDirectoryOpts{SkipGit: true})
 }
 
 // copyDirectoryWithState copies recursively and dereferences directory symlinks.
 // active tracks real paths in the current recursion stack to prevent cycles.
-func copyDirectoryWithState(src, dst string, active map[string]bool) error {
+func copyDirectoryWithState(src, dst string, active map[string]bool, opts *copyDirectoryOpts) error {
 	resolvedSrc, err := filepath.EvalSymlinks(src)
 	if err != nil {
 		return fmt.Errorf("failed to resolve source directory %s: %w", src, err)
@@ -380,6 +391,8 @@ func copyDirectoryWithState(src, dst string, active map[string]bool) error {
 	active[resolvedSrc] = true
 	defer delete(active, resolvedSrc)
 
+	skipGit := opts != nil && opts.SkipGit
+
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -389,6 +402,9 @@ func copyDirectoryWithState(src, dst string, active map[string]bool) error {
 		dstPath := filepath.Join(dst, relPath)
 
 		if info.IsDir() {
+			if skipGit && info.Name() == ".git" {
+				return filepath.SkipDir
+			}
 			return os.MkdirAll(dstPath, info.Mode())
 		}
 
@@ -404,7 +420,7 @@ func copyDirectoryWithState(src, dst string, active map[string]bool) error {
 				if resolveErr != nil {
 					return fmt.Errorf("failed to resolve symlink directory %s: %w", path, resolveErr)
 				}
-				return copyDirectoryWithState(resolvedDir, dstPath, active)
+				return copyDirectoryWithState(resolvedDir, dstPath, active, opts)
 			}
 		}
 

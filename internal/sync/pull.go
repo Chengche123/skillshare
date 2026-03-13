@@ -127,8 +127,9 @@ func PullSkill(skill LocalSkillInfo, sourcePath string, force bool) error {
 		}
 	}
 
-	// Copy skill to source
-	return copyDirectory(skill.Path, destPath)
+	// Copy skill to source, skipping .git directories (collect brings
+	// user content, not repository metadata).
+	return copyDirectorySkipGit(skill.Path, destPath)
 }
 
 // PullSkills pulls multiple skills to source
