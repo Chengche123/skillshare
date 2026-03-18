@@ -8,7 +8,7 @@ Complete list of AI CLIs that skillshare supports out of the box.
 
 ## Overview
 
-skillshare supports **55+ AI CLI tools**. When you run `skillshare init`, it automatically detects and configures any installed tools.
+skillshare supports **56+ AI CLI tools**. When you run `skillshare init`, it automatically detects and configures any installed tools.
 
 ---
 
@@ -40,6 +40,7 @@ These are auto-detected during `skillshare init`:
   <a className="target-badge" href="#target-firebender">Firebender</a>
   <a className="target-badge" href="#target-gemini">Gemini</a>
   <a className="target-badge" href="#target-goose">Goose</a>
+  <a className="target-badge" href="#target-hermes">Hermes</a>
   <a className="target-badge" href="#target-iflow">iFlow</a>
   <a className="target-badge" href="#target-junie">Junie</a>
   <a className="target-badge" href="#target-kilocode">Kilocode</a>
@@ -106,6 +107,7 @@ These are auto-detected during `skillshare init`:
 <tr id="target-firebender"><td>firebender</td><td><code>&#126;/.firebender/skills</code></td><td><code>.firebender/skills</code></td></tr>
 <tr id="target-gemini"><td>gemini</td><td><code>&#126;/.gemini/skills</code></td><td><code>.gemini/skills</code></td></tr>
 <tr id="target-goose"><td>goose</td><td><code>&#126;/.config/goose/skills</code></td><td><code>.goose/skills</code></td></tr>
+<tr id="target-hermes"><td>hermes</td><td><code>&#126;/.hermes/skills</code></td><td><code>.hermes/skills</code></td></tr>
 <tr id="target-iflow"><td>iflow</td><td><code>&#126;/.iflow/skills</code></td><td><code>.iflow/skills</code></td></tr>
 <tr id="target-junie"><td>junie</td><td><code>&#126;/.junie/skills</code></td><td><code>.junie/skills</code></td></tr>
 <tr id="target-kilocode"><td>kilocode</td><td><code>&#126;/.kilocode/skills</code></td><td><code>.kilocode/skills</code></td></tr>

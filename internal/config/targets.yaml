@@ -97,6 +97,11 @@ targets:
     project_name: goose
     global_path: "~/.config/goose/skills"
     project_path: ".goose/skills"
+  - global_name: hermes
+    project_name: hermes
+    global_path: "~/.hermes/skills"
+    project_path: ".hermes/skills"
+    aliases: [hermes-agent]
   - global_name: iflow
     project_name: iflow
     global_path: "~/.iflow/skills"
