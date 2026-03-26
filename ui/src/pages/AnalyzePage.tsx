@@ -13,6 +13,7 @@ import {
   HelpCircle,
   ExternalLink,
   Filter,
+  SearchX,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
@@ -685,8 +686,12 @@ function SkillTable({
           <tbody>
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-pencil-light">
-                  {search || lintFilter ? 'No skills match the current filters' : 'No skills found'}
+                <td colSpan={5} className="py-6">
+                  <EmptyState
+                    icon={search || lintFilter ? <SearchX size={32} /> : <FileText size={32} />}
+                    title={search || lintFilter ? 'No skills match the current filters' : 'No skills found'}
+                    description={search || lintFilter ? 'Try a different search term or clear the filter' : undefined}
+                  />
                 </td>
               </tr>
             ) : (
