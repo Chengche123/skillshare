@@ -27,6 +27,8 @@ type analyzeTUIModel struct {
 	filterInput textinput.Model
 	filtering   bool
 	matchCount  int
+	filteredDescChars int
+	filteredBodyChars int
 
 	groups   []analyzeTargetGroup
 	groupIdx int
@@ -161,11 +163,7 @@ func (m *analyzeTUIModel) applyFilter() {
 		lower := strings.ToLower(m.filterText)
 		var filtered []analyzeSkillItem
 		for _, item := range m.allItems {
-			searchField := item.entry.relPath
-			if searchField == "" {
-				searchField = item.entry.Name
-			}
-			if strings.Contains(strings.ToLower(searchField), lower) {
+			if skillMatchesFilter(item.entry, lower) {
 				filtered = append(filtered, item)
 			}
 		}
@@ -174,6 +172,16 @@ func (m *analyzeTUIModel) applyFilter() {
 
 	m.sortItems(items)
 	m.matchCount = len(items)
+
+	// Cache filtered sums for renderStatsLine (avoids per-render iteration
+	// and ensures correctness across paginated views).
+	var descChars, bodyChars int
+	for _, item := range items {
+		descChars += item.entry.DescriptionChars
+		bodyChars += item.entry.BodyChars
+	}
+	m.filteredDescChars = descChars
+	m.filteredBodyChars = bodyChars
 
 	listItems := make([]list.Item, len(items))
 	for i, item := range items {
@@ -529,29 +537,19 @@ func (m analyzeTUIModel) renderStatsLine() string {
 		return ""
 	}
 	g := m.groups[m.groupIdx]
-
-	// Compute sums from currently visible (filtered) items
-	var descChars, bodyChars int
-	visibleItems := m.list.Items()
-	for _, li := range visibleItems {
-		if item, ok := li.(analyzeSkillItem); ok {
-			descChars += item.entry.DescriptionChars
-			bodyChars += item.entry.BodyChars
-		}
-	}
-	totalChars := descChars + bodyChars
+	totalChars := m.filteredDescChars + m.filteredBodyChars
 
 	var countStr string
 	if m.filterText != "" {
-		countStr = fmt.Sprintf("%d/%d skills", len(visibleItems), len(m.allItems))
+		countStr = fmt.Sprintf("%d/%d skills", m.matchCount, len(m.allItems))
 	} else {
 		countStr = fmt.Sprintf("%d skills", g.entry.SkillCount)
 	}
 
 	return tc.Help.Render(fmt.Sprintf("%s  Always: %s tokens  On-demand: %s tokens  Total: %s tokens  %s",
 		countStr,
-		formatTokensStr(descChars),
-		formatTokensStr(bodyChars),
+		formatTokensStr(m.filteredDescChars),
+		formatTokensStr(m.filteredBodyChars),
 		formatTokensStr(totalChars),
 		tc.Dim.Render("(1 token ≈ 4 chars)"),
 	)) + "\n"

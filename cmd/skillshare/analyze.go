@@ -76,14 +76,18 @@ type analyzeFilterTokens struct {
 	Tokens int `json:"tokens"`
 }
 
+func skillMatchesFilter(e analyzeSkillEntry, lowerFilter string) bool {
+	searchField := e.relPath
+	if searchField == "" {
+		searchField = e.Name
+	}
+	return strings.Contains(strings.ToLower(searchField), lowerFilter)
+}
+
 func filterAnalyzeSkills(skills []analyzeSkillEntry, filter string) (matched []analyzeSkillEntry, summary analyzeFilterSummary) {
 	lower := strings.ToLower(filter)
 	for _, s := range skills {
-		searchField := s.relPath
-		if searchField == "" {
-			searchField = s.Name
-		}
-		if strings.Contains(strings.ToLower(searchField), lower) {
+		if skillMatchesFilter(s, lower) {
 			matched = append(matched, s)
 			summary.AlwaysLoaded.Chars += s.DescriptionChars
 			summary.OnDemand.Chars += s.BodyChars
@@ -281,16 +285,11 @@ func runAnalyzeCore(sourcePath string, targets map[string]config.TargetConfig, d
 
 	if opts.filter != "" {
 		for i, entry := range entries {
-			matched, _ := filterAnalyzeSkills(entry.Skills, opts.filter)
+			matched, summary := filterAnalyzeSkills(entry.Skills, opts.filter)
 			entries[i].Skills = matched
 			entries[i].SkillCount = len(matched)
-			var descChars, bodyChars int
-			for _, s := range matched {
-				descChars += s.DescriptionChars
-				bodyChars += s.BodyChars
-			}
-			entries[i].AlwaysLoaded = analyzeCharTokens{Chars: descChars, EstimatedTokens: estimateTokens(descChars)}
-			entries[i].OnDemandMax = analyzeCharTokens{Chars: bodyChars, EstimatedTokens: estimateTokens(bodyChars)}
+			entries[i].AlwaysLoaded = analyzeCharTokens{Chars: summary.AlwaysLoaded.Chars, EstimatedTokens: summary.AlwaysLoaded.Tokens}
+			entries[i].OnDemandMax = analyzeCharTokens{Chars: summary.OnDemand.Chars, EstimatedTokens: summary.OnDemand.Tokens}
 		}
 	}
 
