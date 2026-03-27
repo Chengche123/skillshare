@@ -359,18 +359,18 @@ function TopHeaviestChart({ skills }: { skills: AnalyzeSkill[] }) {
         <div className="space-y-1.5">
           {sorted.map((skill, idx) => {
             const pct = maxTokens > 0 ? (skill.description_tokens / maxTokens) * 100 : 0;
-            const tooltipText = `Description: ${formatTokens(skill.description_tokens)} tokens\nBody: ${formatTokens(skill.body_tokens)} tokens\nTotal: ${formatTokens(skill.description_tokens + skill.body_tokens)} tokens`;
+            const tooltipText = `${skill.path}\n---\nDescription: ${formatTokens(skill.description_tokens)} tokens\nBody: ${formatTokens(skill.body_tokens)} tokens\nTotal: ${formatTokens(skill.description_tokens + skill.body_tokens)} tokens`;
             return (
-              <Tooltip key={skill.name} content={tooltipText}>
-                <div className="flex items-center gap-2 group py-0.5">
+              <Tooltip key={skill.name} content={tooltipText} followCursor>
+                <div className="flex items-center gap-2 group py-0.5 px-1 -mx-1 rounded-[var(--radius-sm)] hover:bg-info/8 transition-colors cursor-default">
                   <span className="text-xs text-pencil-light font-mono shrink-0 w-5 text-right">
                     {idx + 1}
                   </span>
                   <span
                     className="text-sm text-pencil truncate shrink-0"
-                    style={{ width: '150px' }}
+                    style={{ width: '220px' }}
                   >
-                    {skill.name}
+                    {skill.path}
                   </span>
                   <div className="flex-1 h-5 bg-muted/30 overflow-hidden" style={{ borderRadius: radius.sm }}>
                     <div
@@ -706,7 +706,7 @@ function SkillTable({
                   >
                     <td className="py-3 pr-4">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-pencil truncate hover:underline">{skill.name}</span>
+                        <span className="font-medium text-pencil truncate hover:underline">{skill.path}</span>
                         {skill.is_tracked && <Badge variant="info" size="sm">tracked</Badge>}
                       </div>
                     </td>
@@ -777,7 +777,7 @@ function SkillDetailDialog({
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2 min-w-0">
           <FileText size={20} strokeWidth={2.5} className="text-pencil shrink-0" />
-          <h2 className="text-lg font-bold text-pencil truncate">{skill.name}</h2>
+          <h2 className="text-lg font-bold text-pencil truncate">{skill.path}</h2>
           {skill.is_tracked && <Badge variant="info" size="sm">tracked</Badge>}
         </div>
         <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-pencil-light hover:text-pencil transition-colors cursor-pointer shrink-0" aria-label="Close">

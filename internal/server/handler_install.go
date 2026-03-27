@@ -87,6 +87,7 @@ func (s *Server) handleInstallBatch(w http.ResponseWriter, r *http.Request) {
 		Force     bool   `json:"force"`
 		SkipAudit bool   `json:"skipAudit"`
 		Into      string `json:"into"`
+		Name      string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -130,13 +131,8 @@ func (s *Server) handleInstallBatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Cross-path duplicate detection
-	if !body.Force && source.CloneURL != "" {
-		if err := install.CheckCrossPathDuplicate(s.cfg.Source, source.CloneURL, body.Into); err != nil {
-			writeError(w, http.StatusConflict, err.Error())
-			return
-		}
-	}
+	// Note: no cross-path duplicate check for batch — user explicitly selected
+	// specific skills from discovery, so installing to a different path is intentional.
 
 	results := make([]batchResultItem, 0, len(body.Skills))
 	installOpts := install.InstallOptions{
@@ -148,20 +144,24 @@ func (s *Server) handleInstallBatch(w http.ResponseWriter, r *http.Request) {
 		installOpts.AuditProjectRoot = s.projectRoot
 	}
 	for _, sel := range body.Skills {
-		destPath := filepath.Join(s.cfg.Source, body.Into, sel.Name)
+		skillName := sel.Name
+		if body.Name != "" && len(body.Skills) == 1 {
+			skillName = body.Name
+		}
+		destPath := filepath.Join(s.cfg.Source, body.Into, skillName)
 		res, err := install.InstallFromDiscovery(discovery, install.SkillInfo{
 			Name: sel.Name,
 			Path: sel.Path,
 		}, destPath, installOpts)
 		if err != nil {
 			results = append(results, batchResultItem{
-				Name:  sel.Name,
+				Name:  skillName,
 				Error: err.Error(),
 			})
 			continue
 		}
 		results = append(results, batchResultItem{
-			Name:     sel.Name,
+			Name:     skillName,
 			Action:   res.Action,
 			Warnings: res.Warnings,
 		})

@@ -13,6 +13,7 @@ interface SkillPickerModalProps {
   onInstall: (selected: DiscoveredSkill[]) => void;
   onCancel: () => void;
   installing: boolean;
+  singleSelect?: boolean;
 }
 
 export default function SkillPickerModal({
@@ -22,6 +23,7 @@ export default function SkillPickerModal({
   onInstall,
   onCancel,
   installing,
+  singleSelect,
 }: SkillPickerModalProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
@@ -37,13 +39,13 @@ export default function SkillPickerModal({
     );
   }, [skills, filter]);
 
-  // Select all by default when modal opens; reset filter
+  // Reset selection when modal opens
   useEffect(() => {
     if (open) {
-      setSelected(new Set(skills.map((s) => s.path)));
+      setSelected(singleSelect ? new Set() : new Set(skills.map((s) => s.path)));
       setFilter('');
     }
-  }, [open, skills]);
+  }, [open, skills, singleSelect]);
 
   if (!open) return null;
 
@@ -61,6 +63,11 @@ export default function SkillPickerModal({
   };
 
   const toggle = (path: string) => {
+    if (singleSelect) {
+      // Radio behavior: only one selected at a time
+      setSelected(selected.has(path) ? new Set() : new Set([path]));
+      return;
+    }
     const next = new Set(selected);
     if (next.has(path)) {
       next.delete(path);
@@ -76,9 +83,9 @@ export default function SkillPickerModal({
   };
 
   return (
-    <DialogShell open={open} onClose={onCancel} maxWidth="md" preventClose={installing}>
+    <DialogShell open={open} onClose={onCancel} maxWidth="2xl" preventClose={installing}>
           <h3 className="text-xl font-bold text-pencil mb-1">
-            Select Skills to Install
+            {singleSelect ? 'Select a Skill to Install' : 'Select Skills to Install'}
           </h3>
           <p className="text-sm text-pencil-light mb-4 truncate font-mono">
             {source}
@@ -102,51 +109,76 @@ export default function SkillPickerModal({
             </div>
           )}
 
-          {/* Select All */}
-          <div className="flex items-center justify-between border-b border-dashed border-pencil-light/30 pb-2 mb-2">
-            <Checkbox
-              label={allFilteredSelected ? 'Deselect All' : 'Select All'}
-              checked={allFilteredSelected}
-              onChange={toggleAll}
-            />
-            {filter && (
+          {/* Select All (multi-select only) */}
+          {!singleSelect && (
+            <div className="flex items-center justify-between border-b border-dashed border-pencil-light/30 pb-2 mb-2">
+              <Checkbox
+                label={allFilteredSelected ? 'Deselect All' : 'Select All'}
+                checked={allFilteredSelected}
+                onChange={toggleAll}
+              />
+              {filter && (
+                <span className="text-xs text-muted-dark">
+                  {filtered.length} of {skills.length} skills
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Single-select hint */}
+          {singleSelect && (
+            <div className="border-b border-dashed border-pencil-light/30 pb-2 mb-2">
               <span className="text-xs text-muted-dark">
-                {filtered.length} of {skills.length} skills
+                Custom name is set — select one skill
+                {filter && ` (${filtered.length} of ${skills.length})`}
               </span>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Skill list */}
           <div className="overflow-y-auto space-y-1 mb-4" style={{ maxHeight: '16rem' }}>
-            {filtered.map((skill) => (
-              <label
-                key={skill.path}
-                className="flex items-start gap-2 py-1.5 px-1 rounded-md cursor-pointer hover:bg-muted/30 transition-colors"
-                style={{ borderRadius: radius.sm }}
-              >
-                <Checkbox
-                  label=""
-                  checked={selected.has(skill.path)}
-                  onChange={() => toggle(skill.path)}
-                  size="sm"
-                />
-                <div className="min-w-0 flex-1">
-                  <span className="font-bold text-pencil text-base">
-                    {skill.name}
-                  </span>
-                  {skill.path !== '.' && skill.path !== skill.name && (
-                    <span className="block text-xs text-muted-dark truncate font-mono">
-                      {skill.path}
+            {filtered.map((skill) => {
+              const isSelected = selected.has(skill.path);
+              return (
+                <label
+                  key={skill.path}
+                  className="flex items-start gap-2 py-1.5 px-1 rounded-md cursor-pointer hover:bg-muted/30 transition-colors"
+                  style={{ borderRadius: radius.sm }}
+                >
+                  {singleSelect ? (
+                    <span
+                      className={`mt-1 w-4 h-4 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors ${
+                        isSelected ? 'border-info bg-info' : 'border-muted-dark'
+                      }`}
+                    >
+                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
                     </span>
+                  ) : (
+                    <Checkbox
+                      label=""
+                      checked={isSelected}
+                      onChange={() => toggle(skill.path)}
+                      size="sm"
+                    />
                   )}
-                  {skill.description && (
-                    <span className="block text-sm text-pencil-light truncate">
-                      {skill.description}
+                  <div className="min-w-0 flex-1" onClick={singleSelect ? () => toggle(skill.path) : undefined}>
+                    <span className="font-bold text-pencil text-base">
+                      {skill.name}
                     </span>
-                  )}
-                </div>
-              </label>
-            ))}
+                    {skill.path !== '.' && skill.path !== skill.name && (
+                      <span className="block text-xs text-muted-dark truncate font-mono">
+                        {skill.path}
+                      </span>
+                    )}
+                    {skill.description && (
+                      <span className="block text-sm text-pencil-light truncate">
+                        {skill.description}
+                      </span>
+                    )}
+                  </div>
+                </label>
+              );
+            })}
           </div>
 
           {/* Footer */}
@@ -167,7 +199,7 @@ export default function SkillPickerModal({
               loading={installing}
             >
               <Download size={14} strokeWidth={2.5} />
-              Install Selected ({selected.size})
+              {singleSelect ? 'Install' : `Install Selected (${selected.size})`}
             </Button>
           </div>
     </DialogShell>

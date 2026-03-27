@@ -122,7 +122,6 @@ export default function InstallForm({
   const [severityFilter, setSeverityFilter] = useState<string | null>(null);
 
   const resetForm = () => {
-    setSource('');
     setName('');
     setInto('');
     setTrack(false);
@@ -264,6 +263,7 @@ export default function InstallForm({
         const allWarnings: string[] = [];
         const auditFindings: string[] = [];
         const auditBlockedSkills: DiscoveredSkill[] = [];
+        let installed = 0;
         for (const item of res.results) {
           if (item.error) {
             if (isAuditBlock(item.error)) {
@@ -273,14 +273,19 @@ export default function InstallForm({
             } else {
               toast(`${item.name}: ${item.error}`, 'error');
             }
+          } else {
+            installed++;
           }
           if (item.warnings?.length) allWarnings.push(...item.warnings.map((w) => `${item.name}: ${w}`));
         }
-        toast(res.summary, auditBlockedSkills.length > 0 ? 'warning' : 'success');
-        if (allWarnings.length > 0) setWarningDialog(allWarnings);
-        resetForm();
-        invalidateAfterInstall();
-        onSuccess?.({ action: 'installed', warnings: [], skillName: res.summary });
+        if (installed > 0) {
+          const variant = auditBlockedSkills.length > 0 ? 'warning' : 'success';
+          toast(res.summary, variant as 'success' | 'warning');
+          if (allWarnings.length > 0) setWarningDialog(allWarnings);
+          resetForm();
+          invalidateAfterInstall();
+          onSuccess?.({ action: 'installed', warnings: [], skillName: res.summary });
+        }
         if (auditBlockedSkills.length > 0) {
           setAuditDialog({
             findings: auditFindings,
@@ -314,10 +319,12 @@ export default function InstallForm({
         into: into.trim() || undefined,
         force,
         skipAudit,
+        name: selected.length === 1 && name.trim() ? name.trim() : undefined,
       });
       const allWarnings: string[] = [];
       const auditFindings: string[] = [];
       const auditBlockedSkills: DiscoveredSkill[] = [];
+      let installed = 0;
       for (const item of res.results) {
         if (item.error) {
           if (isAuditBlock(item.error)) {
@@ -327,16 +334,22 @@ export default function InstallForm({
           } else {
             toast(`${item.name}: ${item.error}`, 'error');
           }
+        } else {
+          installed++;
         }
         if (item.warnings?.length) allWarnings.push(...item.warnings.map((w) => `${item.name}: ${w}`));
       }
-      // Always show summary toast
-      toast(res.summary, auditBlockedSkills.length > 0 ? 'warning' : 'success');
-      if (allWarnings.length > 0) setWarningDialog(allWarnings);
-      setShowPicker(false);
-      resetForm();
-      invalidateAfterInstall();
-      onSuccess?.({ action: 'installed', warnings: [], skillName: res.summary });
+
+      // Only show summary + close picker when at least one skill installed
+      if (installed > 0) {
+        const variant = auditBlockedSkills.length > 0 ? 'warning' : 'success';
+        toast(res.summary, variant as 'success' | 'warning');
+        if (allWarnings.length > 0) setWarningDialog(allWarnings);
+        setShowPicker(false);
+        resetForm();
+        invalidateAfterInstall();
+        onSuccess?.({ action: 'installed', warnings: [], skillName: res.summary });
+      }
       // Show audit dialog for blocked items only (force-retry targets just those)
       if (auditBlockedSkills.length > 0) {
         setAuditDialog({
@@ -395,13 +408,16 @@ export default function InstallForm({
 
         {/* Optional overrides */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Input
-            label="Custom name"
-            type="text"
-            placeholder="my-skill"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+          <div>
+            <Input
+              label="Custom name"
+              type="text"
+              placeholder="my-skill"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <p className="text-xs text-muted-dark mt-1">Only applies to single skill install</p>
+          </div>
           <Input
             label="Into directory"
             type="text"
@@ -458,6 +474,7 @@ export default function InstallForm({
       onInstall={handleBatchInstall}
       onCancel={() => setShowPicker(false)}
       installing={batchInstalling}
+      singleSelect={!!name.trim()}
     />
   );
 
@@ -492,13 +509,13 @@ export default function InstallForm({
                   style={{ borderRadius: radius.md }}
                 >
                   {f.skillName && <div className="text-xs text-pencil-light font-mono">{f.skillName}</div>}
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span
-                      className="w-2 h-2 rounded-full shrink-0 mt-1.5"
+                      className="w-2 h-2 rounded-full shrink-0"
                       style={{ backgroundColor: s.color }}
                     />
                     <Badge variant={s.variant}>{f.severity}</Badge>
-                    <span className="text-sm pt-0.5 leading-relaxed">{f.description}</span>
+                    <span className="text-sm leading-relaxed">{f.description}</span>
                   </div>
                   {f.snippets.length > 0 && (
                     <div className="ml-1 pl-3 space-y-0.5">
@@ -555,13 +572,13 @@ export default function InstallForm({
                   style={{ borderRadius: radius.md }}
                 >
                   {f.skillName && <div className="text-xs text-pencil-light font-mono">{f.skillName}</div>}
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span
-                      className="w-2 h-2 rounded-full shrink-0 mt-1.5"
+                      className="w-2 h-2 rounded-full shrink-0"
                       style={{ backgroundColor: s.color }}
                     />
                     <Badge variant={s.variant}>{f.severity}</Badge>
-                    <span className="text-sm pt-0.5 leading-relaxed">{f.description}</span>
+                    <span className="text-sm leading-relaxed">{f.description}</span>
                   </div>
                   {f.snippets.length > 0 && (
                     <div className="ml-1 pl-3 space-y-0.5">
