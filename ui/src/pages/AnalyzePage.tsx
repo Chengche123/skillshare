@@ -785,9 +785,6 @@ function SkillDetailDialog({
         </button>
       </div>
 
-      {/* Path */}
-      <p className="text-xs text-pencil-light font-mono mb-4">{skill.path}</p>
-
       {/* Token breakdown */}
       <div className="grid grid-cols-3 gap-3 mb-4">
         {[
