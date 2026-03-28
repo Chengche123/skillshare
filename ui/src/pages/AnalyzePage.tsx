@@ -359,9 +359,17 @@ function TopHeaviestChart({ skills }: { skills: AnalyzeSkill[] }) {
         <div className="space-y-1.5">
           {sorted.map((skill, idx) => {
             const pct = maxTokens > 0 ? (skill.description_tokens / maxTokens) * 100 : 0;
-            const tooltipText = `${skill.path}\n---\nDescription: ${formatTokens(skill.description_tokens)} tokens\nBody: ${formatTokens(skill.body_tokens)} tokens\nTotal: ${formatTokens(skill.description_tokens + skill.body_tokens)} tokens`;
+            const tooltipContent = (
+              <div>
+                <div>{skill.path}</div>
+                <hr className="border-paper/30 my-1" />
+                <div>Description: {formatTokens(skill.description_tokens)} tokens</div>
+                <div>Body: {formatTokens(skill.body_tokens)} tokens</div>
+                <div>Total: {formatTokens(skill.description_tokens + skill.body_tokens)} tokens</div>
+              </div>
+            );
             return (
-              <Tooltip key={skill.name} content={tooltipText} followCursor>
+              <Tooltip key={skill.name} content={tooltipContent} followCursor>
                 <div className="flex items-center gap-2 group py-0.5 px-1 -mx-1 rounded-[var(--radius-sm)] hover:bg-info/8 transition-colors cursor-default">
                   <span className="text-xs text-pencil-light font-mono shrink-0 w-5 text-right">
                     {idx + 1}

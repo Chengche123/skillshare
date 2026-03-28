@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 
 interface TooltipProps {
   children: ReactNode;
-  content: string;
+  content: ReactNode;
   side?: 'top' | 'bottom';
   followCursor?: boolean;
 }
