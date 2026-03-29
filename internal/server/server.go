@@ -129,6 +129,15 @@ func (s *Server) IsProjectMode() bool {
 	return s.projectRoot != ""
 }
 
+// agentsSource returns the agents source directory for the current mode.
+// Caller must hold s.mu (RLock or Lock) when accessing s.cfg.
+func (s *Server) agentsSource() string {
+	if s.IsProjectMode() {
+		return filepath.Join(s.projectRoot, ".skillshare", "agents")
+	}
+	return s.cfg.EffectiveAgentsSource()
+}
+
 // cloneTargets returns a shallow copy of the Targets map.
 // Callers must hold s.mu (RLock or Lock).
 func (s *Server) cloneTargets() map[string]config.TargetConfig {

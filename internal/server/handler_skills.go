@@ -19,6 +19,7 @@ import (
 
 type skillItem struct {
 	Name        string   `json:"name"`
+	Kind        string   `json:"kind"` // "skill" or "agent"
 	FlatName    string   `json:"flatName"`
 	RelPath     string   `json:"relPath"`
 	SourcePath  string   `json:"sourcePath"`
@@ -44,41 +45,80 @@ func enrichSkillBranch(item *skillItem) {
 }
 
 func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
+	kindFilter := r.URL.Query().Get("kind") // "", "skill", "agent"
+
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
 	source := s.cfg.Source
+	agentsSource := s.agentsSource()
 	s.mu.RUnlock()
 
-	discovered, err := sync.DiscoverSourceSkillsAll(source)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	var items []skillItem
+
+	// Skills
+	if kindFilter == "" || kindFilter == "skill" {
+		discovered, err := sync.DiscoverSourceSkillsAll(source)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		for _, d := range discovered {
+			item := skillItem{
+				Name:       filepath.Base(d.SourcePath),
+				Kind:       "skill",
+				FlatName:   d.FlatName,
+				RelPath:    d.RelPath,
+				SourcePath: d.SourcePath,
+				IsInRepo:   d.IsInRepo,
+				Targets:    d.Targets,
+				Disabled:   d.Disabled,
+			}
+
+			if meta, _ := install.ReadMeta(d.SourcePath); meta != nil {
+				item.InstalledAt = meta.InstalledAt.Format("2006-01-02T15:04:05Z")
+				item.Source = meta.Source
+				item.Type = meta.Type
+				item.RepoURL = meta.RepoURL
+				item.Version = meta.Version
+				item.Branch = meta.Branch
+			}
+			enrichSkillBranch(&item)
+
+			items = append(items, item)
+		}
 	}
 
-	items := make([]skillItem, 0, len(discovered))
-	for _, d := range discovered {
-		item := skillItem{
-			Name:       filepath.Base(d.SourcePath),
-			FlatName:   d.FlatName,
-			RelPath:    d.RelPath,
-			SourcePath: d.SourcePath,
-			IsInRepo:   d.IsInRepo,
-			Targets:    d.Targets,
-			Disabled:   d.Disabled,
-		}
+	// Agents
+	if (kindFilter == "" || kindFilter == "agent") && agentsSource != "" {
+		agentEntries, _ := os.ReadDir(agentsSource)
+		for _, e := range agentEntries {
+			if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+				continue
+			}
+			agentName := strings.TrimSuffix(e.Name(), ".md")
+			agentPath := filepath.Join(agentsSource, e.Name())
 
-		// Enrich with metadata if available
-		if meta, _ := install.ReadMeta(d.SourcePath); meta != nil {
-			item.InstalledAt = meta.InstalledAt.Format("2006-01-02T15:04:05Z")
-			item.Source = meta.Source
-			item.Type = meta.Type
-			item.RepoURL = meta.RepoURL
-			item.Version = meta.Version
-			item.Branch = meta.Branch
-		}
-		enrichSkillBranch(&item)
+			item := skillItem{
+				Name:       agentName,
+				Kind:       "agent",
+				FlatName:   e.Name(),
+				RelPath:    e.Name(),
+				SourcePath: agentPath,
+			}
 
-		items = append(items, item)
+			// Check for agent metadata
+			metaPath := filepath.Join(agentsSource, agentName+".skillshare-meta.json")
+			if meta, _ := install.ReadMeta(metaPath); meta != nil {
+				item.InstalledAt = meta.InstalledAt.Format("2006-01-02T15:04:05Z")
+				item.Source = meta.Source
+				item.Type = meta.Type
+				item.RepoURL = meta.RepoURL
+				item.Version = meta.Version
+			}
+
+			items = append(items, item)
+		}
 	}
 
 	writeJSON(w, map[string]any{"skills": items})

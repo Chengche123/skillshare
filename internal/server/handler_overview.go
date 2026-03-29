@@ -23,6 +23,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
 	source := s.cfg.Source
+	agentsSource := s.agentsSource()
 	cfgMode := s.cfg.Mode
 	targetCount := len(s.cfg.Targets)
 	projectRoot := s.projectRoot
@@ -54,9 +55,21 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	// Tracked repos
 	trackedRepos := buildTrackedRepos(source, skills)
 
+	// Count agents
+	agentCount := 0
+	if agentsSource != "" {
+		agentEntries, _ := os.ReadDir(agentsSource)
+		for _, e := range agentEntries {
+			if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+				agentCount++
+			}
+		}
+	}
+
 	resp := map[string]any{
 		"source":        source,
 		"skillCount":    len(skills),
+		"agentCount":    agentCount,
 		"topLevelCount": topLevelCount,
 		"targetCount":   targetCount,
 		"mode":          mode,

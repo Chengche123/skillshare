@@ -26,6 +26,9 @@ type targetItem struct {
 	ExpectedSkillCount int      `json:"expectedSkillCount"`
 	SkippedSkillCount  int      `json:"skippedSkillCount,omitempty"`
 	CollisionCount     int      `json:"collisionCount,omitempty"`
+	AgentPath          string   `json:"agentPath,omitempty"`
+	AgentLinkedCount   int      `json:"agentLinkedCount,omitempty"`
+	AgentExpectedCount int      `json:"agentExpectedCount,omitempty"`
 }
 
 func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
