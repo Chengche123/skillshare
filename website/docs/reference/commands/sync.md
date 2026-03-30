@@ -479,6 +479,21 @@ flowchart TD
 
 ---
 
+## Agent Sync {#agent-sync}
+
+`skillshare sync` automatically syncs agents alongside skills to targets that support agents. You can also sync agents independently:
+
+```bash
+skillshare sync              # Sync skills + agents to all targets
+skillshare sync agents       # Sync only agents
+```
+
+Agent sync supports all three modes (merge, copy, symlink), matching the target's configured mode. Only targets with an `agents` path definition receive agent syncs — currently Claude, Cursor, OpenCode, and Augment. See [Agents — Supported Targets](/docs/understand/agents#supported-targets) for the full list.
+
+Orphan cleanup, `.agentignore` filtering, and per-target include/exclude filters all work the same way as for skills.
+
+---
+
 ## Sync Extras {#sync-extras}
 
 Sync non-skill resources (rules, commands, prompts, etc.) to arbitrary directories. Extras are configured separately from skills and have their own source directories.

@@ -680,6 +680,29 @@ Lines starting with `#` are comments. Empty lines are ignored.
 | **Scope** | All users installing from this repo | This install only |
 | **Requires** | Git repo with multiple skills | Git repo with multiple skills |
 
+## Agent Support
+
+When installing a repository, skillshare auto-detects agents (standalone `.md` files) alongside skills:
+
+- If the repo contains an `agents/` directory, `.md` files inside are discovered as agent candidates
+- If the repo has both `skills/` and `agents/`, both are installed
+- If the repo has only loose `.md` files at root (no `SKILL.md`), they are treated as agents
+
+### Explicit agent flags
+
+```bash
+# Install only agents from a repo
+skillshare install github.com/user/repo --kind agent
+
+# Install specific agents by name (-a shorthand)
+skillshare install github.com/user/repo -a tutor,reviewer
+
+# Combine with project mode
+skillshare install github.com/user/repo --kind agent -p
+```
+
+The `-a <name>` flag is the agent equivalent of `-s <name>` for skills. Agents are installed into `~/.config/skillshare/agents/` (global) or `.skillshare/agents/` (project). See [Agents](/docs/understand/agents) for the full concepts.
+
 ## After Installing
 
 Always sync to distribute to targets:
