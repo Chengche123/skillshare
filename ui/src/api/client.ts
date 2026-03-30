@@ -265,7 +265,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(opts),
     }),
-  installBatch: (opts: { source: string; skills: DiscoveredSkill[]; force?: boolean; skipAudit?: boolean; into?: string; name?: string; branch?: string }) =>
+  installBatch: (opts: { source: string; skills: DiscoveredSkill[]; force?: boolean; skipAudit?: boolean; into?: string; name?: string; branch?: string; kind?: 'skill' | 'agent' }) =>
     apiFetch<BatchInstallResult>('/install/batch', {
       method: 'POST',
       body: JSON.stringify(opts),

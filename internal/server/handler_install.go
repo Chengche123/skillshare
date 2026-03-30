@@ -155,28 +155,55 @@ func (s *Server) handleInstallBatch(w http.ResponseWriter, r *http.Request) {
 	if s.IsProjectMode() {
 		installOpts.AuditProjectRoot = s.projectRoot
 	}
+	isAgent := body.Kind == "agent"
+
 	for _, sel := range body.Skills {
 		skillName := sel.Name
 		if body.Name != "" && len(body.Skills) == 1 {
 			skillName = body.Name
 		}
-		destPath := filepath.Join(s.cfg.Source, body.Into, skillName)
-		res, err := install.InstallFromDiscovery(discovery, install.SkillInfo{
-			Name: sel.Name,
-			Path: sel.Path,
-		}, destPath, installOpts)
-		if err != nil {
+
+		if isAgent {
+			// Agent install: copy single .md file to agents source
+			agentsDir := s.agentsSource()
+			agentInfo := install.AgentInfo{
+				Name:     sel.Name,
+				Path:     sel.Path,
+				FileName: sel.Name + ".md",
+			}
+			res, err := install.InstallAgentFromDiscovery(discovery, agentInfo, agentsDir, installOpts)
+			if err != nil {
+				results = append(results, batchResultItem{
+					Name:  skillName,
+					Error: err.Error(),
+				})
+				continue
+			}
 			results = append(results, batchResultItem{
-				Name:  skillName,
-				Error: err.Error(),
+				Name:     skillName,
+				Action:   res.Action,
+				Warnings: res.Warnings,
 			})
-			continue
+		} else {
+			// Skill install: copy directory to skills source
+			destPath := filepath.Join(s.cfg.Source, body.Into, skillName)
+			res, err := install.InstallFromDiscovery(discovery, install.SkillInfo{
+				Name: sel.Name,
+				Path: sel.Path,
+			}, destPath, installOpts)
+			if err != nil {
+				results = append(results, batchResultItem{
+					Name:  skillName,
+					Error: err.Error(),
+				})
+				continue
+			}
+			results = append(results, batchResultItem{
+				Name:     skillName,
+				Action:   res.Action,
+				Warnings: res.Warnings,
+			})
 		}
-		results = append(results, batchResultItem{
-			Name:     skillName,
-			Action:   res.Action,
-			Warnings: res.Warnings,
-		})
 	}
 
 	// Summary for toast

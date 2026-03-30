@@ -357,6 +357,7 @@ export default function InstallForm({
   const handleBatchInstall = async (selected: DiscoveredSkill[]) => {
     setBatchInstalling(true);
     try {
+      const detectedKind = selected[0]?.kind;
       const res = await api.installBatch({
         source: pendingSource,
         skills: selected,
@@ -365,6 +366,7 @@ export default function InstallForm({
         skipAudit,
         name: selected.length === 1 && name.trim() ? name.trim() : undefined,
         branch: branch.trim() || undefined,
+        kind: detectedKind === 'agent' ? 'agent' : undefined,
       });
       const allWarnings: string[] = [];
       const auditFindings: string[] = [];
