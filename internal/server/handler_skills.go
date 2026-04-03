@@ -217,11 +217,13 @@ func (s *Server) handleUninstallRepo(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 
 	name := strings.TrimSpace(r.PathValue("name"))
-	if name == "" {
-		writeError(w, http.StatusBadRequest, "tracked repository name is required")
+	cleanName := filepath.Clean(filepath.FromSlash(name))
+	if name == "" || cleanName == "." || cleanName == ".." || filepath.IsAbs(cleanName) || strings.HasPrefix(cleanName, ".."+string(filepath.Separator)) {
+		writeError(w, http.StatusBadRequest, "invalid or missing tracked repository name")
 		return
 	}
 
+	sourceRoot := filepath.Clean(s.cfg.Source)
 	resolveRepo := func(input string) (string, string) {
 		candidates := []string{input}
 		if !strings.HasPrefix(filepath.Base(input), "_") {
@@ -232,7 +234,11 @@ func (s *Server) handleUninstallRepo(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		for _, candidate := range candidates {
-			repoPath := filepath.Join(s.cfg.Source, candidate)
+			repoPath := filepath.Clean(filepath.Join(sourceRoot, candidate))
+			relPath, relErr := filepath.Rel(sourceRoot, repoPath)
+			if relErr != nil || relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+				continue
+			}
 			if install.IsGitRepo(repoPath) {
 				return candidate, repoPath
 			}
@@ -240,27 +246,31 @@ func (s *Server) handleUninstallRepo(w http.ResponseWriter, r *http.Request) {
 		return "", ""
 	}
 
-	repoName, repoPath := resolveRepo(name)
+	repoName, repoPath := resolveRepo(cleanName)
 	if repoPath == "" {
 		// Fallback: match nested tracked repos by basename.
 		matches := make([]string, 0, 2)
-		repos, _ := install.GetTrackedRepos(s.cfg.Source)
+		repos, err := install.GetTrackedRepos(s.cfg.Source)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list tracked repositories: "+err.Error())
+			return
+		}
 		for _, repo := range repos {
 			base := filepath.Base(repo)
 			trimmed := strings.TrimPrefix(base, "_")
-			if base == name || trimmed == name {
+			if base == cleanName || trimmed == cleanName {
 				matches = append(matches, repo)
 			}
 		}
 		switch len(matches) {
 		case 0:
-			writeError(w, http.StatusBadRequest, "not a tracked repository: "+name)
+			writeError(w, http.StatusBadRequest, "not a tracked repository: "+cleanName)
 			return
 		case 1:
 			repoName = matches[0]
 			repoPath = filepath.Join(s.cfg.Source, repoName)
 		default:
-			writeError(w, http.StatusBadRequest, "multiple tracked repositories match: "+name+" — use the full path")
+			writeError(w, http.StatusBadRequest, "multiple tracked repositories match: "+cleanName+" — use the full path")
 			return
 		}
 	}

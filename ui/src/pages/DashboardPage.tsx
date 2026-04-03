@@ -417,9 +417,9 @@ export default function DashboardPage() {
 function TrackedReposSection({ repos }: { repos: { name: string; skillCount: number; dirty: boolean }[] }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [updatingRepo, setUpdatingRepo] = useState<string | null>(null);
+  const [updatingRepos, setUpdatingRepos] = useState<Set<string>>(new Set());
   const [repoToDelete, setRepoToDelete] = useState<string | null>(null);
-  const [deletingRepo, setDeletingRepo] = useState<string | null>(null);
+  const [deletingRepos, setDeletingRepos] = useState<Set<string>>(new Set());
 
   const invalidateRepoData = async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.overview });
@@ -428,7 +428,7 @@ function TrackedReposSection({ repos }: { repos: { name: string; skillCount: num
   };
 
   const handleUpdateRepo = async (repoName: string) => {
-    setUpdatingRepo(repoName);
+    setUpdatingRepos((prev) => new Set(prev).add(repoName));
     try {
       const res = await api.update({ name: repoName });
       const item = res.results[0];
@@ -450,24 +450,33 @@ function TrackedReposSection({ repos }: { repos: { name: string; skillCount: num
     } catch (e: unknown) {
       toast((e as Error).message, 'error');
     } finally {
-      setUpdatingRepo(null);
+      setUpdatingRepos((prev) => {
+        const next = new Set(prev);
+        next.delete(repoName);
+        return next;
+      });
     }
   };
 
   const handleDeleteRepo = async () => {
     if (!repoToDelete) return;
 
-    setDeletingRepo(repoToDelete);
+    const targetRepo = repoToDelete;
+    setDeletingRepos((prev) => new Set(prev).add(targetRepo));
     try {
-      const displayName = repoToDelete.replace(/^_/, '');
-      await api.deleteRepo(repoToDelete);
+      const displayName = targetRepo.replace(/^_/, '');
+      await api.deleteRepo(targetRepo);
       toast(`Repository "${displayName}" uninstalled.`, 'success');
       setRepoToDelete(null);
       await invalidateRepoData();
     } catch (e: unknown) {
       toast((e as Error).message, 'error');
     } finally {
-      setDeletingRepo(null);
+      setDeletingRepos((prev) => {
+        const next = new Set(prev);
+        next.delete(targetRepo);
+        return next;
+      });
     }
   };
 
@@ -485,8 +494,9 @@ function TrackedReposSection({ repos }: { repos: { name: string; skillCount: num
         <div className="space-y-3">
           {repos.map((repo) => {
             const displayName = repo.name.replace(/^_/, '');
-            const isUpdating = updatingRepo === repo.name;
-            const isDeleting = deletingRepo === repo.name;
+            const isUpdating = updatingRepos.has(repo.name);
+            const isDeleting = deletingRepos.has(repo.name);
+            const hasAnyDeleteInProgress = deletingRepos.size > 0;
             const isBusy = isUpdating || isDeleting;
 
             return (
@@ -521,7 +531,7 @@ function TrackedReposSection({ repos }: { repos: { name: string; skillCount: num
                     size="sm"
                     onClick={() => handleUpdateRepo(repo.name)}
                     loading={isUpdating}
-                    disabled={!!deletingRepo}
+                    disabled={hasAnyDeleteInProgress}
                   >
                     <RefreshCw size={14} />
                     Update
@@ -530,7 +540,7 @@ function TrackedReposSection({ repos }: { repos: { name: string; skillCount: num
                     variant="danger"
                     size="sm"
                     onClick={() => setRepoToDelete(repo.name)}
-                    disabled={isBusy || !!updatingRepo}
+                    disabled={isBusy || repoToDelete !== null || updatingRepos.size > 0}
                   >
                     <Trash2 size={14} />
                     Uninstall
@@ -552,10 +562,10 @@ function TrackedReposSection({ repos }: { repos: { name: string; skillCount: num
         }
         confirmText="Uninstall"
         variant="danger"
-        loading={deletingRepo !== null}
+        loading={repoToDelete !== null && deletingRepos.has(repoToDelete)}
         onConfirm={handleDeleteRepo}
         onCancel={() => {
-          if (!deletingRepo) setRepoToDelete(null);
+          if (repoToDelete === null || !deletingRepos.has(repoToDelete)) setRepoToDelete(null);
         }}
       />
     </>
