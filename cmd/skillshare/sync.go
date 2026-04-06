@@ -783,7 +783,7 @@ func syncSymlinkMode(name string, target config.TargetConfig, source string, dry
 }
 
 func printSyncHelp() {
-	fmt.Println(`Usage: skillshare sync [options]
+	fmt.Println(`Usage: skillshare sync [agents|all] [options]
 
 Sync skills from source to all configured targets.
 
@@ -803,5 +803,7 @@ Examples:
   skillshare sync                Sync skills to all targets
   skillshare sync --dry-run      Preview sync changes
   skillshare sync --all          Sync skills and extras
-  skillshare sync -p             Sync project-level skills`)
+  skillshare sync -p             Sync project-level skills
+  skillshare sync agents         Sync agents only
+  skillshare sync all            Sync skills and agents`)
 }

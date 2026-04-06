@@ -493,6 +493,7 @@ func logUpdateOp(cfgPath string, names []string, opts *updateOptions, mode strin
 
 func printUpdateHelp() {
 	fmt.Println(`Usage: skillshare update <name>... [options]
+       skillshare update [agents] <name|--all> [options]
        skillshare update --group <group> [options]
        skillshare update --all [options]
 
@@ -540,5 +541,9 @@ Examples:
   skillshare update --all -T high         # Use HIGH threshold for this run
   skillshare update --all --dry-run       # Preview updates
   skillshare update _team --force         # Discard changes and update
-  skillshare update --all --prune        # Update all + remove stale skills`)
+  skillshare update --all --prune        # Update all + remove stale skills
+  skillshare update agents --all         # Update all agents
+  skillshare update agents tutor         # Update a single agent
+
+Note: --group is not supported for agents.`)
 }

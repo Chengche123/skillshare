@@ -315,7 +315,7 @@ func logTrashOp(cfgPath string, action string, count int, name string, start tim
 }
 
 func printTrashHelp() {
-	fmt.Println(`Usage: skillshare trash <command> [options]
+	fmt.Println(`Usage: skillshare trash [agents] <command> [options]
 
 Manage uninstalled skills in the trash.
 
@@ -337,5 +337,7 @@ Examples:
   skillshare trash restore my-skill        # Restore from trash
   skillshare trash restore my-skill -p     # Restore in project mode
   skillshare trash delete my-skill         # Permanently delete from trash
-  skillshare trash empty                   # Empty the trash`)
+  skillshare trash empty                   # Empty the trash
+  skillshare trash agents list             # List trashed agents
+  skillshare trash agents restore tutor    # Restore an agent from trash`)
 }

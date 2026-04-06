@@ -1050,7 +1050,7 @@ func pluralS(n int) string {
 }
 
 func printDiffHelp() {
-	fmt.Println(`Usage: skillshare diff [target] [options]
+	fmt.Println(`Usage: skillshare diff [agents|all] [target] [options]
 
 Show differences between source skills and target directories.
 Previews what 'sync' would change without modifying anything.
@@ -1072,5 +1072,6 @@ Examples:
   skillshare diff claude               # Diff a single target
   skillshare diff -p                   # Diff project-mode targets
   skillshare diff --stat               # Show file-level stat
-  skillshare diff --patch              # Show full text diff`)
+  skillshare diff --patch              # Show full text diff
+  skillshare diff agents               # Diff agents targets only`)
 }

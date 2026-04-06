@@ -25,6 +25,9 @@ func cmdBackup(args []string) error {
 		return fmt.Errorf("backup is not supported in project mode")
 	}
 
+	// Extract kind filter (e.g. "skillshare backup agents").
+	kind, args := parseKindArg(args)
+
 	start := time.Now()
 	var targetName string
 	doList := false
@@ -63,7 +66,11 @@ func cmdBackup(args []string) error {
 		return backupCleanup()
 	}
 
-	err = createBackup(targetName, dryRun)
+	if kind == kindAgents {
+		err = createAgentBackup(targetName, dryRun)
+	} else {
+		err = createBackup(targetName, dryRun)
+	}
 
 	if !dryRun {
 		e := oplog.NewEntry("backup", statusFromErr(err), time.Since(start))
@@ -326,7 +333,11 @@ func cmdRestore(args []string) error {
 		return fmt.Errorf("restore is not supported in project mode")
 	}
 
+	// Extract kind filter (e.g. "skillshare restore agents").
+	kind, args := parseKindArg(args)
+
 	start := time.Now()
+	_ = start // used below
 
 	var targetName string
 	var fromTimestamp string
@@ -355,6 +366,11 @@ func cmdRestore(args []string) error {
 				targetName = args[i]
 			}
 		}
+	}
+
+	// Agent restore uses agent-specific backup entries (name suffixed with "-agents")
+	if kind == kindAgents {
+		return restoreAgentBackup(targetName, fromTimestamp, force, dryRun)
 	}
 
 	// No target specified → TUI dispatch (or plain text fallback)
@@ -537,7 +553,7 @@ func previewRestoreFromLatest(targetName, targetPath string, opts backup.Restore
 }
 
 func printBackupHelp() {
-	fmt.Println(`Usage: skillshare backup [target] [options]
+	fmt.Println(`Usage: skillshare backup [agents] [target] [options]
 
 Create a snapshot of target skill directories.
 Without arguments, backs up all targets.
@@ -557,11 +573,12 @@ Examples:
   skillshare backup claude                  # Backup only claude
   skillshare backup --list                  # List all backups
   skillshare backup --cleanup               # Remove old backups
-  skillshare backup --cleanup --dry-run     # Preview cleanup`)
+  skillshare backup --cleanup --dry-run     # Preview cleanup
+  skillshare backup agents                  # Backup all agent targets`)
 }
 
 func printRestoreHelp() {
-	fmt.Println(`Usage: skillshare restore [target] [options]
+	fmt.Println(`Usage: skillshare restore [agents] [target] [options]
 
 Restore target skills from a backup snapshot.
 Without arguments, launches an interactive TUI.
@@ -581,5 +598,6 @@ Examples:
   skillshare restore claude                 # Restore claude from latest backup
   skillshare restore claude --from 2024-01-15_14-30-45
   skillshare restore claude --dry-run       # Preview restore
-  skillshare restore --no-tui               # List backups (no TUI)`)
+  skillshare restore --no-tui               # List backups (no TUI)
+  skillshare restore agents claude          # Restore agents claude target`)
 }

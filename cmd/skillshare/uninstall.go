@@ -1163,6 +1163,7 @@ func logUninstallOp(cfgPath string, names []string, succeeded int, start time.Ti
 
 func printUninstallHelp() {
 	fmt.Println(`Usage: skillshare uninstall <name>... [options]
+       skillshare uninstall [agents] <name|--all> [options]
        skillshare uninstall --group <group> [options]
        skillshare uninstall --all [options]
 
@@ -1198,5 +1199,7 @@ Examples:
   skillshare uninstall --group frontend -n   # Preview group removal
   skillshare uninstall x -G backend --force  # Mix names and groups
   skillshare uninstall _team-repo            # Remove tracked repository
-  skillshare uninstall team-repo             # _ prefix is optional`)
+  skillshare uninstall team-repo             # _ prefix is optional
+  skillshare uninstall agents tutor          # Uninstall an agent
+  skillshare uninstall agents --all          # Uninstall all agents`)
 }

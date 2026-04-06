@@ -785,7 +785,7 @@ func abbreviateSource(source string) string {
 }
 
 func printListHelp() {
-	fmt.Println(`Usage: skillshare list [pattern] [options]
+	fmt.Println(`Usage: skillshare list [agents|all] [pattern] [options]
 
 List all installed skills in the source directory.
 An optional pattern filters skills by name, path, or source (case-insensitive).
@@ -806,5 +806,7 @@ Examples:
   skillshare list --type local
   skillshare list react --type github --sort newest
   skillshare list --json | jq '.[].name'
-  skillshare list --verbose`)
+  skillshare list --verbose
+  skillshare list agents                       # List agents only
+  skillshare list all                          # List skills + agents`)
 }

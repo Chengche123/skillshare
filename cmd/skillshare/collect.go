@@ -309,7 +309,7 @@ func showCollectNextSteps(source string) {
 }
 
 func printCollectHelp() {
-	fmt.Println(`Usage: skillshare collect [target] [options]
+	fmt.Println(`Usage: skillshare collect [agents] [target] [options]
 
 Collect local skills from target(s) to source directory.
 
@@ -328,5 +328,6 @@ Options:
 Examples:
   skillshare collect claude      Collect from Claude target
   skillshare collect --all       Collect from all targets
-  skillshare collect --dry-run   Preview what would be collected`)
+  skillshare collect --dry-run   Preview what would be collected
+  skillshare collect agents      Collect from agents targets`)
 }

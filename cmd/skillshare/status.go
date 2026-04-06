@@ -531,7 +531,7 @@ func checkSkillVersion(cfg *config.Config) {
 }
 
 func printStatusHelp() {
-	fmt.Println(`Usage: skillshare status [options]
+	fmt.Println(`Usage: skillshare status [agents|all] [options]
 
 Show status of source, skills, and all targets.
 
@@ -544,5 +544,7 @@ Options:
 Examples:
   skillshare status              Show current state
   skillshare status --json       Output as JSON
-  skillshare status -p           Show project status`)
+  skillshare status -p           Show project status
+  skillshare status agents       Show agents status only
+  skillshare status all          Show skills + agents status`)
 }
