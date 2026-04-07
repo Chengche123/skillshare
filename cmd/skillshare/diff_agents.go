@@ -89,6 +89,94 @@ func diffGlobalAgents(cfg *config.Config, targetName string, opts diffRenderOpts
 	return nil
 }
 
+// mergeAgentDiffsGlobal computes agent diffs for all targets and merges them
+// into existing skill diff results. Targets with agent diffs get their items
+// appended; targets without a skill result get a new entry.
+func mergeAgentDiffsGlobal(cfg *config.Config, results []targetDiffResult, targetName string) []targetDiffResult {
+	agentsSource := cfg.EffectiveAgentsSource()
+	agents, _ := resource.AgentKind{}.Discover(agentsSource)
+	if len(agents) == 0 {
+		return results
+	}
+
+	builtinAgents := config.DefaultAgentTargets()
+	var agentResults []targetDiffResult
+	for name := range cfg.Targets {
+		if targetName != "" && name != targetName {
+			continue
+		}
+		agentPath := resolveAgentTargetPath(cfg.Targets[name], builtinAgents, name)
+		if agentPath == "" {
+			continue
+		}
+		agentResults = append(agentResults, computeAgentDiff(name, agentPath, agents))
+	}
+
+	return mergeAgentResults(results, agentResults)
+}
+
+// mergeAgentDiffsProject computes agent diffs for project targets and merges
+// them into existing skill diff results.
+func mergeAgentDiffsProject(root string, results []targetDiffResult, targetName string) []targetDiffResult {
+	if !projectConfigExists(root) {
+		return results
+	}
+	rt, err := loadProjectRuntime(root)
+	if err != nil {
+		return results
+	}
+
+	agentsSource := rt.agentsSourcePath
+	agents, _ := resource.AgentKind{}.Discover(agentsSource)
+	if len(agents) == 0 {
+		return results
+	}
+
+	builtinAgents := config.ProjectAgentTargets()
+	var agentResults []targetDiffResult
+	for _, entry := range rt.config.Targets {
+		if targetName != "" && entry.Name != targetName {
+			continue
+		}
+		agentPath := resolveProjectAgentTargetPath(entry, builtinAgents, root)
+		if agentPath == "" {
+			continue
+		}
+		agentResults = append(agentResults, computeAgentDiff(entry.Name, agentPath, agents))
+	}
+
+	return mergeAgentResults(results, agentResults)
+}
+
+// mergeAgentResults merges agent diff results into skill results by target name.
+func mergeAgentResults(skillResults, agentResults []targetDiffResult) []targetDiffResult {
+	if len(agentResults) == 0 {
+		return skillResults
+	}
+
+	idx := make(map[string]int, len(skillResults))
+	for i, r := range skillResults {
+		idx[r.name] = i
+	}
+
+	for _, ar := range agentResults {
+		if len(ar.items) == 0 {
+			continue
+		}
+		if i, ok := idx[ar.name]; ok {
+			skillResults[i].items = append(skillResults[i].items, ar.items...)
+			skillResults[i].syncCount += ar.syncCount
+			skillResults[i].localCount += ar.localCount
+			if !ar.synced {
+				skillResults[i].synced = false
+			}
+		} else {
+			skillResults = append(skillResults, ar)
+		}
+	}
+	return skillResults
+}
+
 // computeAgentDiff compares source agents against a target directory.
 func computeAgentDiff(targetName, targetDir string, agents []resource.DiscoveredResource) targetDiffResult {
 	r := targetDiffResult{

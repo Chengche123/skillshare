@@ -479,6 +479,9 @@ func cmdDiffGlobal(targetName string, kind resourceKindFilter, opts diffRenderOp
 		})
 	}
 
+	// Merge agent diffs into skill results so they appear together
+	results = mergeAgentDiffsGlobal(cfg, results, targetName)
+
 	if opts.jsonOutput {
 		return diffOutputJSONWithExtras(results, extrasResults, start)
 	}
@@ -818,7 +821,7 @@ func categorizeItems(items []copyDiffEntry) []actionCategory {
 
 	for _, item := range items {
 		switch {
-		case item.reason == "source only":
+		case item.reason == "source only" || item.reason == "not in target":
 			add("new", "new", "New", item.name)
 		case item.reason == "deleted from target":
 			add("restore", "new", "Restore", item.name)
@@ -828,7 +831,7 @@ func categorizeItems(items []copyDiffEntry) []actionCategory {
 			add("override", "override", "Local Override", item.name)
 		case strings.Contains(item.reason, "orphan"):
 			add("orphan", "orphan", "Orphan", item.name)
-		case item.reason == "local only" || item.reason == "not in source":
+		case item.reason == "local only" || item.reason == "not in source" || item.reason == "local file":
 			add("local", "local", "Local Only", item.name)
 		default:
 			add("warn", "warn", item.reason, item.name)

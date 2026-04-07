@@ -125,6 +125,9 @@ func cmdDiffProject(root, targetName string, kind resourceKindFilter, opts diffR
 		})
 	}
 
+	// Merge agent diffs into skill results so they appear together
+	results = mergeAgentDiffsProject(root, results, targetName)
+
 	if opts.jsonOutput {
 		return diffOutputJSONWithExtras(results, extrasResults, start)
 	}

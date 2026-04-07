@@ -695,6 +695,14 @@ func (m diffTUIModel) buildDiffDetail() string {
 		return b.String()
 	}
 
+	// Build agent name set for [A] badge rendering
+	agentNames := make(map[string]bool, len(m.cachedItems))
+	for _, item := range m.cachedItems {
+		if item.kind == "agent" {
+			agentNames[item.name] = true
+		}
+	}
+
 	// Use cached sorted categories (refreshed on selection change)
 	cats := m.cachedCats
 	for _, cat := range cats {
@@ -728,7 +736,11 @@ func (m diffTUIModel) buildDiffDetail() string {
 
 		if cat.expand {
 			for _, name := range cat.names {
-				b.WriteString(tc.Dim.Render("    " + name))
+				if agentNames[name] {
+					b.WriteString("    " + tc.Cyan.Render("[A]") + " " + tc.Dim.Render(name))
+				} else {
+					b.WriteString(tc.Dim.Render("    " + name))
+				}
 				b.WriteString("\n")
 			}
 		}
