@@ -173,14 +173,14 @@ export const api = {
 
   // Targets
   listTargets: () => apiFetch<{ targets: Target[]; sourceSkillCount: number }>('/targets'),
-  addTarget: (name: string, path: string) =>
+  addTarget: (name: string, path: string, agentPath?: string) =>
     apiFetch<{ success: boolean }>('/targets', {
       method: 'POST',
-      body: JSON.stringify({ name, path }),
+      body: JSON.stringify({ name, path, ...(agentPath && { agentPath }) }),
     }),
   removeTarget: (name: string) =>
     apiFetch<{ success: boolean }>(`/targets/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  updateTarget: (name: string, opts: { include?: string[]; exclude?: string[]; mode?: string; target_naming?: string }) =>
+  updateTarget: (name: string, opts: { include?: string[]; exclude?: string[]; mode?: string; target_naming?: string; agent_mode?: string }) =>
     apiFetch<{ success: boolean }>(`/targets/${encodeURIComponent(name)}`, {
       method: 'PATCH',
       body: JSON.stringify(opts),
@@ -576,6 +576,9 @@ export interface Target {
   skippedSkillCount?: number;
   collisionCount?: number;
   agentPath?: string;
+  agentMode?: string;
+  agentInclude?: string[];
+  agentExclude?: string[];
   agentLinkedCount?: number;
   agentExpectedCount?: number;
 }
@@ -661,6 +664,7 @@ export interface UpdateStreamSummary {
 export interface AvailableTarget {
   name: string;
   path: string;
+  agentPath?: string;
   installed: boolean;
   detected: boolean;
 }

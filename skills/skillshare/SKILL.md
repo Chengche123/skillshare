@@ -105,9 +105,11 @@ skillshare hub index --source ~/.config/skillshare/skills/ --full --audit  # Bui
 ```
 ### Controlling Where Skills Go
 ```bash
-# SKILL.md frontmatter: targets: [claude]        → only syncs to Claude
+# SKILL.md frontmatter: metadata.targets: [claude] → only syncs to Claude
 skillshare target claude --add-include "team-*"   # glob filter
+skillshare target claude --add-agent-include "team-*"  # agent glob filter
 skillshare target claude --add-exclude "_legacy*"  # exclude pattern
+skillshare target claude --agent-mode copy         # agents copy mode
 skillshare target codex --mode copy && skillshare sync --force  # copy mode
 # .skillignore — hide skills/dirs from discovery (gitignore syntax)
 #   Root-level: <source>/.skillignore (affects all commands)

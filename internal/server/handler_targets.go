@@ -10,6 +10,7 @@ import (
 
 	"skillshare/internal/config"
 	ssync "skillshare/internal/sync"
+	"skillshare/internal/targetsummary"
 	"skillshare/internal/utils"
 )
 
@@ -27,8 +28,11 @@ type targetItem struct {
 	SkippedSkillCount  int      `json:"skippedSkillCount,omitempty"`
 	CollisionCount     int      `json:"collisionCount,omitempty"`
 	AgentPath          string   `json:"agentPath,omitempty"`
-	AgentLinkedCount   int      `json:"agentLinkedCount,omitempty"`
-	AgentExpectedCount int      `json:"agentExpectedCount,omitempty"`
+	AgentMode          string   `json:"agentMode,omitempty"`
+	AgentInclude       []string `json:"agentInclude,omitempty"`
+	AgentExclude       []string `json:"agentExclude,omitempty"`
+	AgentLinkedCount   *int     `json:"agentLinkedCount,omitempty"`
+	AgentExpectedCount *int     `json:"agentExpectedCount,omitempty"`
 }
 
 func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
@@ -37,11 +41,37 @@ func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
 	source := s.cfg.Source
 	cfgMode := s.cfg.Mode
 	targets := s.cloneTargets()
+	isProjectMode := s.IsProjectMode()
+	projectRoot := s.projectRoot
+	cfgSnapshot := *s.cfg
+	var projectEntries []config.ProjectTargetEntry
+	if isProjectMode && s.projectCfg != nil {
+		projectEntries = append([]config.ProjectTargetEntry(nil), s.projectCfg.Targets...)
+	}
 	s.mu.RUnlock()
 
 	globalMode := cfgMode
 	if globalMode == "" {
 		globalMode = "merge"
+	}
+
+	projectEntryByName := make(map[string]config.ProjectTargetEntry, len(projectEntries))
+	for _, entry := range projectEntries {
+		projectEntryByName[entry.Name] = entry
+	}
+
+	var (
+		agentBuilder *targetsummary.Builder
+		err          error
+	)
+	if isProjectMode {
+		agentBuilder, err = targetsummary.NewProjectBuilder(projectRoot)
+	} else {
+		agentBuilder, err = targetsummary.NewGlobalBuilder(&cfgSnapshot)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to discover agents: "+err.Error())
+		return
 	}
 
 	items := make([]targetItem, 0, len(targets))
@@ -110,6 +140,27 @@ func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			item.Status = status.String()
 		}
 
+		var agentSummary *targetsummary.AgentSummary
+		if isProjectMode {
+			if entry, ok := projectEntryByName[name]; ok {
+				agentSummary, err = agentBuilder.ProjectTarget(entry)
+			}
+		} else {
+			agentSummary, err = agentBuilder.GlobalTarget(name, target)
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid agent include/exclude for target "+name+": "+err.Error())
+			return
+		}
+		if agentSummary != nil {
+			item.AgentPath = agentSummary.Path
+			item.AgentMode = agentSummary.Mode
+			item.AgentInclude = append([]string(nil), agentSummary.Include...)
+			item.AgentExclude = append([]string(nil), agentSummary.Exclude...)
+			item.AgentLinkedCount = intPtr(agentSummary.ManagedCount)
+			item.AgentExpectedCount = intPtr(agentSummary.ExpectedCount)
+		}
+
 		items = append(items, item)
 	}
 
@@ -122,14 +173,19 @@ func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"targets": items, "sourceSkillCount": sourceSkillCount})
 }
 
+func intPtr(v int) *int {
+	return &v
+}
+
 func (s *Server) handleAddTarget(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var body struct {
-		Name string `json:"name"`
-		Path string `json:"path"`
+		Name      string `json:"name"`
+		Path      string `json:"path"`
+		AgentPath string `json:"agentPath"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -161,7 +217,11 @@ func (s *Server) handleAddTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.cfg.Targets[body.Name] = config.TargetConfig{Skills: &config.ResourceTargetConfig{Path: body.Path}}
+	tc := config.TargetConfig{Skills: &config.ResourceTargetConfig{Path: body.Path}}
+	if body.AgentPath != "" {
+		tc.Agents = &config.ResourceTargetConfig{Path: body.AgentPath}
+	}
+	s.cfg.Targets[body.Name] = tc
 
 	// In project mode, also update the project config
 	if s.IsProjectMode() {
@@ -258,6 +318,7 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		Exclude      *[]string `json:"exclude"`
 		Mode         *string   `json:"mode"`
 		TargetNaming *string   `json:"target_naming"`
+		AgentMode    *string   `json:"agent_mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -300,6 +361,16 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		target.Skills.TargetNaming = *body.TargetNaming
 	}
 
+	if body.AgentMode != nil {
+		switch *body.AgentMode {
+		case "merge", "symlink", "copy":
+			target.EnsureAgents().Mode = *body.AgentMode
+		default:
+			writeError(w, http.StatusBadRequest, "invalid agent_mode: "+*body.AgentMode+"; must be merge, symlink, or copy")
+			return
+		}
+	}
+
 	s.cfg.Targets[name] = target
 
 	// In project mode, also update the project config
@@ -319,6 +390,9 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 				if body.TargetNaming != nil {
 					sk.TargetNaming = *body.TargetNaming
 				}
+				if body.AgentMode != nil {
+					s.projectCfg.Targets[i].EnsureAgents().Mode = *body.AgentMode
+				}
 				break
 			}
 		}
@@ -330,7 +404,7 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hasFilter := body.Include != nil || body.Exclude != nil
-	hasSetting := body.Mode != nil || body.TargetNaming != nil
+	hasSetting := body.Mode != nil || body.TargetNaming != nil || body.AgentMode != nil
 	action := "filter"
 	if hasSetting && hasFilter {
 		action = "settings+filter"
