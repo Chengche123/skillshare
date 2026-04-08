@@ -485,7 +485,7 @@ func checkTargetIssues(target config.TargetConfig, source string) []string {
 
 func displayTargetStatus(target config.TargetConfig, source, mode string) cachedTargetStatus {
 	sc := target.SkillsConfig()
-	var statusStr string
+	var statusWord, detail string
 	var cached cachedTargetStatus
 	cached.mode = mode
 	needsSync := false
@@ -497,12 +497,14 @@ func displayTargetStatus(target config.TargetConfig, source, mode string) cached
 		cached.syncedCount = linkedCount
 		switch status {
 		case sync.StatusMerged:
-			statusStr = fmt.Sprintf("merged (%d shared, %d local)", linkedCount, localCount)
+			statusWord = "merged"
+			detail = fmt.Sprintf("(%d shared, %d local)", linkedCount, localCount)
 		case sync.StatusLinked:
-			statusStr = "linked (needs sync)"
+			statusWord = "linked"
+			detail = "(needs sync)"
 			needsSync = true
 		default:
-			statusStr = status.String()
+			statusWord = status.String()
 		}
 	case "copy":
 		status, managedCount, localCount := sync.CheckStatusCopy(sc.Path)
@@ -510,19 +512,22 @@ func displayTargetStatus(target config.TargetConfig, source, mode string) cached
 		cached.syncedCount = managedCount
 		switch status {
 		case sync.StatusCopied:
-			statusStr = fmt.Sprintf("copied (%d managed, %d local)", managedCount, localCount)
+			statusWord = "copied"
+			detail = fmt.Sprintf("(%d managed, %d local)", managedCount, localCount)
 		case sync.StatusLinked:
-			statusStr = "linked (needs sync)"
+			statusWord = "linked"
+			detail = "(needs sync)"
 			needsSync = true
 		default:
-			statusStr = status.String()
+			statusWord = status.String()
 		}
 	default:
 		status := sync.CheckStatus(sc.Path, source)
 		cached.status = status
-		statusStr = status.String()
+		statusWord = status.String()
 		if status == sync.StatusMerged {
-			statusStr = "merged (needs sync)"
+			statusWord = "merged"
+			detail = "(needs sync)"
 			needsSync = true
 		}
 	}
@@ -531,7 +536,11 @@ func displayTargetStatus(target config.TargetConfig, source, mode string) cached
 	if needsSync {
 		statusColor = ui.Yellow
 	}
-	fmt.Printf("  skills   %s[%s] %s%s\n", statusColor, mode, statusStr, ui.Reset)
+	if detail != "" {
+		fmt.Printf("  skills   [%s] %s%s%s %s%s%s\n", mode, statusColor, statusWord, ui.Reset, ui.Dim, detail, ui.Reset)
+	} else {
+		fmt.Printf("  skills   [%s] %s%s%s\n", mode, statusColor, statusWord, ui.Reset)
+	}
 	return cached
 }
 

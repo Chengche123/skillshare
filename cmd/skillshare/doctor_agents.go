@@ -52,16 +52,14 @@ func checkAgentTargetInline(name string, target config.TargetConfig, builtinAgen
 	}
 
 	if linked != agentCount && agentCount > 0 {
-		msg := fmt.Sprintf("[merge] drift (%d/%d linked)", linked, agentCount)
-		fmt.Printf("  agents   %s%s%s\n", ui.Yellow, msg, ui.Reset)
+		fmt.Printf("  agents   [merge] %sdrift%s %s(%d/%d linked)%s\n", ui.Yellow, ui.Reset, ui.Dim, linked, agentCount, ui.Reset)
 		result.addWarning()
 		result.addCheck("agent_target_"+name, checkWarning,
 			fmt.Sprintf("Agent target %s: drift (%d/%d agents linked)", name, linked, agentCount), nil)
 		return
 	}
 
-	msg := fmt.Sprintf("[merge] merged (%d/%d linked)", linked, agentCount)
-	fmt.Printf("  agents   %s%s%s\n", ui.Green, msg, ui.Reset)
+	fmt.Printf("  agents   [merge] %smerged%s %s(%d/%d linked)%s\n", ui.Green, ui.Reset, ui.Dim, linked, agentCount, ui.Reset)
 	result.addCheck("agent_target_"+name, checkPass,
 		fmt.Sprintf("Agent target %s: %d agents synced", name, linked), nil)
 }
