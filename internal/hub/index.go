@@ -65,10 +65,7 @@ func BuildIndex(sourcePath string, full bool, auditSkills bool) (*Index, error) 
 	}
 
 	// Load centralized metadata store once for all skills.
-	store, _ := install.LoadMetadata(sourcePath)
-	if store == nil {
-		store = install.NewMetadataStore()
-	}
+	store := install.LoadMetadataOrNew(sourcePath)
 
 	entries := make([]SkillEntry, len(discovered))
 	for i, d := range discovered {

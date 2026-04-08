@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"skillshare/internal/config"
+	"skillshare/internal/install"
 )
 
 // newTestServer creates an isolated Server for handler testing.
@@ -85,9 +86,12 @@ func addTrackedRepo(t *testing.T, sourceDir, relPath string) {
 	}
 }
 
-// addSkillMeta creates a .skillshare-meta.json for a skill (marks it as remotely installed).
+// addSkillMeta writes a metadata entry into the centralized .metadata.json store.
 func addSkillMeta(t *testing.T, sourceDir, name, source string) {
 	t.Helper()
-	meta := `{"source":"` + source + `"}`
-	os.WriteFile(filepath.Join(sourceDir, name, ".skillshare-meta.json"), []byte(meta), 0644)
+	store := install.LoadMetadataOrNew(sourceDir)
+	store.Set(name, &install.MetadataEntry{Source: source})
+	if err := store.Save(sourceDir); err != nil {
+		t.Fatalf("addSkillMeta: %v", err)
+	}
 }

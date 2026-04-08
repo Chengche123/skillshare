@@ -1,8 +1,6 @@
 package check
 
 import (
-	"encoding/json"
-	"os"
 	"path/filepath"
 
 	"skillshare/internal/install"
@@ -29,44 +27,38 @@ func CheckAgents(agentsDir string) []AgentCheckResult {
 		return nil
 	}
 
+	// Load centralized metadata store (auto-migrates any lingering sidecars).
+	store := install.LoadMetadataOrNew(agentsDir)
+
 	var results []AgentCheckResult
 	for _, d := range discovered {
-		result := checkOneAgent(d.SourcePath, d.RelPath)
+		result := checkOneAgent(store, d.SourcePath, d.RelPath)
 		results = append(results, result)
 	}
 
 	return results
 }
 
-// checkOneAgent checks a single agent file. sourcePath is the absolute path
-// to the .md file; relPath is relative to the agents root (e.g. "demo/code-reviewer.md").
-func checkOneAgent(sourcePath, relPath string) AgentCheckResult {
+// checkOneAgent checks a single agent file against the centralized metadata store.
+// sourcePath is the absolute path to the .md file; relPath is relative to the
+// agents root (e.g. "demo/code-reviewer.md").
+func checkOneAgent(store *install.MetadataStore, sourcePath, relPath string) AgentCheckResult {
 	fileName := filepath.Base(relPath)
-	agentName := fileName[:len(fileName)-len(".md")]
-	result := AgentCheckResult{Name: relPath[:len(relPath)-len(".md")]}
+	key := relPath[:len(relPath)-len(".md")]
+	result := AgentCheckResult{Name: key}
 
-	// Look for sidecar metadata: <basename>.skillshare-meta.json alongside the .md file
-	dir := filepath.Dir(sourcePath)
-	metaPath := filepath.Join(dir, agentName+".skillshare-meta.json")
-	metaData, err := os.ReadFile(metaPath)
-	if err != nil {
+	entry := store.GetByPath(key)
+	if entry == nil || entry.Source == "" {
 		result.Status = "local"
 		return result
 	}
 
-	var meta install.SkillMeta
-	if err := json.Unmarshal(metaData, &meta); err != nil {
-		result.Status = "error"
-		result.Message = "invalid metadata"
-		return result
-	}
-
-	result.Source = meta.Source
-	result.Version = meta.Version
-	result.RepoURL = meta.RepoURL
+	result.Source = entry.Source
+	result.Version = entry.Version
+	result.RepoURL = entry.RepoURL
 
 	// Compare file hash
-	if meta.FileHashes == nil || meta.FileHashes[fileName] == "" {
+	if entry.FileHashes == nil || entry.FileHashes[fileName] == "" {
 		result.Status = "local"
 		return result
 	}
@@ -78,7 +70,7 @@ func checkOneAgent(sourcePath, relPath string) AgentCheckResult {
 		return result
 	}
 
-	if currentHash == meta.FileHashes[fileName] {
+	if currentHash == entry.FileHashes[fileName] {
 		result.Status = "up_to_date"
 	} else {
 		result.Status = "drifted"

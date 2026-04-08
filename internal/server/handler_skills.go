@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -104,17 +103,16 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 				SourcePath: d.SourcePath,
 			}
 
-			// Read sidecar metadata: <name>.skillshare-meta.json
-			metaPath := filepath.Join(filepath.Dir(d.SourcePath), strings.TrimSuffix(filepath.Base(d.RelPath), ".md")+".skillshare-meta.json")
-			if metaData, readErr := os.ReadFile(metaPath); readErr == nil {
-				var meta install.SkillMeta
-				if json.Unmarshal(metaData, &meta) == nil {
-					item.InstalledAt = meta.InstalledAt.Format(time.RFC3339)
-					item.Source = meta.Source
-					item.Type = meta.Type
-					item.RepoURL = meta.RepoURL
-					item.Version = meta.Version
+			// Read from centralized agents metadata store
+			agentKey := strings.TrimSuffix(d.RelPath, ".md")
+			if entry := s.agentsStore.GetByPath(agentKey); entry != nil {
+				if !entry.InstalledAt.IsZero() {
+					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}
+				item.Source = entry.Source
+				item.Type = entry.Type
+				item.RepoURL = entry.RepoURL
+				item.Version = entry.Version
 			}
 
 			items = append(items, item)
@@ -159,7 +157,7 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 
 		if entry := s.skillsStore.GetByPath(d.RelPath); entry != nil {
 			if !entry.InstalledAt.IsZero() {
-				item.InstalledAt = entry.InstalledAt.Format("2006-01-02T15:04:05Z")
+				item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 			}
 			item.Source = entry.Source
 			item.Type = entry.Type
@@ -223,16 +221,15 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 				SourcePath: d.SourcePath,
 			}
 
-			metaPath := filepath.Join(filepath.Dir(d.SourcePath), strings.TrimSuffix(filepath.Base(d.RelPath), ".md")+".skillshare-meta.json")
-			if metaData, metaReadErr := os.ReadFile(metaPath); metaReadErr == nil {
-				var meta install.SkillMeta
-				if json.Unmarshal(metaData, &meta) == nil {
-					item.InstalledAt = meta.InstalledAt.Format(time.RFC3339)
-					item.Source = meta.Source
-					item.Type = meta.Type
-					item.RepoURL = meta.RepoURL
-					item.Version = meta.Version
+			agentKey := strings.TrimSuffix(d.RelPath, ".md")
+			if entry := s.agentsStore.GetByPath(agentKey); entry != nil {
+				if !entry.InstalledAt.IsZero() {
+					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}
+				item.Source = entry.Source
+				item.Type = entry.Type
+				item.RepoURL = entry.RepoURL
+				item.Version = entry.Version
 			}
 
 			writeJSON(w, map[string]any{

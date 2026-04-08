@@ -70,10 +70,7 @@ func collectCheckItems(sourceDir string, repos []string, skills []string) (
 	}
 
 	// Load centralized metadata store once for all skills.
-	store, _ := install.LoadMetadata(sourceDir)
-	if store == nil {
-		store = install.NewMetadataStore()
-	}
+	store := install.LoadMetadataOrNew(sourceDir)
 
 	urlGroups := make(map[string][]skillWithMeta)
 	var localResults []checkSkillResult

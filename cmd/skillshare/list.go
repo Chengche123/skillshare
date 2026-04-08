@@ -204,15 +204,11 @@ func sortSkillEntries(skills []skillEntry, sortBy string) {
 func buildSkillEntries(discovered []sync.DiscoveredSkill) []skillEntry {
 	skills := make([]skillEntry, len(discovered))
 
-	// Load centralized metadata store once (derive source dir from first skill).
-	var store *install.MetadataStore
+	store := install.NewMetadataStore()
 	if len(discovered) > 0 {
 		sourceDir := strings.TrimSuffix(discovered[0].SourcePath, discovered[0].RelPath)
 		sourceDir = strings.TrimRight(sourceDir, `/\`)
-		store, _ = install.LoadMetadata(sourceDir)
-	}
-	if store == nil {
-		store = install.NewMetadataStore()
+		store = install.LoadMetadataOrNew(sourceDir)
 	}
 
 	// Pre-fill non-I/O fields + metadata from store
@@ -264,8 +260,8 @@ func buildSkillEntries(discovered []sync.DiscoveredSkill) []skillEntry {
 }
 
 // discoverAndBuildAgentEntries discovers agents from the given source directory
-// and builds skillEntry items with Kind="agent". Reads sidecar metadata for
-// installed agents (<name>.skillshare-meta.json).
+// and builds skillEntry items with Kind="agent", enriched from the centralized
+// metadata store.
 func discoverAndBuildAgentEntries(agentsSource string) []skillEntry {
 	if agentsSource == "" {
 		return nil
@@ -274,6 +270,8 @@ func discoverAndBuildAgentEntries(agentsSource string) []skillEntry {
 	if err != nil {
 		return nil
 	}
+
+	store := install.LoadMetadataOrNew(agentsSource)
 
 	entries := make([]skillEntry, len(discovered))
 	for i, d := range discovered {
@@ -284,17 +282,12 @@ func discoverAndBuildAgentEntries(agentsSource string) []skillEntry {
 			IsNested: d.IsNested,
 			Disabled: d.Disabled,
 		}
-		// Read sidecar metadata: <basename>.skillshare-meta.json (alongside the .md file)
-		baseName := strings.TrimSuffix(filepath.Base(d.RelPath), ".md")
-		metaPath := filepath.Join(filepath.Dir(d.SourcePath), baseName+".skillshare-meta.json")
-		if data, readErr := os.ReadFile(metaPath); readErr == nil {
-			var meta install.SkillMeta
-			if jsonErr := json.Unmarshal(data, &meta); jsonErr == nil {
-				entries[i].Source = meta.Source
-				entries[i].Type = meta.Type
-				if !meta.InstalledAt.IsZero() {
-					entries[i].InstalledAt = meta.InstalledAt.Format("2006-01-02")
-				}
+		key := strings.TrimSuffix(d.RelPath, ".md")
+		if entry := store.GetByPath(key); entry != nil {
+			entries[i].Source = entry.Source
+			entries[i].Type = entry.Type
+			if !entry.InstalledAt.IsZero() {
+				entries[i].InstalledAt = entry.InstalledAt.Format("2006-01-02")
 			}
 		}
 	}

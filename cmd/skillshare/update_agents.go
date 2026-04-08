@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -109,28 +108,16 @@ func cmdUpdateAgents(args []string, cfg *config.Config, start time.Time) error {
 		}
 	}
 
-	// Update each agent by re-installing from its source
+	// Update agents, batching by repo URL to share git clones.
 	var updated, failed int
-	for _, r := range updatable {
-		if opts.dryRun {
+	if opts.dryRun {
+		for _, r := range updatable {
 			if !opts.jsonOutput {
 				ui.Info("  %s: update available from %s", r.Name, r.Source)
 			}
-			continue
 		}
-
-		err := reinstallAgent(agentsDir, r)
-		if err != nil {
-			if !opts.jsonOutput {
-				ui.Error("  %s: update failed: %v", r.Name, err)
-			}
-			failed++
-		} else {
-			if !opts.jsonOutput {
-				ui.Success("  %s: updated", r.Name)
-			}
-			updated++
-		}
+	} else {
+		updated, failed = batchUpdateAgents(agentsDir, updatable, !opts.jsonOutput)
 	}
 
 	if !opts.jsonOutput && !opts.dryRun {
@@ -150,39 +137,149 @@ func cmdUpdateAgents(args []string, cfg *config.Config, start time.Time) error {
 	return nil
 }
 
+// agentRepoKey groups agents by clone URL + branch + repo subdir so agents
+// from the same scope share a single git clone.
+type agentRepoKey struct {
+	cloneURL   string
+	branch     string
+	repoSubdir string
+}
+
+// batchUpdateAgents groups agents by repo URL and clones once per group.
+// Agents with no RepoURL fall back to per-agent reinstallAgent.
+func batchUpdateAgents(agentsDir string, agents []check.AgentCheckResult, verbose bool) (updated, failed int) {
+	store := install.LoadMetadataOrNew(agentsDir)
+	groups := map[agentRepoKey][]check.AgentCheckResult{}
+	var noRepo []check.AgentCheckResult
+
+	for _, r := range agents {
+		if r.RepoURL == "" {
+			noRepo = append(noRepo, r)
+			continue
+		}
+		entry := store.GetByPath(r.Name)
+		if entry == nil || entry.Source == "" {
+			noRepo = append(noRepo, r)
+			continue
+		}
+
+		source, parseErr := install.ParseSource(entry.Source)
+		if parseErr != nil {
+			noRepo = append(noRepo, r)
+			continue
+		}
+		repoSubdir := strings.TrimSuffix(source.Subdir, entry.Subdir)
+		repoSubdir = strings.TrimRight(repoSubdir, "/")
+
+		key := agentRepoKey{
+			cloneURL:   r.RepoURL,
+			branch:     entry.Branch,
+			repoSubdir: repoSubdir,
+		}
+		groups[key] = append(groups[key], r)
+	}
+
+	// Batch: one clone per repo group
+	for key, members := range groups {
+		source := &install.Source{
+			CloneURL: key.cloneURL,
+			Subdir:   key.repoSubdir,
+			Branch:   key.branch,
+		}
+
+		var discovery *install.DiscoveryResult
+		var discErr error
+		if source.HasSubdir() {
+			discovery, discErr = install.DiscoverFromGitSubdir(source)
+		} else {
+			discovery, discErr = install.DiscoverFromGit(source)
+		}
+		if discErr != nil {
+			for _, m := range members {
+				if verbose {
+					ui.Error("  %s: discovery failed: %v", m.Name, discErr)
+				}
+				failed++
+			}
+			continue
+		}
+
+		// Build agent name → AgentInfo lookup
+		agentIndex := map[string]*install.AgentInfo{}
+		for i, a := range discovery.Agents {
+			agentIndex[a.Name] = &discovery.Agents[i]
+		}
+
+		for _, m := range members {
+			agentName := filepath.Base(m.Name)
+			target := agentIndex[agentName]
+			if target == nil {
+				if verbose {
+					ui.Error("  %s: not found in repository", m.Name)
+				}
+				failed++
+				continue
+			}
+
+			destDir := agentsDir
+			if dir := filepath.Dir(m.Name); dir != "." {
+				destDir = filepath.Join(agentsDir, dir)
+			}
+
+			opts := install.InstallOptions{Kind: "agent", Force: true, SourceDir: agentsDir}
+			if _, err := install.InstallAgentFromDiscovery(discovery, *target, destDir, opts); err != nil {
+				if verbose {
+					ui.Error("  %s: %v", m.Name, err)
+				}
+				failed++
+			} else {
+				if verbose {
+					ui.Success("  %s: updated", m.Name)
+				}
+				updated++
+			}
+		}
+
+		install.CleanupDiscovery(discovery)
+	}
+
+	// Fallback: agents without RepoURL
+	for _, r := range noRepo {
+		if err := reinstallAgent(agentsDir, r, store); err != nil {
+			if verbose {
+				ui.Error("  %s: %v", r.Name, err)
+			}
+			failed++
+		} else {
+			if verbose {
+				ui.Success("  %s: updated", r.Name)
+			}
+			updated++
+		}
+	}
+
+	return updated, failed
+}
+
 // reinstallAgent re-installs an agent from its recorded source using
 // discovery + InstallAgentFromDiscovery (single-file copy), not the
 // directory-based skill installer.
-func reinstallAgent(agentsDir string, r check.AgentCheckResult) error {
-	metaFile := filepath.Join(agentsDir, r.Name+".skillshare-meta.json")
-
-	// Read current metadata
-	metaData, err := os.ReadFile(metaFile)
-	if err != nil {
-		return fmt.Errorf("cannot read metadata: %w", err)
-	}
-	var meta install.SkillMeta
-	if err := json.Unmarshal(metaData, &meta); err != nil {
-		return fmt.Errorf("invalid metadata: %w", err)
-	}
-
-	if meta.Source == "" {
-		return fmt.Errorf("no source in metadata")
+// Used as fallback for agents without RepoURL in the batch path.
+func reinstallAgent(agentsDir string, r check.AgentCheckResult, store *install.MetadataStore) error {
+	entry := store.GetByPath(r.Name)
+	if entry == nil || entry.Source == "" {
+		return fmt.Errorf("no source metadata for agent %q", r.Name)
 	}
 
 	// Reconstruct the repo-level subdir for discovery.
-	// ParseSource(meta.Source) gives the full path from repo root
-	// (e.g. "pkg/agents/reviewer.md"). meta.Subdir stores the agent's
-	// path within the subdir scope (e.g. "agents/reviewer.md").
-	// The difference is the original repo subdir (e.g. "pkg").
-	source, parseErr := install.ParseSource(meta.Source)
+	source, parseErr := install.ParseSource(entry.Source)
 	if parseErr != nil {
 		return fmt.Errorf("invalid source: %w", parseErr)
 	}
-	if meta.Branch != "" {
-		source.Branch = meta.Branch
+	if entry.Branch != "" {
+		source.Branch = entry.Branch
 	}
-	repoSubdir := strings.TrimSuffix(source.Subdir, meta.Subdir)
+	repoSubdir := strings.TrimSuffix(source.Subdir, entry.Subdir)
 	repoSubdir = strings.TrimRight(repoSubdir, "/")
 	source.Subdir = repoSubdir
 
@@ -221,8 +318,9 @@ func reinstallAgent(agentsDir string, r check.AgentCheckResult) error {
 	}
 
 	installOpts := install.InstallOptions{
-		Kind:  "agent",
-		Force: true,
+		Kind:      "agent",
+		Force:     true,
+		SourceDir: agentsDir,
 	}
 	_, installErr := install.InstallAgentFromDiscovery(discovery, *targetAgent, destDir, installOpts)
 	return installErr
@@ -468,9 +566,10 @@ func cmdUpdateAgentsProject(args []string, projectRoot string, start time.Time) 
 		return nil
 	}
 
+	store := install.LoadMetadataOrNew(agentsDir)
 	var updated, failed int
 	for _, r := range updatable {
-		if err := reinstallAgent(agentsDir, r); err != nil {
+		if err := reinstallAgent(agentsDir, r, store); err != nil {
 			ui.Error("  %s: %v", r.Name, err)
 			failed++
 		} else {

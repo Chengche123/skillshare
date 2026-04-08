@@ -680,15 +680,11 @@ func checkSkillIntegrity(result *doctorResult, discovered []sync.DiscoveredSkill
 	var toVerify []verifiable
 	var skippedNames []string
 
-	// Load centralized metadata store once.
-	var store *install.MetadataStore
+	store := install.NewMetadataStore()
 	if len(discovered) > 0 {
 		sourceDir := strings.TrimSuffix(discovered[0].SourcePath, discovered[0].RelPath)
 		sourceDir = strings.TrimRight(sourceDir, `/\`)
-		store, _ = install.LoadMetadata(sourceDir)
-	}
-	if store == nil {
-		store = install.NewMetadataStore()
+		store = install.LoadMetadataOrNew(sourceDir)
 	}
 
 	for _, skill := range discovered {

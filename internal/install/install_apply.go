@@ -1,7 +1,6 @@
 package install
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -443,7 +442,7 @@ func InstallAgentFromDiscovery(discovery *DiscoveryResult, agent AgentInfo, dest
 		return nil, fmt.Errorf("failed to write agent %s: %w", agent.FileName, err)
 	}
 
-	// Write metadata alongside the agent file (as <name>.skillshare-meta.json)
+	// Write metadata to centralized .metadata.json store.
 	source := &Source{
 		Type:     discovery.Source.Type,
 		Raw:      result.Source,
@@ -456,14 +455,12 @@ func InstallAgentFromDiscovery(discovery *DiscoveryResult, agent AgentInfo, dest
 	if discovery.CommitHash != "" {
 		meta.Version = discovery.CommitHash
 	}
-	// For agents, file_hashes is just the single file
 	if hash, hashErr := computeSingleFileHash(destFile); hashErr == nil {
 		meta.FileHashes = map[string]string{agent.FileName: hash}
 	}
 
-	metaPath := filepath.Join(destDir, agent.Name+".skillshare-meta.json")
-	if metaData, marshalErr := json.MarshalIndent(meta, "", "  "); marshalErr == nil {
-		os.WriteFile(metaPath, metaData, 0644)
+	if err := WriteMetaToStore(opts.SourceDir, destFile, meta); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("failed to write metadata: %v", err))
 	}
 
 	result.Action = "installed"

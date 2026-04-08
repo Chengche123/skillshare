@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"skillshare/internal/install"
 	"skillshare/internal/oplog"
 	"skillshare/internal/resource"
 	"skillshare/internal/trash"
@@ -103,13 +104,12 @@ func cmdUninstallAgents(agentsDir string, opts *uninstallOptions, cfgPath string
 	}
 
 	trashBase := trash.AgentTrashDir()
+	store, _ := install.LoadMetadata(agentsDir)
 	var removed []string
 	var failed []string
 
 	for _, t := range targets {
 		agentFile := filepath.Join(agentsDir, t.RelPath)
-		metaName := strings.TrimSuffix(filepath.Base(t.RelPath), ".md")
-		metaFile := filepath.Join(filepath.Dir(agentFile), metaName+".skillshare-meta.json")
 
 		displayName := strings.TrimSuffix(t.RelPath, ".md")
 		if opts.dryRun {
@@ -118,15 +118,28 @@ func cmdUninstallAgents(agentsDir string, opts *uninstallOptions, cfgPath string
 			continue
 		}
 
-		_, err := trash.MoveAgentToTrash(agentFile, metaFile, t.Name, trashBase)
+		// Trash the agent file (+ legacy sidecar if it still exists)
+		metaName := strings.TrimSuffix(filepath.Base(t.RelPath), ".md")
+		legacySidecar := filepath.Join(filepath.Dir(agentFile), metaName+".skillshare-meta.json")
+		_, err := trash.MoveAgentToTrash(agentFile, legacySidecar, t.Name, trashBase)
 		if err != nil {
 			ui.Error("Failed to remove %s: %v", displayName, err)
 			failed = append(failed, displayName)
 			continue
 		}
 
+		// Remove from centralized metadata store
+		if store != nil {
+			store.Remove(displayName)
+		}
+
 		ui.Success("Removed agent: %s", displayName)
 		removed = append(removed, displayName)
+	}
+
+	// Save store after all removals
+	if store != nil && len(removed) > 0 {
+		store.Save(agentsDir) //nolint:errcheck
 	}
 
 	// JSON output
