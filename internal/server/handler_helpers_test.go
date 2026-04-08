@@ -3,6 +3,7 @@ package server
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"skillshare/internal/config"
@@ -93,5 +94,30 @@ func addSkillMeta(t *testing.T, sourceDir, name, source string) {
 	store.Set(name, &install.MetadataEntry{Source: source})
 	if err := store.Save(sourceDir); err != nil {
 		t.Fatalf("addSkillMeta: %v", err)
+	}
+}
+
+func addAgent(t *testing.T, agentsDir, relPath string) {
+	t.Helper()
+	agentPath := filepath.Join(agentsDir, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(agentPath), 0o755); err != nil {
+		t.Fatalf("create agent dir: %v", err)
+	}
+	if err := os.WriteFile(agentPath, []byte("---\nname: "+strings.TrimSuffix(filepath.Base(relPath), ".md")+"\n---\n# agent"), 0o644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+}
+
+func addAgentMeta(t *testing.T, agentsDir, relPath, source string) {
+	t.Helper()
+	store := install.LoadMetadataOrNew(agentsDir)
+	key := strings.TrimSuffix(filepath.ToSlash(relPath), ".md")
+	store.Set(key, &install.MetadataEntry{
+		Source: source,
+		Kind:   install.MetadataKindAgent,
+		Subdir: filepath.ToSlash(relPath),
+	})
+	if err := store.Save(agentsDir); err != nil {
+		t.Fatalf("addAgentMeta: %v", err)
 	}
 }

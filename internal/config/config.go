@@ -132,6 +132,15 @@ func (tc *TargetConfig) EnsureSkills() *ResourceTargetConfig {
 	return tc.Skills
 }
 
+// EnsureAgents returns the Agents sub-key, creating it if nil.
+// Use this before writing to Agents fields.
+func (tc *TargetConfig) EnsureAgents() *ResourceTargetConfig {
+	if tc.Agents == nil {
+		tc.Agents = &ResourceTargetConfig{}
+	}
+	return tc.Agents
+}
+
 // migrateTargetConfigs moves legacy flat fields into skills: sub-key.
 // Returns true if any target was migrated.
 func migrateTargetConfigs(targets map[string]TargetConfig) bool {

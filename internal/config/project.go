@@ -182,6 +182,14 @@ func (t *ProjectTargetEntry) EnsureSkills() *ResourceTargetConfig {
 	return t.Skills
 }
 
+// EnsureAgents returns the Agents sub-key, creating it if nil.
+func (t *ProjectTargetEntry) EnsureAgents() *ResourceTargetConfig {
+	if t.Agents == nil {
+		t.Agents = &ResourceTargetConfig{}
+	}
+	return t.Agents
+}
+
 // ResourceEntry represents a remote resource entry in config (shared by global and project).
 // Used for both skills and agents.
 type ResourceEntry struct {
@@ -426,7 +434,7 @@ func ResolveProjectTargets(projectRoot string, cfg *ProjectConfig) (map[string]T
 			absPath = filepath.Join(projectRoot, filepath.FromSlash(targetPath))
 		}
 
-		resolved[name] = TargetConfig{
+		tc := TargetConfig{
 			defaultTargetNaming: cfg.TargetNaming,
 			Skills: &ResourceTargetConfig{
 				Path:         absPath,
@@ -436,6 +444,32 @@ func ResolveProjectTargets(projectRoot string, cfg *ProjectConfig) (map[string]T
 				Exclude:      append([]string(nil), sc.Exclude...),
 			},
 		}
+
+		// Resolve Agents sub-key: from entry config or builtin defaults.
+		ac := entry.AgentsConfig()
+		agentPath := strings.TrimSpace(ac.Path)
+		if agentPath == "" {
+			if builtin, ok := ProjectAgentTargets()[name]; ok {
+				agentPath = builtin.Path
+			}
+		}
+		if agentPath != "" {
+			absAgentPath := agentPath
+			if utils.HasTildePrefix(absAgentPath) {
+				absAgentPath = expandPath(absAgentPath)
+			}
+			if !filepath.IsAbs(agentPath) {
+				absAgentPath = filepath.Join(projectRoot, filepath.FromSlash(agentPath))
+			}
+			tc.Agents = &ResourceTargetConfig{
+				Path:    absAgentPath,
+				Mode:    ac.Mode,
+				Include: append([]string(nil), ac.Include...),
+				Exclude: append([]string(nil), ac.Exclude...),
+			}
+		}
+
+		resolved[name] = tc
 	}
 
 	return resolved, nil

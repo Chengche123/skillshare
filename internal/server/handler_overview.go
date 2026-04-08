@@ -8,6 +8,7 @@ import (
 
 	"skillshare/internal/git"
 	"skillshare/internal/install"
+	"skillshare/internal/resource"
 	"skillshare/internal/sync"
 	"skillshare/internal/utils"
 	versioncheck "skillshare/internal/version"
@@ -24,6 +25,10 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	source := s.cfg.Source
 	agentsSource := s.agentsSource()
+	extrasSource := s.cfg.ExtrasSource
+	if s.IsProjectMode() {
+		extrasSource = filepath.Join(s.projectRoot, ".skillshare", "extras")
+	}
 	cfgMode := s.cfg.Mode
 	targetCount := len(s.cfg.Targets)
 	projectRoot := s.projectRoot
@@ -58,11 +63,8 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	// Count agents
 	agentCount := 0
 	if agentsSource != "" {
-		agentEntries, _ := os.ReadDir(agentsSource)
-		for _, e := range agentEntries {
-			if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
-				agentCount++
-			}
+		if agents, discoverErr := (resource.AgentKind{}).Discover(agentsSource); discoverErr == nil {
+			agentCount = len(agents)
 		}
 	}
 
@@ -76,6 +78,12 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"version":       versioncheck.Version,
 		"trackedRepos":  trackedRepos,
 		"isProjectMode": isProjectMode,
+	}
+	if agentsSource != "" {
+		resp["agentsSource"] = agentsSource
+	}
+	if extrasSource != "" {
+		resp["extrasSource"] = extrasSource
 	}
 	if isProjectMode {
 		resp["projectRoot"] = projectRoot

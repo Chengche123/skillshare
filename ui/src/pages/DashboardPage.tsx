@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import {
   Puzzle,
   Target,
-  FolderSync,
   ArrowRight,
   RefreshCw,
   Star,
@@ -114,7 +113,7 @@ export default function DashboardPage() {
       icon: Puzzle,
       color: 'text-blue',
       bg: 'bg-info-light',
-      to: '/resources',
+      to: '/resources?tab=skills',
     },
     {
       label: 'Agents',
@@ -185,18 +184,16 @@ export default function DashboardPage() {
 
       {/* Source path card */}
       <Card className="mb-8">
-        <h3
-          className="text-lg font-bold text-pencil mb-2"
-        >
-          Source Directory
+        <h3 className="text-lg font-bold text-pencil mb-3">
+          Source Directories
         </h3>
-        <p
-          className="font-mono text-base text-pencil-light break-all"
-        >
-          {data.source}
-        </p>
-        <p className="text-sm text-muted-dark mt-2">
-          This is where your skills live. All targets sync from here.
+        <div className="space-y-2.5">
+          <SourceRow label="Skills" path={data.source} />
+          {data.agentsSource && <SourceRow label="Agents" path={data.agentsSource} />}
+          {data.extrasSource && <SourceRow label="Extras" path={data.extrasSource} />}
+        </div>
+        <p className="text-sm text-muted-dark mt-3">
+          All targets sync from these directories.
         </p>
       </Card>
 
@@ -407,6 +404,15 @@ export default function DashboardPage() {
           />
         </svg>
       </div>
+    </div>
+  );
+}
+
+function SourceRow({ label, path }: { label: string; path: string }) {
+  return (
+    <div className="flex items-baseline gap-3">
+      <span className="text-xs font-bold uppercase tracking-wider text-pencil-light w-12 shrink-0">{label}</span>
+      <span className="font-mono text-sm text-pencil break-all">{path}</span>
     </div>
   );
 }

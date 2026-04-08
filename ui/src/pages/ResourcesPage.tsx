@@ -43,7 +43,7 @@ import PageHeader from '../components/PageHeader';
 import SegmentedControl from '../components/SegmentedControl';
 import Pagination from '../components/Pagination';
 import { api } from '../api/client';
-import type { Skill } from '../api/client';
+import type { Skill, SyncMatrixEntry } from '../api/client';
 import { radius } from '../design';
 import ScrollToTop from '../components/ScrollToTop';
 import Tooltip from '../components/Tooltip';
@@ -52,6 +52,7 @@ import { useToast } from '../components/Toast';
 import TargetMenu, { SkillContextMenu, type ContextMenuItem } from '../components/TargetMenu';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Spinner from '../components/Spinner';
+import { useSyncMatrix } from '../hooks/useSyncMatrix';
 
 /* -- Sticky-note pastel palette (8 colors) --------- */
 
@@ -69,6 +70,43 @@ const SKILL_PASTELS_DARK = [
 /* -- Shared skill action items hook --------------- */
 
 type SkillsData = { resources: Skill[] };
+const EMPTY_RESOURCES: Skill[] = [];
+
+function resourceDetailHref(resource: Pick<Skill, 'flatName' | 'kind'>): string {
+  const kindQuery = resource.kind === 'agent' ? '?kind=agent' : '';
+  return `/resources/${encodeURIComponent(resource.flatName)}${kindQuery}`;
+}
+
+function resourceLabel(kind: Skill['kind'], capitalize = false): string {
+  const label = kind === 'agent' ? 'agent' : 'skill';
+  return capitalize ? label[0].toUpperCase() + label.slice(1) : label;
+}
+
+function summarizeAgentTargets(entries: SyncMatrixEntry[]): { label: string; title: string } {
+  if (entries.length === 0) {
+    return {
+      label: 'No agent targets',
+      title: 'No configured targets currently support agent sync.',
+    };
+  }
+
+  const synced = entries
+    .filter((entry) => entry.status === 'synced')
+    .map((entry) => entry.target)
+    .sort();
+
+  if (synced.length === 0) {
+    return {
+      label: 'Filtered out',
+      title: 'This agent is excluded by the current target agent filters.',
+    };
+  }
+
+  return {
+    label: synced.length > 2 ? `${synced.length} targets` : synced.join(', '),
+    title: synced.join(', '),
+  };
+}
 
 /** Optimistic update helper: patch skills cache and return rollback snapshot. */
 function optimisticPatch(
@@ -86,22 +124,22 @@ function optimisticPatch(
   return previous;
 }
 
-function useSkillActions() {
+function useResourceActions() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const navigate = useNavigate();
 
   const toggleMutation = useMutation({
-    mutationFn: ({ name, disable }: { name: string; disable: boolean }) =>
-      disable ? api.disableSkill(name) : api.enableSkill(name),
-    onMutate: async ({ name, disable }) => {
+    mutationFn: ({ name, kind, disable }: { name: string; kind: Skill['kind']; disable: boolean }) =>
+      disable ? api.disableResource(name, kind) : api.enableResource(name, kind),
+    onMutate: async ({ name, kind, disable }) => {
       const previous = optimisticPatch(queryClient, (skills) =>
-        skills.map((s) => s.flatName === name ? { ...s, disabled: disable } : s),
+        skills.map((s) => s.flatName === name && s.kind === kind ? { ...s, disabled: disable } : s),
       );
       return { previous };
     },
-    onSuccess: (_, { name, disable }) => {
-      toast(`${name} ${disable ? 'disabled' : 'enabled'}`, 'success');
+    onSuccess: (_, { name, kind, disable }) => {
+      toast(`${resourceLabel(kind, true)} ${name} ${disable ? 'disabled' : 'enabled'}`, 'success');
     },
     onError: (err: Error, _, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
@@ -111,15 +149,15 @@ function useSkillActions() {
   });
 
   const uninstallMutation = useMutation({
-    mutationFn: (name: string) => api.deleteSkill(name),
-    onMutate: async (name) => {
+    mutationFn: ({ name, kind }: { name: string; kind: Skill['kind'] }) => api.deleteResource(name, kind),
+    onMutate: async ({ name, kind }) => {
       const previous = optimisticPatch(queryClient, (skills) =>
-        skills.filter((s) => s.flatName !== name),
+        skills.filter((s) => !(s.flatName === name && s.kind === kind)),
       );
       return { previous };
     },
-    onSuccess: (_, name) => {
-      toast(`Uninstalled ${name}`, 'success');
+    onSuccess: (_, { name, kind }) => {
+      toast(`Uninstalled ${resourceLabel(kind)} ${name}`, 'success');
     },
     onError: (err: Error, _, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
@@ -171,8 +209,8 @@ function useSkillActions() {
   });
 
   /** Build extra context menu items for a single skill. */
-  function buildSkillExtraItems(
-    skill: Pick<Skill, 'flatName' | 'name' | 'relPath' | 'disabled' | 'isInRepo'>,
+  function buildResourceExtraItems(
+    skill: Pick<Skill, 'flatName' | 'name' | 'relPath' | 'disabled' | 'isInRepo' | 'kind'>,
     onUninstall: () => void,
     onUninstallRepo: (repoName: string) => void,
   ): ContextMenuItem[] {
@@ -181,7 +219,7 @@ function useSkillActions() {
         key: 'detail',
         label: 'View Detail',
         icon: <ExternalLink size={13} strokeWidth={2.5} />,
-        onSelect: () => navigate(`/resources/${encodeURIComponent(skill.flatName)}`),
+        onSelect: () => navigate(resourceDetailHref(skill)),
       },
       {
         key: 'toggle',
@@ -189,10 +227,10 @@ function useSkillActions() {
         icon: skill.disabled
           ? <Eye size={13} strokeWidth={2.5} />
           : <EyeOff size={13} strokeWidth={2.5} />,
-        onSelect: () => toggleMutation.mutate({ name: skill.flatName, disable: !skill.disabled }),
+        onSelect: () => toggleMutation.mutate({ name: skill.flatName, kind: skill.kind, disable: !skill.disabled }),
       },
     ];
-    if (skill.isInRepo) {
+    if (skill.kind === 'skill' && skill.isInRepo) {
       items.push({
         key: 'uninstall-repo',
         label: 'Uninstall Repo',
@@ -210,7 +248,7 @@ function useSkillActions() {
     return items;
   }
 
-  return { uninstallMutation, uninstallRepoMutation, setTargetMutation, buildSkillExtraItems };
+  return { uninstallMutation, uninstallRepoMutation, setTargetMutation, buildResourceExtraItems };
 }
 
 /** Normalize skill targets: ["*"] or empty/null → [] (meaning All). */
@@ -585,7 +623,7 @@ const SkillPostit = memo(function SkillPostit({
 
   return (
     <Link
-      to={`/resources/${encodeURIComponent(skill.flatName)}`}
+      to={resourceDetailHref(skill)}
       className={`w-full h-full${skill.disabled ? ' opacity-50' : ''}`}
       onContextMenu={onContextMenu}
     >
@@ -674,7 +712,7 @@ function ContextMenuTip() {
     >
       <MousePointerClick size={18} strokeWidth={2} className="text-pencil-light/60 shrink-0" />
       <p className="flex-1">
-        <span className="font-medium text-pencil">Right-click</span> any skill or folder for quick actions — set target, enable/disable, uninstall, and more.
+        <span className="font-medium text-pencil">Right-click</span> any resource or folder for quick actions — enable/disable, uninstall, and more.
       </p>
       <button
         className="shrink-0 px-2.5 py-1 text-xs font-medium text-pencil-light hover:text-pencil hover:bg-muted/60 transition-colors cursor-pointer"
@@ -714,6 +752,15 @@ export default function SkillsPage() {
     const saved = localStorage.getItem('skillshare:resources-tab');
     return saved === 'agents' ? 'agents' : 'skills';
   });
+  // Sync tab from URL when navigating (e.g. Dashboard cards)
+  useEffect(() => {
+    const urlTab = searchParams.get('tab');
+    if (urlTab === 'agents' && activeTab !== 'agents') {
+      setActiveTab('agents');
+    } else if (urlTab === 'skills' && activeTab !== 'skills') {
+      setActiveTab('skills');
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
   const changeTab = (tab: ResourceTab) => {
     setActiveTab(tab);
     localStorage.setItem('skillshare:resources-tab', tab);
@@ -737,21 +784,28 @@ export default function SkillsPage() {
     point: { x: number; y: number };
     skillFlatName: string;
     skillName: string;
+    kind: Skill['kind'];
     relPath: string;
     disabled: boolean;
     isInRepo: boolean;
     currentTargets: string[] | null;
   } | null>(null);
 
-  const { uninstallMutation: gridUninstallMutation, uninstallRepoMutation: gridUninstallRepoMutation, setTargetMutation: gridSingleMutation, buildSkillExtraItems } = useSkillActions();
+  const {
+    uninstallMutation: gridUninstallMutation,
+    uninstallRepoMutation: gridUninstallRepoMutation,
+    setTargetMutation: gridSingleMutation,
+    buildResourceExtraItems,
+  } = useResourceActions();
 
   const [gridConfirmUninstall, setGridConfirmUninstall] = useState<{
     flatName: string;
     name: string;
+    kind: Skill['kind'];
   } | null>(null);
   const [gridConfirmUninstallRepo, setGridConfirmUninstallRepo] = useState<string | null>(null);
 
-  const skills = data?.resources ?? [];
+  const skills = data?.resources ?? EMPTY_RESOURCES;
 
   // Compute counts for each filter type — scoped to the active tab
   const filterCounts = useMemo(() => {
@@ -809,14 +863,14 @@ export default function SkillsPage() {
         title="Resources"
         subtitle=""
         className="mb-4!"
-        actions={
+        actions={activeTab === 'skills' ? (
           <Link to="/resources/new">
             <Button variant="primary" size="sm">
               <Plus size={16} strokeWidth={2.5} />
               New Skill
             </Button>
           </Link>
-        }
+        ) : undefined}
       />
 
       {/* Resource type underline tabs */}
@@ -959,6 +1013,7 @@ export default function SkillsPage() {
                       point: { x: e.clientX, y: e.clientY },
                       skillFlatName: skill.flatName,
                       skillName: skill.name,
+                      kind: skill.kind,
                       relPath: skill.relPath,
                       disabled: !!skill.disabled,
                       isInRepo: !!skill.isInRepo,
@@ -972,13 +1027,14 @@ export default function SkillsPage() {
         ) : viewType === 'grouped' ? (
           <FolderTreeView
             skills={tabFiltered}
+            resourceKind={activeTab === 'agents' ? 'agent' : 'skill'}
             totalCount={skills.length}
             isSearching={!!search || filterType !== 'all'}
             stickyTop={toolbarH}
             onClearFilters={(filterType !== 'all' || search) ? () => { setFilterType('all'); setSearch(''); } : undefined}
           />
         ) : (
-          <SkillsTable skills={tabFiltered} />
+          <SkillsTable skills={tabFiltered} resourceKind={activeTab === 'agents' ? 'agent' : 'skill'} />
         )
       ) : (
         <EmptyState
@@ -1000,9 +1056,17 @@ export default function SkillsPage() {
           anchorPoint={gridContextMenu.point}
           currentTargets={gridContextMenu.currentTargets}
           isUniform={true}
-          extraItems={buildSkillExtraItems(
-            { flatName: gridContextMenu.skillFlatName, name: gridContextMenu.skillName, relPath: gridContextMenu.relPath, disabled: gridContextMenu.disabled, isInRepo: gridContextMenu.isInRepo },
-            () => setGridConfirmUninstall({ flatName: gridContextMenu.skillFlatName, name: gridContextMenu.skillName }),
+          showTargets={gridContextMenu.kind !== 'agent'}
+          extraItems={buildResourceExtraItems(
+            {
+              flatName: gridContextMenu.skillFlatName,
+              name: gridContextMenu.skillName,
+              relPath: gridContextMenu.relPath,
+              disabled: gridContextMenu.disabled,
+              isInRepo: gridContextMenu.isInRepo,
+              kind: gridContextMenu.kind,
+            },
+            () => setGridConfirmUninstall({ flatName: gridContextMenu.skillFlatName, name: gridContextMenu.skillName, kind: gridContextMenu.kind }),
             (repoName) => { setGridConfirmUninstallRepo(repoName); setGridContextMenu(null); },
           )}
           onSelect={(target) => {
@@ -1014,13 +1078,13 @@ export default function SkillsPage() {
       )}
       <ConfirmDialog
         open={!!gridConfirmUninstall}
-        title="Uninstall skill"
+        title={`Uninstall ${resourceLabel(gridConfirmUninstall?.kind ?? 'skill')}`}
         message={<>Are you sure you want to uninstall <strong>{gridConfirmUninstall?.name}</strong>?</>}
         confirmText="Uninstall"
         variant="danger"
         loading={gridUninstallMutation.isPending}
         onConfirm={() => {
-          if (gridConfirmUninstall) gridUninstallMutation.mutate(gridConfirmUninstall.flatName);
+          if (gridConfirmUninstall) gridUninstallMutation.mutate({ name: gridConfirmUninstall.flatName, kind: gridConfirmUninstall.kind });
           setGridConfirmUninstall(null);
         }}
         onCancel={() => setGridConfirmUninstall(null)}
@@ -1047,8 +1111,9 @@ export default function SkillsPage() {
 const INDENT_PX = 24;
 
 
-function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClearFilters }: {
+function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyTop = 0, onClearFilters }: {
   skills: Skill[];
+  resourceKind: Skill['kind'];
   totalCount: number;
   isSearching: boolean;
   stickyTop?: number;
@@ -1062,6 +1127,7 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
     folderPath?: string;
     skillFlatName?: string;
     skillName?: string;
+    kind?: Skill['kind'];
     relPath?: string;
     disabled?: boolean;
     isInRepo?: boolean;
@@ -1071,7 +1137,12 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { uninstallMutation, uninstallRepoMutation, setTargetMutation: singleMutation, buildSkillExtraItems: buildExtraItems } = useSkillActions();
+  const {
+    uninstallMutation,
+    uninstallRepoMutation,
+    setTargetMutation: singleMutation,
+    buildResourceExtraItems: buildExtraItems,
+  } = useResourceActions();
   const [confirmUninstallRepo, setConfirmUninstallRepo] = useState<string | null>(null);
 
   const batchMutation = useMutation({
@@ -1116,6 +1187,7 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
   const [confirmUninstall, setConfirmUninstall] = useState<{
     flatName: string;
     name: string;
+    kind: Skill['kind'];
   } | null>(null);
 
   const tree = useMemo(() => buildTree(skills), [skills]);
@@ -1218,7 +1290,7 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
           onClick={() => toggleFolder(node.path)}
           onContextMenu={(e) => {
             e.preventDefault();
-            if (batchMutation.isPending) return;
+            if (resourceKind === 'agent' || batchMutation.isPending) return;
             setContextMenu({
               point: { x: e.clientX, y: e.clientY },
               mode: 'folder',
@@ -1248,7 +1320,7 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
           >
             {node.childCount}
           </span>
-          {node.targetSummary && (
+          {resourceKind === 'skill' && node.targetSummary && (
             <span className="ml-auto shrink-0 flex items-center gap-1.5">
               {pendingFolder === node.path && <Spinner size="sm" />}
               <Tooltip content={
@@ -1296,6 +1368,7 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
             mode: 'skill',
             skillFlatName: skill.flatName,
             skillName: skill.name,
+            kind: skill.kind,
             relPath: skill.relPath,
             disabled: !!skill.disabled,
             isInRepo: !!skill.isInRepo,
@@ -1306,7 +1379,7 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
       >
         <Tooltip content={tooltipContent} followCursor delay={1000}>
           <Link
-            to={`/resources/${encodeURIComponent(skill.flatName)}`}
+            to={resourceDetailHref(skill)}
             className={`relative flex items-center gap-1.5 py-1 px-1 hover:bg-muted/50 transition-colors no-underline${skill.disabled ? ' opacity-40' : ''}${contextMenu?.mode === 'skill' && contextMenu.skillFlatName === skill.flatName ? ' bg-muted/50' : ''}`}
             style={{ paddingLeft: node.depth * INDENT_PX + 4 }}
           >
@@ -1331,18 +1404,20 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
                   {skill.branch}
                 </Badge>
               )}
-              <Tooltip content={skillTargetLabel === 'All' ? 'All targets' : skillTargetLabel}>
-                <Badge variant="default">
-                  <Target size={10} strokeWidth={2.5} className="inline -mt-px mr-0.5" />
-                  {skillTargetLabel}
-                </Badge>
-              </Tooltip>
+              {resourceKind === 'skill' && (
+                <Tooltip content={skillTargetLabel === 'All' ? 'All targets' : skillTargetLabel}>
+                  <Badge variant="default">
+                    <Target size={10} strokeWidth={2.5} className="inline -mt-px mr-0.5" />
+                    {skillTargetLabel}
+                  </Badge>
+                </Tooltip>
+              )}
             </span>
           </Link>
         </Tooltip>
       </div>
     );
-  }, [rows, collapsed, isSearching, toggleFolder, setContextMenu, contextMenu, pendingFolder]);
+  }, [rows, collapsed, isSearching, toggleFolder, contextMenu, pendingFolder, resourceKind, batchMutation.isPending]);
 
   return (
     <div>
@@ -1351,7 +1426,7 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
         <span className="text-sm text-pencil-light">
           {isSearching ? (
             <>
-              Showing {skills.length} of {totalCount} skills
+              Showing {skills.length} of {totalCount} {resourceKind === 'agent' ? 'agents' : 'skills'}
               {onClearFilters && (
                 <>
                   {' '}&middot;{' '}
@@ -1404,7 +1479,7 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
             >
               {stickyFolder.node.childCount}
             </span>
-            {stickyFolder.node.targetSummary && (
+            {resourceKind === 'skill' && stickyFolder.node.targetSummary && (
               <span className="ml-auto shrink-0 flex items-center gap-1">
                 <Tooltip content={
                   stickyFolder.node.targetSummary.targets.length > 0
@@ -1436,10 +1511,22 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
           anchorPoint={contextMenu.point}
           currentTargets={contextMenu.currentTargets}
           isUniform={contextMenu.isUniform}
+          showTargets={resourceKind === 'skill'}
           label={contextMenu.mode === 'folder' ? 'Folder available in...' : 'Available in...'}
           extraItems={contextMenu.mode === 'skill' ? buildExtraItems(
-            { flatName: contextMenu.skillFlatName!, name: contextMenu.skillName ?? contextMenu.skillFlatName!, relPath: contextMenu.relPath ?? '', disabled: !!contextMenu.disabled, isInRepo: !!contextMenu.isInRepo },
-            () => setConfirmUninstall({ flatName: contextMenu.skillFlatName!, name: contextMenu.skillName ?? contextMenu.skillFlatName! }),
+            {
+              flatName: contextMenu.skillFlatName!,
+              name: contextMenu.skillName ?? contextMenu.skillFlatName!,
+              relPath: contextMenu.relPath ?? '',
+              disabled: !!contextMenu.disabled,
+              isInRepo: !!contextMenu.isInRepo,
+              kind: contextMenu.kind ?? resourceKind,
+            },
+            () => setConfirmUninstall({
+              flatName: contextMenu.skillFlatName!,
+              name: contextMenu.skillName ?? contextMenu.skillFlatName!,
+              kind: contextMenu.kind ?? resourceKind,
+            }),
             (repoName) => { setConfirmUninstallRepo(repoName); setContextMenu(null); },
           ) : undefined}
           onSelect={(target) => {
@@ -1456,13 +1543,13 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
       )}
       <ConfirmDialog
         open={!!confirmUninstall}
-        title="Uninstall skill"
+        title={`Uninstall ${resourceLabel(confirmUninstall?.kind ?? resourceKind)}`}
         message={<>Are you sure you want to uninstall <strong>{confirmUninstall?.name}</strong>?</>}
         confirmText="Uninstall"
         variant="danger"
         loading={uninstallMutation.isPending}
         onConfirm={() => {
-          if (confirmUninstall) uninstallMutation.mutate(confirmUninstall.flatName);
+          if (confirmUninstall) uninstallMutation.mutate({ name: confirmUninstall.flatName, kind: confirmUninstall.kind });
           setConfirmUninstall(null);
         }}
         onCancel={() => setConfirmUninstall(null)}
@@ -1488,12 +1575,12 @@ function FolderTreeView({ skills, totalCount, isSearching, stickyTop = 0, onClea
 
 const TABLE_PAGE_SIZES = [10, 25, 50] as const;
 
-function SkillsTable({ skills }: { skills: Skill[] }) {
+function SkillsTable({ skills, resourceKind }: { skills: Skill[]; resourceKind: Skill['kind'] }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(() => {
     const saved = localStorage.getItem('skillshare:table-page-size');
     const n = saved ? parseInt(saved, 10) : 0;
-    return TABLE_PAGE_SIZES.includes(n as any) ? n : 10;
+    return TABLE_PAGE_SIZES.some((size) => size === n) ? n : 10;
   });
   const [prevSkills, setPrevSkills] = useState(skills);
   if (skills !== prevSkills) {
@@ -1505,6 +1592,7 @@ function SkillsTable({ skills }: { skills: Skill[] }) {
     point: { x: number; y: number };
     skillFlatName: string;
     skillName: string;
+    kind: Skill['kind'];
     relPath: string;
     disabled: boolean;
     isInRepo: boolean;
@@ -1512,10 +1600,17 @@ function SkillsTable({ skills }: { skills: Skill[] }) {
   const [confirmUninstall, setConfirmUninstall] = useState<{
     flatName: string;
     name: string;
+    kind: Skill['kind'];
   } | null>(null);
 
-  const { uninstallMutation, uninstallRepoMutation: tableUninstallRepoMutation, setTargetMutation: targetMutation, buildSkillExtraItems: buildTableExtraItems } = useSkillActions();
+  const {
+    uninstallMutation,
+    uninstallRepoMutation: tableUninstallRepoMutation,
+    setTargetMutation: targetMutation,
+    buildResourceExtraItems: buildTableExtraItems,
+  } = useResourceActions();
   const [tableConfirmUninstallRepo, setTableConfirmUninstallRepo] = useState<string | null>(null);
+  const { getSkillTargets } = useSyncMatrix();
 
   // Available targets for the inline Select
   const { data: availableData } = useQuery({
@@ -1540,8 +1635,15 @@ function SkillsTable({ skills }: { skills: Skill[] }) {
   // Build action menu items
   const actionItems: ContextMenuItem[] = actionMenu
     ? buildTableExtraItems(
-        { flatName: actionMenu.skillFlatName, name: actionMenu.skillName, relPath: actionMenu.relPath, disabled: actionMenu.disabled, isInRepo: actionMenu.isInRepo },
-        () => setConfirmUninstall({ flatName: actionMenu.skillFlatName, name: actionMenu.skillName }),
+        {
+          flatName: actionMenu.skillFlatName,
+          name: actionMenu.skillName,
+          relPath: actionMenu.relPath,
+          disabled: actionMenu.disabled,
+          isInRepo: actionMenu.isInRepo,
+          kind: actionMenu.kind,
+        },
+        () => setConfirmUninstall({ flatName: actionMenu.skillFlatName, name: actionMenu.skillName, kind: actionMenu.kind }),
         (repoName) => { setTableConfirmUninstallRepo(repoName); setActionMenu(null); },
       )
     : [];
@@ -1555,7 +1657,9 @@ function SkillsTable({ skills }: { skills: Skill[] }) {
               <th className="pb-3 pr-4 text-pencil-light text-sm font-medium w-0" />
               <th className="pb-3 pr-4 text-pencil-light text-sm font-medium">Name</th>
               <th className="pb-3 pr-4 text-pencil-light text-sm font-medium">Type</th>
-              <th className="pb-3 pr-4 text-pencil-light text-sm font-medium">Available in</th>
+              <th className="pb-3 pr-4 text-pencil-light text-sm font-medium">
+                {resourceKind === 'agent' ? 'Synced to' : 'Available in'}
+              </th>
               <th className="pb-3 text-pencil-light text-sm font-medium w-10" />
             </tr>
           </thead>
@@ -1563,6 +1667,7 @@ function SkillsTable({ skills }: { skills: Skill[] }) {
             {visible.map((skill) => {
               const currentValue = skill.targets?.length === 1 ? skill.targets[0] : '__all__';
               const showPath = skill.relPath !== skill.name;
+              const agentTargets = summarizeAgentTargets(getSkillTargets(skill.flatName));
               return (
                 <tr
                   key={skill.flatName}
@@ -1585,7 +1690,7 @@ function SkillsTable({ skills }: { skills: Skill[] }) {
                     <div className="flex items-center gap-2">
                       <div className="min-w-0 flex-1">
                         <Link
-                          to={`/resources/${encodeURIComponent(skill.flatName)}`}
+                          to={resourceDetailHref(skill)}
                           className="font-medium text-pencil hover:underline block truncate"
                         >
                           {skill.name}
@@ -1631,18 +1736,26 @@ function SkillsTable({ skills }: { skills: Skill[] }) {
                   </td>
                   {/* Available in — inline Select */}
                   <td className="py-3" onClick={(e) => e.stopPropagation()}>
-                    <Select
-                      value={currentValue}
-                      onChange={(val) => {
-                        targetMutation.mutate({
-                          name: skill.flatName,
-                          target: val === '__all__' ? null : val,
-                        });
-                      }}
-                      options={targetOptions}
-                      size="sm"
-                      className="min-w-[7rem] max-w-[9rem]"
-                    />
+                    {resourceKind === 'agent' ? (
+                      <Tooltip content={agentTargets.title}>
+                        <span className="inline-flex items-center text-sm text-pencil-light">
+                          {agentTargets.label}
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      <Select
+                        value={currentValue}
+                        onChange={(val) => {
+                          targetMutation.mutate({
+                            name: skill.flatName,
+                            target: val === '__all__' ? null : val,
+                          });
+                        }}
+                        options={targetOptions}
+                        size="sm"
+                        className="min-w-[7rem] max-w-[9rem]"
+                      />
+                    )}
                   </td>
                   {/* Actions ⋯ */}
                   <td className="py-3.5 w-10">
@@ -1656,6 +1769,7 @@ function SkillsTable({ skills }: { skills: Skill[] }) {
                           point: { x: rect.right, y: rect.bottom },
                           skillFlatName: skill.flatName,
                           skillName: skill.name,
+                          kind: skill.kind,
                           relPath: skill.relPath,
                           disabled: !!skill.disabled,
                           isInRepo: !!skill.isInRepo,
@@ -1697,13 +1811,13 @@ function SkillsTable({ skills }: { skills: Skill[] }) {
       )}
       <ConfirmDialog
         open={!!confirmUninstall}
-        title="Uninstall skill"
+        title={`Uninstall ${resourceLabel(confirmUninstall?.kind ?? resourceKind)}`}
         message={<>Are you sure you want to uninstall <strong>{confirmUninstall?.name}</strong>?</>}
         confirmText="Uninstall"
         variant="danger"
         loading={uninstallMutation.isPending}
         onConfirm={() => {
-          if (confirmUninstall) uninstallMutation.mutate(confirmUninstall.flatName);
+          if (confirmUninstall) uninstallMutation.mutate({ name: confirmUninstall.flatName, kind: confirmUninstall.kind });
           setConfirmUninstall(null);
         }}
         onCancel={() => setConfirmUninstall(null)}

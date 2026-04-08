@@ -97,12 +97,16 @@ func (s *Server) handleSyncMatrixPreview(w http.ResponseWriter, r *http.Request)
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
 	source := s.cfg.Source
+	agentsSource := s.agentsSource()
+	targets := s.cloneTargets()
 	s.mu.RUnlock()
 
 	var body struct {
-		Target  string   `json:"target"`
-		Include []string `json:"include"`
-		Exclude []string `json:"exclude"`
+		Target       string   `json:"target"`
+		Include      []string `json:"include"`
+		Exclude      []string `json:"exclude"`
+		AgentInclude []string `json:"agent_include"`
+		AgentExclude []string `json:"agent_exclude"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -113,13 +117,22 @@ func (s *Server) handleSyncMatrixPreview(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Validate patterns before discovering skills
+	// Validate skill patterns
 	if _, err := ssync.FilterSkills(nil, body.Include, nil); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if _, err := ssync.FilterSkills(nil, nil, body.Exclude); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Validate agent patterns
+	if _, err := ssync.FilterSkills(nil, body.AgentInclude, nil); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid agent include pattern: "+err.Error())
+		return
+	}
+	if _, err := ssync.FilterSkills(nil, nil, body.AgentExclude); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid agent exclude pattern: "+err.Error())
 		return
 	}
 
@@ -138,6 +151,33 @@ func (s *Server) handleSyncMatrixPreview(w http.ResponseWriter, r *http.Request)
 			Status: status,
 			Reason: reason,
 		})
+	}
+
+	// Agents — resolve path from config or builtin defaults
+	target, ok := targets[body.Target]
+	if ok && agentsSource != "" {
+		ac := target.AgentsConfig()
+		agentPath := ac.Path
+		if agentPath == "" {
+			builtinAgents := config.DefaultAgentTargets()
+			if builtin, found := builtinAgents[body.Target]; found {
+				agentPath = builtin.Path
+			}
+		}
+		if agentPath != "" {
+			discovered, _ := resource.AgentKind{}.Discover(agentsSource)
+			agents := resource.ActiveAgents(discovered)
+			for _, agent := range agents {
+				status, reason := ssync.ClassifySkillForTarget(agent.FlatName, nil, body.Target, body.AgentInclude, body.AgentExclude)
+				entries = append(entries, syncMatrixEntry{
+					Skill:  agent.FlatName,
+					Target: body.Target,
+					Status: status,
+					Reason: reason,
+					Kind:   "agent",
+				})
+			}
+		}
 	}
 
 	writeJSON(w, map[string]any{"entries": entries})

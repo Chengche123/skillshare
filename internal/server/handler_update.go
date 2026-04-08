@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"skillshare/internal/audit"
@@ -16,6 +17,7 @@ import (
 
 type updateRequest struct {
 	Name      string `json:"name"`
+	Kind      string `json:"kind,omitempty"`
 	Force     bool   `json:"force"`
 	All       bool   `json:"all"`
 	SkipAudit bool   `json:"skipAudit"`
@@ -100,8 +102,12 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required (or use all: true)")
 		return
 	}
+	if body.Kind != "" && body.Kind != "skill" && body.Kind != "agent" {
+		writeError(w, http.StatusBadRequest, "invalid kind: "+body.Kind)
+		return
+	}
 
-	result := s.updateSingle(body.Name, body.Force, body.SkipAudit)
+	result := s.updateSingleByKind(body.Name, body.Kind, body.Force, body.SkipAudit)
 	status := "ok"
 	msg := ""
 	if result.Action == "error" {
@@ -124,6 +130,13 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateSingle(name string, force, skipAudit bool) updateResultItem {
+	return s.updateSingleByKind(name, "", force, skipAudit)
+}
+
+func (s *Server) updateSingleByKind(name, kind string, force, skipAudit bool) updateResultItem {
+	if kind == "agent" {
+		return s.updateAgent(name, force, skipAudit)
+	}
 	// Try exact skill path first (prevents basename collision with nested repos)
 	skillPath := filepath.Join(s.cfg.Source, name)
 	if entry := s.skillsStore.GetByPath(name); entry != nil && entry.Source != "" {
@@ -143,6 +156,97 @@ func (s *Server) updateSingle(name string, force, skipAudit bool) updateResultIt
 		Name:    name,
 		Action:  "error",
 		Message: fmt.Sprintf("'%s' not found as tracked repo or updatable skill", name),
+	}
+}
+
+func (s *Server) updateAgent(name string, _ bool, _ bool) updateResultItem {
+	agentsSource := s.agentsSource()
+	if agentsSource == "" {
+		return updateResultItem{Name: name, Kind: "agent", Action: "error", Message: "agents source is not configured"}
+	}
+
+	localAgent, err := resolveAgentResource(agentsSource, name)
+	if err != nil {
+		return updateResultItem{Name: name, Kind: "agent", Action: "error", Message: err.Error()}
+	}
+
+	metaKey := agentMetaKey(localAgent.RelPath)
+	entry := s.agentsStore.GetByPath(metaKey)
+	if entry == nil || entry.Source == "" {
+		return updateResultItem{
+			Name:    metaKey,
+			Kind:    "agent",
+			Action:  "skipped",
+			Message: "agent is local and has no update source",
+		}
+	}
+
+	source, err := install.ParseSource(entry.Source)
+	if err != nil {
+		return updateResultItem{Name: metaKey, Kind: "agent", Action: "error", Message: "invalid source: " + err.Error()}
+	}
+
+	repoSubdir := strings.TrimSuffix(source.Subdir, entry.Subdir)
+	repoSubdir = strings.TrimRight(repoSubdir, "/")
+	source.Subdir = repoSubdir
+
+	var discovery *install.DiscoveryResult
+	if source.HasSubdir() {
+		discovery, err = install.DiscoverFromGitSubdir(source)
+	} else {
+		discovery, err = install.DiscoverFromGit(source)
+	}
+	if err != nil {
+		return updateResultItem{Name: metaKey, Kind: "agent", Action: "error", Message: err.Error()}
+	}
+	defer install.CleanupDiscovery(discovery)
+
+	if discovery.CommitHash != "" && discovery.CommitHash == entry.Version {
+		return updateResultItem{Name: metaKey, Kind: "agent", Action: "up-to-date"}
+	}
+
+	var target *install.AgentInfo
+	for i := range discovery.Agents {
+		candidate := discovery.Agents[i]
+		if candidate.Path == entry.Subdir ||
+			candidate.FileName == filepath.Base(localAgent.RelPath) ||
+			candidate.Name == filepath.Base(metaKey) {
+			target = &discovery.Agents[i]
+			break
+		}
+	}
+	if target == nil {
+		return updateResultItem{
+			Name:    metaKey,
+			Kind:    "agent",
+			Action:  "error",
+			Message: fmt.Sprintf("agent path %q not found in repository", entry.Subdir),
+		}
+	}
+
+	destDir := filepath.Dir(localAgent.SourcePath)
+	res, err := install.InstallAgentFromDiscovery(discovery, *target, destDir, install.InstallOptions{
+		Kind:      "agent",
+		Force:     true,
+		SourceDir: agentsSource,
+	})
+	if err != nil {
+		return updateResultItem{Name: metaKey, Kind: "agent", Action: "error", Message: err.Error()}
+	}
+
+	if st, loadErr := install.LoadMetadataWithMigration(agentsSource, install.MetadataKindAgent); loadErr == nil && st != nil {
+		s.agentsStore = st
+	}
+
+	message := res.Action
+	if message == "" {
+		message = "updated"
+	}
+	return updateResultItem{
+		Name:    metaKey,
+		Kind:    "agent",
+		Action:  "updated",
+		Message: message,
 	}
 }
 

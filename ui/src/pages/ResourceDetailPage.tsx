@@ -1,4 +1,4 @@
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Trash2, ExternalLink, FileText, ArrowUpRight, RefreshCw, Target,
   Type, AlignLeft, Files, Scale, Zap,
@@ -97,9 +97,10 @@ function parseSkillMarkdown(content: string): { manifest: SkillManifest; markdow
 }
 
 function skillTypeLabel(type?: string): string {
-  if (!type) return 'local';
-  if (type === 'github-subdir') return 'github';
-  return type;
+  if (!type) return 'Local';
+  if (type === 'github-subdir') return 'GitHub';
+  if (type === 'github') return 'GitHub';
+  return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 /** Returns a lucide icon component + color class for a filename */
@@ -155,11 +156,17 @@ function ContentStatsBar({ content, description, body, fileCount, license }: { c
 
 export default function SkillDetailPage() {
   const { name } = useParams<{ name: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const requestedKind = searchParams.get('kind') === 'agent'
+    ? 'agent'
+    : searchParams.get('kind') === 'skill'
+      ? 'skill'
+      : undefined;
   const { data, isPending, error } = useQuery({
-    queryKey: queryKeys.skills.detail(name!),
-    queryFn: () => api.getSkill(name!),
+    queryKey: [...queryKeys.skills.detail(name!), requestedKind],
+    queryFn: () => api.getResource(name!, requestedKind),
     staleTime: staleTimes.skills,
     enabled: !!name,
   });
@@ -205,7 +212,7 @@ export default function SkillDetailPage() {
     return (
       <Card variant="accent" className="text-center py-8">
         <p className="text-danger text-lg">
-          Failed to load skill
+          Failed to load resource
         </p>
         <p className="text-pencil-light text-sm mt-1">{error.message}</p>
       </Card>
@@ -288,8 +295,8 @@ export default function SkillDetailPage() {
         await api.deleteRepo(repoName);
         toast(`Repository "${repoName}" uninstalled.`, 'success');
       } else {
-        await api.deleteSkill(resource.flatName);
-        toast(`Skill "${resource.name}" uninstalled.`, 'success');
+        await api.deleteResource(resource.flatName, resource.kind);
+        toast(`${resource.kind === 'agent' ? 'Agent' : 'Skill'} "${resource.name}" uninstalled.`, 'success');
       }
       await queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
       await queryClient.invalidateQueries({ queryKey: queryKeys.overview });
@@ -306,8 +313,12 @@ export default function SkillDetailPage() {
     setUpdating(true);
     setBlockedMessage(null);
     try {
-      const skillName = resource.isInRepo ? resource.relPath.split('/')[0] : resource.relPath;
-      const res = await api.update({ name: skillName, skipAudit });
+      const resourceName = resource.isInRepo
+        ? resource.relPath.split('/')[0]
+        : resource.kind === 'agent'
+          ? resource.flatName
+          : resource.relPath;
+      const res = await api.update({ name: resourceName, kind: resource.kind, skipAudit });
       const item = res.results[0];
       if (item?.action === 'updated') {
         const auditInfo = item.auditRiskLabel
@@ -337,10 +348,10 @@ export default function SkillDetailPage() {
     setToggling(true);
     try {
       if (resource.disabled) {
-        await api.enableSkill(resource.flatName);
+        await api.enableResource(resource.flatName, resource.kind);
         toast(`Enabled: ${resource.name}`, 'success');
       } else {
-        await api.disableSkill(resource.flatName);
+        await api.disableResource(resource.flatName, resource.kind);
         toast(`Disabled: ${resource.name}`, 'success');
       }
       await queryClient.invalidateQueries({ queryKey: queryKeys.skills.detail(name!) });
@@ -359,7 +370,7 @@ export default function SkillDetailPage() {
       <div className="flex items-center gap-3 mb-2 sticky top-0 z-20 bg-paper py-3 -mx-4 px-4 md:-mx-8 md:px-8 -mt-3">
         <IconButton
           icon={<ArrowLeft size={18} strokeWidth={2.5} />}
-          label="Back to skills"
+          label="Back to resources"
           size="lg"
           variant="outline"
           onClick={() => navigate('/resources')}
@@ -433,7 +444,7 @@ export default function SkillDetailPage() {
                 </Markdown>
               ) : (
                 <p className="text-pencil-light italic text-center py-8">
-                  No SKILL.md content available.
+                  No content available.
                 </p>
               )}
             </div>
@@ -596,7 +607,7 @@ export default function SkillDetailPage() {
           <SecurityAuditCard auditQuery={auditQuery} />
 
           {/* Target Distribution */}
-          <TargetDistribution flatName={resource.flatName} />
+          <TargetDistribution flatName={resource.flatName} kind={resource.kind} />
 
           {/* Target Sync Status */}
           <SyncStatusCard diffQuery={diffQuery} skillFlatName={resource.flatName} />
@@ -638,11 +649,11 @@ export default function SkillDetailPage() {
       {/* Confirm uninstall dialog */}
       <ConfirmDialog
         open={confirmDelete}
-        title={resource.isInRepo ? 'Uninstall Repository' : 'Uninstall Skill'}
+        title={resource.isInRepo ? 'Uninstall Repository' : `Uninstall ${resource.kind === 'agent' ? 'Agent' : 'Skill'}`}
         message={
           resource.isInRepo
             ? `Remove repository "${resource.relPath.split('/')[0]}"? This will move all skills in the repo to trash.`
-            : `Uninstall skill "${resource.name}"? It will be moved to trash and can be restored within 7 days.`
+            : `Uninstall ${resource.kind === 'agent' ? 'agent' : 'skill'} "${resource.name}"? It will be moved to trash and can be restored within 7 days.`
         }
         confirmText="Uninstall"
         variant="danger"
@@ -763,7 +774,7 @@ function sevOrder(sev: string): number {
 }
 
 /** Target Distribution sidebar card */
-function TargetDistribution({ flatName }: { flatName: string }) {
+function TargetDistribution({ flatName, kind }: { flatName: string; kind: 'skill' | 'agent' }) {
   const { getSkillTargets } = useSyncMatrix();
   const entries = getSkillTargets(flatName);
 
@@ -783,7 +794,7 @@ function TargetDistribution({ flatName }: { flatName: string }) {
                 e.status === 'synced' ? 'bg-success' :
                 e.status === 'na' ? 'bg-muted' : 'bg-danger'
               }`} />
-              <Link to={`/targets/${encodeURIComponent(e.target)}/filters`}
+              <Link to={`/targets/${encodeURIComponent(e.target)}/filters?kind=${kind}`}
                     className="font-bold text-pencil hover:text-blue truncate">
                 {e.target}
               </Link>

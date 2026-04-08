@@ -319,6 +319,8 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		Mode         *string   `json:"mode"`
 		TargetNaming *string   `json:"target_naming"`
 		AgentMode    *string   `json:"agent_mode"`
+		AgentInclude *[]string `json:"agent_include"`
+		AgentExclude *[]string `json:"agent_exclude"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -371,6 +373,21 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if body.AgentInclude != nil {
+		if _, err := ssync.FilterSkills(nil, *body.AgentInclude, nil); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid agent include pattern: "+err.Error())
+			return
+		}
+		target.EnsureAgents().Include = *body.AgentInclude
+	}
+	if body.AgentExclude != nil {
+		if _, err := ssync.FilterSkills(nil, nil, *body.AgentExclude); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid agent exclude pattern: "+err.Error())
+			return
+		}
+		target.EnsureAgents().Exclude = *body.AgentExclude
+	}
+
 	s.cfg.Targets[name] = target
 
 	// In project mode, also update the project config
@@ -393,6 +410,12 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 				if body.AgentMode != nil {
 					s.projectCfg.Targets[i].EnsureAgents().Mode = *body.AgentMode
 				}
+				if body.AgentInclude != nil {
+					s.projectCfg.Targets[i].EnsureAgents().Include = *body.AgentInclude
+				}
+				if body.AgentExclude != nil {
+					s.projectCfg.Targets[i].EnsureAgents().Exclude = *body.AgentExclude
+				}
 				break
 			}
 		}
@@ -403,7 +426,7 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hasFilter := body.Include != nil || body.Exclude != nil
+	hasFilter := body.Include != nil || body.Exclude != nil || body.AgentInclude != nil || body.AgentExclude != nil
 	hasSetting := body.Mode != nil || body.TargetNaming != nil || body.AgentMode != nil
 	action := "filter"
 	if hasSetting && hasFilter {

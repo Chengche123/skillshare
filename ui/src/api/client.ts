@@ -128,20 +128,33 @@ export const api = {
   // Resources (skills + agents)
   listSkills: (kind?: 'skill' | 'agent') =>
     apiFetch<{ resources: Skill[] }>(kind ? `/resources?kind=${kind}` : '/resources'),
-  getSkill: (name: string) =>
-    apiFetch<{ resource: Skill; skillMdContent: string; files: string[] }>(`/resources/${encodeURIComponent(name)}`),
-  deleteSkill: (name: string) =>
-    apiFetch<{ success: boolean }>(`/resources/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  disableSkill: (name: string) =>
+  getResource: (name: string, kind?: 'skill' | 'agent') =>
+    apiFetch<{ resource: Skill; skillMdContent: string; files: string[] }>(
+      `/resources/${encodeURIComponent(name)}${kind ? `?kind=${kind}` : ''}`
+    ),
+  getSkill: (name: string, kind?: 'skill' | 'agent') =>
+    api.getResource(name, kind),
+  deleteResource: (name: string, kind?: 'skill' | 'agent') =>
+    apiFetch<{ success: boolean }>(
+      `/resources/${encodeURIComponent(name)}${kind ? `?kind=${kind}` : ''}`,
+      { method: 'DELETE' }
+    ),
+  deleteSkill: (name: string, kind?: 'skill' | 'agent') =>
+    api.deleteResource(name, kind),
+  disableResource: (name: string, kind?: 'skill' | 'agent') =>
     apiFetch<{ success: boolean; name: string; disabled: boolean }>(
-      `/resources/${encodeURIComponent(name)}/disable`,
+      `/resources/${encodeURIComponent(name)}/disable${kind ? `?kind=${kind}` : ''}`,
       { method: 'POST' }
     ),
-  enableSkill: (name: string) =>
+  disableSkill: (name: string, kind?: 'skill' | 'agent') =>
+    api.disableResource(name, kind),
+  enableResource: (name: string, kind?: 'skill' | 'agent') =>
     apiFetch<{ success: boolean; name: string; disabled: boolean }>(
-      `/resources/${encodeURIComponent(name)}/enable`,
+      `/resources/${encodeURIComponent(name)}/enable${kind ? `?kind=${kind}` : ''}`,
       { method: 'POST' }
     ),
+  enableSkill: (name: string, kind?: 'skill' | 'agent') =>
+    api.enableResource(name, kind),
   batchUninstall: (opts: BatchUninstallRequest) =>
     apiFetch<BatchUninstallResult>('/uninstall/batch', {
       method: 'POST',
@@ -180,7 +193,7 @@ export const api = {
     }),
   removeTarget: (name: string) =>
     apiFetch<{ success: boolean }>(`/targets/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  updateTarget: (name: string, opts: { include?: string[]; exclude?: string[]; mode?: string; target_naming?: string; agent_mode?: string }) =>
+  updateTarget: (name: string, opts: { include?: string[]; exclude?: string[]; mode?: string; target_naming?: string; agent_mode?: string; agent_include?: string[]; agent_exclude?: string[] }) =>
     apiFetch<{ success: boolean }>(`/targets/${encodeURIComponent(name)}`, {
       method: 'PATCH',
       body: JSON.stringify(opts),
@@ -191,10 +204,16 @@ export const api = {
     apiFetch<{ entries: SyncMatrixEntry[] }>(
       `/sync-matrix${target ? '?target=' + encodeURIComponent(target) : ''}`
     ),
-  previewSyncMatrix: (target: string, include: string[], exclude: string[]) =>
+  previewSyncMatrix: (target: string, include: string[], exclude: string[], agentInclude?: string[], agentExclude?: string[]) =>
     apiFetch<{ entries: SyncMatrixEntry[] }>('/sync-matrix/preview', {
       method: 'POST',
-      body: JSON.stringify({ target, include, exclude }),
+      body: JSON.stringify({
+        target,
+        include,
+        exclude,
+        ...(agentInclude && { agent_include: agentInclude }),
+        ...(agentExclude && { agent_exclude: agentExclude }),
+      }),
     }),
 
   // Sync
@@ -273,7 +292,7 @@ export const api = {
     }),
 
   // Update
-  update: (opts: { name?: string; force?: boolean; all?: boolean; skipAudit?: boolean }) =>
+  update: (opts: { name?: string; kind?: 'skill' | 'agent'; force?: boolean; all?: boolean; skipAudit?: boolean }) =>
     apiFetch<{ results: UpdateResultItem[] }>('/update', {
       method: 'POST',
       body: JSON.stringify(opts),
@@ -492,6 +511,8 @@ export interface TrackedRepo {
 
 export interface Overview {
   source: string;
+  agentsSource?: string;
+  extrasSource?: string;
   skillCount: number;
   agentCount: number;
   topLevelCount: number;

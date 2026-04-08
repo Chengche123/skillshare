@@ -550,7 +550,7 @@ export default function TargetsPage() {
                         );
                       })()}
                       <Link
-                        to={`/targets/${encodeURIComponent(target.name)}/filters`}
+                        to={`/targets/${encodeURIComponent(target.name)}/filters?kind=skill`}
                         className="text-xs font-bold text-blue hover:underline"
                       >
                         {(target.include?.length || target.exclude?.length) ? 'Edit in Filter Studio →' : 'Customize filters →'}
@@ -634,7 +634,7 @@ export default function TargetsPage() {
                         <span className="text-xs text-pencil-light">+{overflowAgentFilters} more</span>
                       )}
                       <Link
-                        to={`/targets/${encodeURIComponent(target.name)}/filters`}
+                        to={`/targets/${encodeURIComponent(target.name)}/filters?kind=agent`}
                         className="text-xs font-bold text-blue hover:underline"
                       >
                         {agentFilters ? 'Edit in Filter Studio →' : 'Customize filters →'}
