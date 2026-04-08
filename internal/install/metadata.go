@@ -35,7 +35,6 @@ type MetadataEntry struct {
 	Group   string `json:"group,omitempty"`
 	Branch  string `json:"branch,omitempty"`
 	Into    string `json:"into,omitempty"`
-	Name    string `json:"-"` // runtime only, not persisted (map key is the name)
 
 	// Meta fields
 	InstalledAt time.Time         `json:"installed_at,omitzero"`
@@ -132,14 +131,6 @@ func (e *MetadataEntry) EffectiveKind() string {
 		return "skill"
 	}
 	return e.Kind
-}
-
-// FullName returns "group/name" if Group is set, otherwise Name.
-func (e *MetadataEntry) FullName() string {
-	if e.Group != "" {
-		return e.Group + "/" + e.Name
-	}
-	return e.Name
 }
 
 // RemoveByNames removes entries matching the given names, including group members.
@@ -262,6 +253,15 @@ func LoadMetadata(dir string) (*MetadataStore, error) {
 		store.Save(dir) //nolint:errcheck
 	}
 	return store, nil
+}
+
+// LoadMetadataOrNew loads metadata from dir, returning an empty store on error.
+func LoadMetadataOrNew(dir string) *MetadataStore {
+	store, _ := LoadMetadata(dir)
+	if store == nil {
+		return NewMetadataStore()
+	}
+	return store
 }
 
 // Save writes .metadata.json atomically (temp file → rename).

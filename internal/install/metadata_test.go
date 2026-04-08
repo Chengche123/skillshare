@@ -167,32 +167,6 @@ func TestMetadataEntry_EffectiveKind(t *testing.T) {
 	}
 }
 
-func TestMetadataEntry_FullName(t *testing.T) {
-	tests := []struct {
-		name  string
-		group string
-		entry string
-		want  string
-	}{
-		{"no group", "", "my-skill", "my-skill"},
-		{"with group", "frontend", "my-skill", "frontend/my-skill"},
-		{"nested group", "team/frontend", "my-skill", "team/frontend/my-skill"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := &MetadataEntry{
-				Name:  tt.entry,
-				Group: tt.group,
-			}
-			got := e.FullName()
-			if got != tt.want {
-				t.Errorf("FullName() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestNewMetadataStore_InitialState(t *testing.T) {
 	s := NewMetadataStore()
 	if s == nil {
@@ -302,7 +276,7 @@ func TestMetadataStore_SaveCreatesDir(t *testing.T) {
 
 func TestMetadataPath(t *testing.T) {
 	got := MetadataPath("/some/dir")
-	want := filepath.Join("/some/dir", ".metadata.json")
+	want := filepath.Join("/some/dir", MetadataFileName)
 	if got != want {
 		t.Errorf("MetadataPath = %q, want %q", got, want)
 	}
