@@ -170,12 +170,17 @@ func TestReconcileGlobalSkills_NestedSkillSetsGroup(t *testing.T) {
 		t.Fatalf("ReconcileGlobalSkills failed: %v", err)
 	}
 
-	entry := store.Get("pdf")
+	// After reconcile, nested skills use full-path keys (e.g. "frontend/pdf").
+	entry := store.Get("frontend/pdf")
 	if entry == nil {
-		t.Fatal("expected store to have 'pdf'")
+		t.Fatal("expected store to have 'frontend/pdf'")
 	}
 	if entry.Group != "frontend" {
 		t.Errorf("expected group 'frontend', got %q", entry.Group)
+	}
+	// Legacy basename key should be removed after migration.
+	if store.Has("pdf") {
+		t.Error("expected legacy basename key 'pdf' to be removed")
 	}
 }
 

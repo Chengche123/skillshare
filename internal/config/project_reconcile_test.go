@@ -147,12 +147,17 @@ func TestReconcileProjectSkills_NestedSkillSetsGroup(t *testing.T) {
 		t.Fatalf("ReconcileProjectSkills failed: %v", err)
 	}
 
-	entry := store.Get("my-skill")
+	// After reconcile, nested skills use full-path keys (e.g. "tools/my-skill").
+	entry := store.Get("tools/my-skill")
 	if entry == nil {
-		t.Fatal("expected store to have 'my-skill'")
+		t.Fatal("expected store to have 'tools/my-skill'")
 	}
 	if entry.Group != "tools" {
 		t.Errorf("expected group 'tools', got %q", entry.Group)
+	}
+	// Legacy basename key should be removed after migration.
+	if store.Has("my-skill") {
+		t.Error("expected legacy basename key 'my-skill' to be removed")
 	}
 }
 

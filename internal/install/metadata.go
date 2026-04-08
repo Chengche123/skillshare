@@ -95,6 +95,27 @@ func (s *MetadataStore) GetByPath(relPath string) *MetadataEntry {
 	return nil
 }
 
+// KeyToRelPath returns the effective relative path for a store entry.
+// For full-path keys it returns the key as-is; for legacy basename keys
+// it prepends the entry's Group.
+func KeyToRelPath(key string, entry *MetadataEntry) string {
+	if entry != nil && entry.Group != "" && !strings.HasPrefix(key, entry.Group+"/") {
+		return entry.Group + "/" + key
+	}
+	return key
+}
+
+// MigrateLegacyKey promotes a legacy basename key to a full-path key.
+// Returns true if migration occurred. No-op if the key is already full-path.
+func (s *MetadataStore) MigrateLegacyKey(fullPath string, existing *MetadataEntry) bool {
+	if s.Has(fullPath) {
+		return false
+	}
+	s.Remove(filepath.Base(fullPath))
+	s.Set(fullPath, existing)
+	return true
+}
+
 // List returns sorted entry names.
 func (s *MetadataStore) List() []string {
 	names := make([]string, 0, len(s.Entries))
@@ -123,22 +144,32 @@ func (e *MetadataEntry) FullName() string {
 
 // RemoveByNames removes entries matching the given names, including group members.
 // Handles direct key matches, full-path matches (group/name), and group membership.
+// Works with both legacy basename keys and full-path keys.
 func (s *MetadataStore) RemoveByNames(names map[string]bool) {
-	for _, name := range s.List() {
-		entry := s.Get(name)
-		fullName := name
-		if entry != nil && entry.Group != "" {
-			fullName = entry.Group + "/" + name
-		}
-		if names[name] || names[fullName] {
-			s.Remove(name)
+	for _, key := range s.List() {
+		entry := s.Get(key)
+		fullName := KeyToRelPath(key, entry)
+		if names[key] || names[fullName] {
+			s.Remove(key)
 			continue
+		}
+		// Also match by basename for backward compat (e.g. uninstall "foo" should
+		// remove full-path key "frontend/foo").
+		if entry != nil && entry.Group != "" {
+			basename := key
+			if idx := strings.LastIndex(key, "/"); idx >= 0 {
+				basename = key[idx+1:]
+			}
+			if names[basename] {
+				s.Remove(key)
+				continue
+			}
 		}
 		// Group directory uninstall: remove member skills
 		if entry != nil && entry.Group != "" {
 			for rn := range names {
 				if entry.Group == rn || strings.HasPrefix(entry.Group, rn+"/") {
-					s.Remove(name)
+					s.Remove(key)
 					break
 				}
 			}
@@ -159,11 +190,10 @@ func WriteMetaToStore(sourceDir, destPath string, meta *SkillMeta) error {
 	}
 	rel = filepath.ToSlash(rel)
 
-	name := rel
+	// Extract group from relative path (e.g. "frontend/foo" → group "frontend").
 	group := ""
 	if idx := strings.LastIndex(rel, "/"); idx >= 0 {
 		group = rel[:idx]
-		name = rel[idx+1:]
 	}
 
 	store, loadErr := LoadMetadata(sourceDir)
@@ -171,7 +201,17 @@ func WriteMetaToStore(sourceDir, destPath string, meta *SkillMeta) error {
 		store = NewMetadataStore()
 	}
 
-	store.Set(name, &MetadataEntry{
+	// Use full relative path as key to avoid collisions between grouped
+	// skills with the same basename (e.g. "frontend/foo" vs "backend/foo").
+	// Remove any legacy basename-only key for this group+basename pair.
+	if group != "" {
+		basename := rel[strings.LastIndex(rel, "/")+1:]
+		if old := store.Get(basename); old != nil && old.Group == group {
+			store.Remove(basename)
+		}
+	}
+
+	store.Set(rel, &MetadataEntry{
 		Source:      meta.Source,
 		Kind:        meta.Kind,
 		Type:        meta.Type,
@@ -187,9 +227,9 @@ func WriteMetaToStore(sourceDir, destPath string, meta *SkillMeta) error {
 	return store.Save(sourceDir)
 }
 
-// LoadMetadata reads .metadata.json from the given directory.
+// loadMetadataFile reads .metadata.json from the given directory (pure read, no migration).
 // Returns an empty store (version 1) if the file does not exist.
-func LoadMetadata(dir string) (*MetadataStore, error) {
+func loadMetadataFile(dir string) (*MetadataStore, error) {
 	path := filepath.Join(dir, MetadataFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -207,6 +247,21 @@ func LoadMetadata(dir string) (*MetadataStore, error) {
 		store.Entries = make(map[string]*MetadataEntry)
 	}
 	return &store, nil
+}
+
+// LoadMetadata reads .metadata.json and cleans up any lingering sidecar files.
+// Sidecar migration is idempotent — if no sidecars exist, it's a fast no-op
+// (one ReadDir per call). This ensures sidecars created after initial migration
+// (e.g. by agent install) are always cleaned up regardless of which command runs.
+func LoadMetadata(dir string) (*MetadataStore, error) {
+	store, err := loadMetadataFile(dir)
+	if err != nil {
+		return nil, err
+	}
+	if cleanupSidecars(store, dir) {
+		store.Save(dir) //nolint:errcheck
+	}
+	return store, nil
 }
 
 // Save writes .metadata.json atomically (temp file → rename).
@@ -280,8 +335,8 @@ func (e *MetadataEntry) ComputeEntryHashes(skillPath string) error {
 
 // RefreshHashes recomputes file hashes for an entry that already has them.
 // No-op if entry doesn't exist or has no FileHashes.
-func (s *MetadataStore) RefreshHashes(name, skillPath string) {
-	entry := s.Get(name)
+func (s *MetadataStore) RefreshHashes(relPath, skillPath string) {
+	entry := s.GetByPath(relPath)
 	if entry == nil || entry.FileHashes == nil {
 		return
 	}

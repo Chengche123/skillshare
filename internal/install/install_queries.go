@@ -25,12 +25,7 @@ func getUpdatableSkillsImpl(sourceDir string) ([]string, error) {
 		if entry.Tracked {
 			continue
 		}
-		// Build the relative path: group/name or just name
-		relPath := name
-		if entry.Group != "" {
-			relPath = entry.Group + "/" + name
-		}
-		skills = append(skills, relPath)
+		skills = append(skills, KeyToRelPath(name, entry))
 	}
 	return skills, nil
 }
@@ -55,11 +50,7 @@ func FindRepoInstalls(sourceDir, cloneURL string) []string {
 			continue
 		}
 		if repoURLsMatch(entry.RepoURL, cloneURL) {
-			relPath := name
-			if entry.Group != "" {
-				relPath = entry.Group + "/" + name
-			}
-			matches = append(matches, relPath)
+			matches = append(matches, KeyToRelPath(name, entry))
 		}
 	}
 	return matches

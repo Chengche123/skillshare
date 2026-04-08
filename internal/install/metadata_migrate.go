@@ -9,10 +9,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// cleanupSidecars runs both skill and agent sidecar migration on dir.
+// Returns true if any sidecars were found and cleaned up.
+func cleanupSidecars(store *MetadataStore, dir string) bool {
+	before := storeFingerprint(store)
+	migrateSkillSidecars(store, dir)
+	migrateAgentSidecars(store, dir)
+	return storeFingerprint(store) != before
+}
+
+// storeFingerprint returns a cheap fingerprint for change detection.
+func storeFingerprint(s *MetadataStore) uint64 {
+	var h uint64
+	for k, e := range s.Entries {
+		h += uint64(len(k))
+		if e != nil && e.Source != "" {
+			h += uint64(len(e.Source))
+		}
+	}
+	return h
+}
+
 // LoadMetadataWithMigration loads .metadata.json, or migrates from old format if needed.
 // kind is "" for skills directories, "agent" for agents directories.
+// When .metadata.json already exists, LoadMetadata handles sidecar cleanup automatically.
 func LoadMetadataWithMigration(dir, kind string) (*MetadataStore, error) {
-	// Fast path: .metadata.json already exists
+	// Fast path: .metadata.json exists — LoadMetadata handles sidecar cleanup.
 	metaPath := filepath.Join(dir, MetadataFileName)
 	if _, err := os.Stat(metaPath); err == nil {
 		return LoadMetadata(dir)
@@ -21,7 +43,6 @@ func LoadMetadataWithMigration(dir, kind string) (*MetadataStore, error) {
 	store := NewMetadataStore()
 
 	// Phase 1: Migrate registry.yaml entries
-	// Look in dir itself and its parent (registry.yaml may live in .skillshare/ while dir is .skillshare/skills/)
 	migrateRegistryEntries(store, dir, kind)
 	if parent := filepath.Dir(dir); parent != dir {
 		migrateRegistryEntries(store, parent, kind)
@@ -167,10 +188,16 @@ func mergeSkillSidecar(store *MetadataStore, name, group, sidecarPath string) {
 		return
 	}
 
-	entry := store.Get(name)
+	// Use full-path key for grouped skills.
+	key := name
+	if group != "" {
+		key = group + "/" + name
+	}
+
+	entry := store.Get(key)
 	if entry == nil {
 		entry = &MetadataEntry{}
-		store.Set(name, entry)
+		store.Set(key, entry)
 	}
 
 	// Merge sidecar fields — sidecar has richer data
@@ -207,11 +234,25 @@ func mergeSkillSidecar(store *MetadataStore, name, group, sidecarPath string) {
 	if group != "" && entry.Group == "" {
 		entry.Group = group
 	}
+	// Detect tracked repos: top-level parent starts with "_"
+	root := group
+	if idx := strings.Index(root, "/"); idx >= 0 {
+		root = root[:idx]
+	}
+	if len(root) > 0 && root[0] == '_' {
+		entry.Tracked = true
+	}
 }
 
-// migrateAgentSidecars scans dir for *.skillshare-meta.json files, extracts agent name,
-// reads as SkillMeta, merges into store with Kind="agent", removes old sidecar.
+// migrateAgentSidecars recursively scans dir for *.skillshare-meta.json files,
+// merges them into the centralized store with Kind="agent", and removes the sidecars.
 func migrateAgentSidecars(store *MetadataStore, dir string) {
+	walkAgentSidecars(store, dir, "")
+}
+
+// walkAgentSidecars recursively walks dir for agent sidecar files.
+// group is the parent prefix (empty for top-level, e.g. "demo" for agents/demo/).
+func walkAgentSidecars(store *MetadataStore, dir, group string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -220,6 +261,11 @@ func migrateAgentSidecars(store *MetadataStore, dir string) {
 	const suffix = ".skillshare-meta.json"
 	for _, de := range entries {
 		if de.IsDir() {
+			subGroup := de.Name()
+			if group != "" {
+				subGroup = group + "/" + de.Name()
+			}
+			walkAgentSidecars(store, filepath.Join(dir, de.Name()), subGroup)
 			continue
 		}
 		if !strings.HasSuffix(de.Name(), suffix) {
@@ -230,54 +276,66 @@ func migrateAgentSidecars(store *MetadataStore, dir string) {
 		if agentName == "" {
 			continue
 		}
+		// Use full-path key for grouped agents (e.g. "demo/reviewer")
+		key := agentName
+		if group != "" {
+			key = group + "/" + agentName
+		}
 
 		sidecarPath := filepath.Join(dir, de.Name())
-		data, err := os.ReadFile(sidecarPath)
-		if err != nil {
-			continue
-		}
-
-		var meta SkillMeta
-		if err := json.Unmarshal(data, &meta); err != nil {
-			continue
-		}
-
-		entry := store.Get(agentName)
-		if entry == nil {
-			entry = &MetadataEntry{}
-			store.Set(agentName, entry)
-		}
-
-		if meta.Source != "" && entry.Source == "" {
-			entry.Source = meta.Source
-		}
-		entry.Kind = "agent"
-		if meta.Type != "" {
-			entry.Type = meta.Type
-		}
-		if !meta.InstalledAt.IsZero() {
-			entry.InstalledAt = meta.InstalledAt
-		}
-		if meta.RepoURL != "" {
-			entry.RepoURL = meta.RepoURL
-		}
-		if meta.Subdir != "" {
-			entry.Subdir = meta.Subdir
-		}
-		if meta.Version != "" {
-			entry.Version = meta.Version
-		}
-		if meta.TreeHash != "" {
-			entry.TreeHash = meta.TreeHash
-		}
-		if meta.FileHashes != nil {
-			entry.FileHashes = meta.FileHashes
-		}
-		if meta.Branch != "" && entry.Branch == "" {
-			entry.Branch = meta.Branch
-		}
-
+		mergeAgentSidecar(store, key, group, sidecarPath)
 		os.Remove(sidecarPath)
+	}
+}
+
+// mergeAgentSidecar reads a SkillMeta sidecar and merges its fields into the store.
+func mergeAgentSidecar(store *MetadataStore, key, group, sidecarPath string) {
+	data, err := os.ReadFile(sidecarPath)
+	if err != nil {
+		return
+	}
+
+	var meta SkillMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return
+	}
+
+	entry := store.Get(key)
+	if entry == nil {
+		entry = &MetadataEntry{}
+		store.Set(key, entry)
+	}
+
+	if meta.Source != "" && entry.Source == "" {
+		entry.Source = meta.Source
+	}
+	entry.Kind = "agent"
+	if meta.Type != "" {
+		entry.Type = meta.Type
+	}
+	if !meta.InstalledAt.IsZero() {
+		entry.InstalledAt = meta.InstalledAt
+	}
+	if meta.RepoURL != "" {
+		entry.RepoURL = meta.RepoURL
+	}
+	if meta.Subdir != "" {
+		entry.Subdir = meta.Subdir
+	}
+	if meta.Version != "" {
+		entry.Version = meta.Version
+	}
+	if meta.TreeHash != "" {
+		entry.TreeHash = meta.TreeHash
+	}
+	if meta.FileHashes != nil {
+		entry.FileHashes = meta.FileHashes
+	}
+	if meta.Branch != "" && entry.Branch == "" {
+		entry.Branch = meta.Branch
+	}
+	if group != "" && entry.Group == "" {
+		entry.Group = group
 	}
 }
 
