@@ -36,7 +36,12 @@ func (s *Server) handleSyncMatrix(w http.ResponseWriter, r *http.Request) {
 		discovered, _ := resource.AgentKind{}.Discover(agentsSource)
 		agents = resource.ActiveAgents(discovered)
 	}
-	builtinAgents := config.DefaultAgentTargets()
+	var builtinAgents map[string]config.TargetConfig
+	if s.IsProjectMode() {
+		builtinAgents = config.ProjectAgentTargets()
+	} else {
+		builtinAgents = config.DefaultAgentTargets()
+	}
 
 	targetFilter := r.URL.Query().Get("target")
 
@@ -78,15 +83,31 @@ func (s *Server) handleSyncMatrix(w http.ResponseWriter, r *http.Request) {
 		if agentPath == "" || len(agents) == 0 {
 			continue
 		}
-		for _, agent := range agents {
-			status, reason := ssync.ClassifySkillForTarget(agent.FlatName, nil, name, ac.Include, ac.Exclude)
-			entries = append(entries, syncMatrixEntry{
-				Skill:  agent.FlatName,
-				Target: name,
-				Status: status,
-				Reason: reason,
-				Kind:   "agent",
-			})
+		agentMode := ac.Mode
+		if agentMode == "" {
+			agentMode = "merge"
+		}
+		if agentMode == "symlink" {
+			for _, agent := range agents {
+				entries = append(entries, syncMatrixEntry{
+					Skill:  agent.FlatName,
+					Target: name,
+					Status: "na",
+					Reason: "symlink mode — filters not applicable",
+					Kind:   "agent",
+				})
+			}
+		} else {
+			for _, agent := range agents {
+				status, reason := ssync.ClassifySkillForTarget(agent.FlatName, nil, name, ac.Include, ac.Exclude)
+				entries = append(entries, syncMatrixEntry{
+					Skill:  agent.FlatName,
+					Target: name,
+					Status: status,
+					Reason: reason,
+					Kind:   "agent",
+				})
+			}
 		}
 	}
 
@@ -159,23 +180,44 @@ func (s *Server) handleSyncMatrixPreview(w http.ResponseWriter, r *http.Request)
 		ac := target.AgentsConfig()
 		agentPath := ac.Path
 		if agentPath == "" {
-			builtinAgents := config.DefaultAgentTargets()
-			if builtin, found := builtinAgents[body.Target]; found {
+			var previewBuiltin map[string]config.TargetConfig
+			if s.IsProjectMode() {
+				previewBuiltin = config.ProjectAgentTargets()
+			} else {
+				previewBuiltin = config.DefaultAgentTargets()
+			}
+			if builtin, found := previewBuiltin[body.Target]; found {
 				agentPath = builtin.Path
 			}
 		}
 		if agentPath != "" {
 			discovered, _ := resource.AgentKind{}.Discover(agentsSource)
 			agents := resource.ActiveAgents(discovered)
-			for _, agent := range agents {
-				status, reason := ssync.ClassifySkillForTarget(agent.FlatName, nil, body.Target, body.AgentInclude, body.AgentExclude)
-				entries = append(entries, syncMatrixEntry{
-					Skill:  agent.FlatName,
-					Target: body.Target,
-					Status: status,
-					Reason: reason,
-					Kind:   "agent",
-				})
+			agentMode := ac.Mode
+			if agentMode == "" {
+				agentMode = "merge"
+			}
+			if agentMode == "symlink" {
+				for _, agent := range agents {
+					entries = append(entries, syncMatrixEntry{
+						Skill:  agent.FlatName,
+						Target: body.Target,
+						Status: "na",
+						Reason: "symlink mode — filters not applicable",
+						Kind:   "agent",
+					})
+				}
+			} else {
+				for _, agent := range agents {
+					status, reason := ssync.ClassifySkillForTarget(agent.FlatName, nil, body.Target, body.AgentInclude, body.AgentExclude)
+					entries = append(entries, syncMatrixEntry{
+						Skill:  agent.FlatName,
+						Target: body.Target,
+						Status: status,
+						Reason: reason,
+						Kind:   "agent",
+					})
+				}
 			}
 		}
 	}

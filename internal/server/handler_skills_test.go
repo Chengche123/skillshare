@@ -15,7 +15,7 @@ import (
 
 func TestHandleListSkills_Empty(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/skills", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
 	rr := httptest.NewRecorder()
 	s.handler.ServeHTTP(rr, req)
 
@@ -24,11 +24,11 @@ func TestHandleListSkills_Empty(t *testing.T) {
 	}
 
 	var resp struct {
-		Skills []any `json:"skills"`
+		Resources []any `json:"resources"`
 	}
 	json.Unmarshal(rr.Body.Bytes(), &resp)
-	if len(resp.Skills) != 0 {
-		t.Errorf("expected 0 skills, got %d", len(resp.Skills))
+	if len(resp.Resources) != 0 {
+		t.Errorf("expected 0 resources, got %d", len(resp.Resources))
 	}
 }
 
@@ -37,7 +37,7 @@ func TestHandleListSkills_WithSkills(t *testing.T) {
 	addSkill(t, src, "alpha")
 	addSkill(t, src, "beta")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/skills", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
 	rr := httptest.NewRecorder()
 	s.handler.ServeHTTP(rr, req)
 
@@ -46,11 +46,11 @@ func TestHandleListSkills_WithSkills(t *testing.T) {
 	}
 
 	var resp struct {
-		Skills []map[string]any `json:"skills"`
+		Resources []map[string]any `json:"resources"`
 	}
 	json.Unmarshal(rr.Body.Bytes(), &resp)
-	if len(resp.Skills) != 2 {
-		t.Errorf("expected 2 skills, got %d", len(resp.Skills))
+	if len(resp.Resources) != 2 {
+		t.Errorf("expected 2 resources, got %d", len(resp.Resources))
 	}
 }
 
@@ -58,7 +58,7 @@ func TestHandleGetSkill_Found(t *testing.T) {
 	s, src := newTestServer(t)
 	addSkill(t, src, "my-skill")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/skills/my-skill", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/resources/my-skill", nil)
 	rr := httptest.NewRecorder()
 	s.handler.ServeHTTP(rr, req)
 
@@ -68,15 +68,15 @@ func TestHandleGetSkill_Found(t *testing.T) {
 
 	var resp map[string]any
 	json.Unmarshal(rr.Body.Bytes(), &resp)
-	skill := resp["skill"].(map[string]any)
-	if skill["flatName"] != "my-skill" {
-		t.Errorf("expected flatName 'my-skill', got %v", skill["flatName"])
+	res := resp["resource"].(map[string]any)
+	if res["flatName"] != "my-skill" {
+		t.Errorf("expected flatName 'my-skill', got %v", res["flatName"])
 	}
 }
 
 func TestHandleGetSkill_NotFound(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/skills/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/resources/nonexistent", nil)
 	rr := httptest.NewRecorder()
 	s.handler.ServeHTTP(rr, req)
 
@@ -93,7 +93,7 @@ func TestHandleGetSkillFile_PathTraversal(t *testing.T) {
 	// to bypass mux and call the handler directly with a crafted PathValue.
 	// Instead, test that a valid-looking but still-traversal path is rejected.
 	// The handler checks strings.Contains(fp, "..").
-	req := httptest.NewRequest(http.MethodGet, "/api/skills/my-skill/files/sub%2F..%2F..%2Fetc%2Fpasswd", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/resources/my-skill/files/sub%2F..%2F..%2Fetc%2Fpasswd", nil)
 	rr := httptest.NewRecorder()
 	s.mux.ServeHTTP(rr, req)
 

@@ -19,7 +19,7 @@ func matchesAgentName(d resource.DiscoveredResource, name string) bool {
 		agentDisplayName(d.RelPath) == name
 }
 
-func resolveAgentResource(agentsSource, name string) (resource.DiscoveredResource, error) {
+func findAgent(agentsSource, name string) (resource.DiscoveredResource, error) {
 	discovered, err := resource.AgentKind{}.Discover(agentsSource)
 	if err != nil {
 		return resource.DiscoveredResource{}, fmt.Errorf("failed to discover agents: %w", err)
@@ -32,17 +32,16 @@ func resolveAgentResource(agentsSource, name string) (resource.DiscoveredResourc
 	return resource.DiscoveredResource{}, fmt.Errorf("agent not found: %s", name)
 }
 
+func resolveAgentResource(agentsSource, name string) (resource.DiscoveredResource, error) {
+	return findAgent(agentsSource, name)
+}
+
 func (s *Server) resolveAgentRelPathWithStatus(agentsSource, name string) (string, bool, error) {
-	discovered, err := resource.AgentKind{}.Discover(agentsSource)
+	d, err := findAgent(agentsSource, name)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to discover agents: %w", err)
+		return "", false, err
 	}
-	for _, d := range discovered {
-		if matchesAgentName(d, name) {
-			return d.RelPath, d.Disabled, nil
-		}
-	}
-	return "", false, fmt.Errorf("agent not found: %s", name)
+	return d.RelPath, d.Disabled, nil
 }
 
 func agentMetaKey(relPath string) string {

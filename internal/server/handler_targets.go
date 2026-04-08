@@ -155,8 +155,8 @@ func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
 		if agentSummary != nil {
 			item.AgentPath = agentSummary.Path
 			item.AgentMode = agentSummary.Mode
-			item.AgentInclude = append([]string(nil), agentSummary.Include...)
-			item.AgentExclude = append([]string(nil), agentSummary.Exclude...)
+			item.AgentInclude = agentSummary.Include
+			item.AgentExclude = agentSummary.Exclude
 			item.AgentLinkedCount = intPtr(agentSummary.ManagedCount)
 			item.AgentExpectedCount = intPtr(agentSummary.ExpectedCount)
 		}
