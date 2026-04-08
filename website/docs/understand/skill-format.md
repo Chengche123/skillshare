@@ -200,6 +200,8 @@ metadata:
 
 Currently, `targets` is the only `metadata` field that skillshare processes. Other fields (like `pattern`, `domain`, `interaction`) are preserved in the frontmatter but not used by skillshare — they may be consumed by other tools in the ecosystem.
 
+For backward compatibility, skillshare also reads a top-level `targets` field. If both are present, `metadata.targets` takes precedence.
+
 ## Custom Fields
 
 You can add any custom top-level fields:

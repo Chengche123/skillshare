@@ -297,24 +297,32 @@ Result for `cursor`:
 Instead of editing YAML manually, use the `target` command:
 
 ```bash
+# Skills
 skillshare target claude --add-include "team-*"
 skillshare target claude --add-exclude "_legacy*"
 skillshare target claude --remove-include "team-*"
+
+# Agents (only for targets with an agents path)
+skillshare target claude --add-agent-include "team-*"
+skillshare target claude --add-agent-exclude "draft-*"
+skillshare target claude --remove-agent-include "team-*"
+
 skillshare sync  # Apply changes
 ```
 
-Duplicate patterns are silently ignored. Invalid glob patterns return an error.
+Duplicate patterns are silently ignored. Invalid glob patterns return an error. Agent filters use the same glob syntax as skill filters, but only work in `merge` and `copy` modes. In `symlink` mode, agent filters are ignored because the entire agents directory is linked as one unit.
 
 See [target command](/docs/reference/commands/target#target-filters-includeexclude) for full reference.
 
 #### Skill-level targets {#skill-level-targets}
 
-Skills can declare which targets they're compatible with using the `targets` field in SKILL.md:
+Skills can declare which targets they're compatible with using `metadata.targets` in SKILL.md. A top-level `targets` field is still supported as a fallback for older skills, but `metadata.targets` takes precedence when both are present:
 
 ```yaml
 ---
 name: claude-prompts
-targets: [claude]
+metadata:
+  targets: [claude]
 ---
 ```
 
