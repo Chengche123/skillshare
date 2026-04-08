@@ -169,17 +169,41 @@ func syncAgentsProject(projectRoot string, dryRun, force, jsonOutput bool, start
 		}
 	}
 
-	builtinAgents := config.ProjectAgentTargets()
-	var totals agentSyncStats
-	var syncErr error
-	var skippedTargets []string
-	var targetCount int
-
 	// Load project config for target list
 	projCfg, loadErr := config.LoadProject(projectRoot)
 	if loadErr != nil {
 		return fmt.Errorf("cannot load project config: %w", loadErr)
 	}
+
+	builtinAgents := config.ProjectAgentTargets()
+
+	// Backup agent targets before sync (non-dry-run only).
+	if !dryRun && !jsonOutput {
+		backupDir := filepath.Join(projectRoot, ".skillshare", "backups")
+		backedUp := false
+		for _, entry := range projCfg.Targets {
+			agentPath := resolveProjectAgentTargetPath(entry, builtinAgents, projectRoot)
+			if agentPath == "" {
+				continue
+			}
+			entryName := entry.Name + "-agents"
+			bp, bErr := backup.CreateInDir(backupDir, entryName, agentPath)
+			if bErr != nil {
+				ui.Warning("Failed to backup %s: %v", entryName, bErr)
+			} else if bp != "" {
+				if !backedUp {
+					ui.Header("Backing up")
+					backedUp = true
+				}
+				ui.Success("%s -> %s", entryName, bp)
+			}
+		}
+	}
+
+	var totals agentSyncStats
+	var syncErr error
+	var skippedTargets []string
+	var targetCount int
 
 	for _, entry := range projCfg.Targets {
 		agentPath := resolveProjectAgentTargetPath(entry, builtinAgents, projectRoot)
