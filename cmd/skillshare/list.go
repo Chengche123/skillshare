@@ -282,6 +282,12 @@ func discoverAndBuildAgentEntries(agentsSource string) []skillEntry {
 			IsNested: d.IsNested,
 			Disabled: d.Disabled,
 		}
+		// Group agents by parent directory (like tracked repos for skills).
+		if d.IsNested {
+			if dir := filepath.Dir(d.RelPath); dir != "." {
+				entries[i].RepoName = dir
+			}
+		}
 		key := strings.TrimSuffix(d.RelPath, ".md")
 		if entry := store.GetByPath(key); entry != nil {
 			entries[i].Source = entry.Source
