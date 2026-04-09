@@ -75,15 +75,19 @@ export default function AuditPage() {
     };
   }, []);
 
-  const totalFindings = useMemo(() => {
-    if (!data) return 0;
-    return data.results.reduce((sum, result) => sum + result.findings.length, 0);
+  // Exclude synthetic _cross-skill result from real scan results.
+  // Cross-skill analysis is a derived insight, not an actual scanned resource.
+  const realResults = useMemo(() => {
+    if (!data) return [];
+    return data.results.filter((r) => r.skillName !== '_cross-skill');
   }, [data]);
 
-  const filteredResults = useMemo(() => {
-    if (!data) return [];
+  const totalFindings = useMemo(() => {
+    return realResults.reduce((sum, result) => sum + result.findings.length, 0);
+  }, [realResults]);
 
-    return data.results
+  const filteredResults = useMemo(() => {
+    return realResults
       .map((result) => ({
         ...result,
         findings: result.findings.filter((finding) => isSeverityAtOrAbove(finding.severity, minSeverity)),
@@ -94,7 +98,7 @@ export default function AuditPage() {
         if (bySeverity !== 0) return bySeverity;
         return b.riskScore - a.riskScore;
       });
-  }, [data, minSeverity]);
+  }, [realResults, minSeverity]);
 
   const visibleFindings = useMemo(
     () => filteredResults.reduce((sum, result) => sum + result.findings.length, 0),
