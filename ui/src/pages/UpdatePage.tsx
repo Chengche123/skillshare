@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, useDeferredValue } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useDeferredValue, forwardRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUpCircle, RefreshCw, Search, Check, Zap, Trash2,
@@ -24,6 +24,7 @@ import { api } from '../api/client';
 import type { CheckResult } from '../api/client';
 import { queryKeys, staleTimes } from '../lib/queryKeys';
 import { clearAuditCache } from '../lib/auditCache';
+import { globToRegex } from '../lib/glob';
 import { radius } from '../design';
 
 /* ── Types ──────────────────────────────────────────── */
@@ -58,20 +59,6 @@ interface ItemUpdateStatus {
   status: 'pending' | 'in-progress' | 'success' | 'error' | 'blocked' | 'skipped';
   message?: string;
   auditRiskLabel?: string;
-}
-
-/* ── Glob filter ──────────────────────────────────────── */
-
-function globToRegex(pattern: string): RegExp {
-  if (!/[*?]/.test(pattern)) {
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(escaped, 'i');
-  }
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*')
-    .replace(/\?/g, '.');
-  return new RegExp(`^${escaped}$`, 'i');
 }
 
 /* ── Component ──────────────────────────────────────── */
@@ -314,7 +301,7 @@ export default function UpdatePage() {
 
     let resultIndex = 0;
 
-    api.updateAllStream(
+    esRef.current = api.updateAllStream(
       () => {
         setItemStatuses((prev) =>
           prev.map((s, idx) => (idx === 0 ? { ...s, status: 'in-progress' } : s)),
@@ -362,7 +349,7 @@ export default function UpdatePage() {
   const handleRetryForce = useCallback(
     (name: string) => {
       patchItem(name, { status: 'in-progress', message: undefined });
-      api.updateAllStream(
+      esRef.current = api.updateAllStream(
         () => {},
         (item) => {
           patchItem(name, {
@@ -403,11 +390,24 @@ export default function UpdatePage() {
 
   /* ── Derived counts ──────────────────────────────── */
 
-  const successCount = itemStatuses.filter((s) => s.status === 'success').length;
-  const skippedCount = itemStatuses.filter((s) => s.status === 'skipped').length;
-  const blockedCount = itemStatuses.filter((s) => s.status === 'blocked').length;
-  const errorCount = itemStatuses.filter((s) => s.status === 'error').length;
-  const completedCount = successCount + skippedCount + blockedCount + errorCount;
+  const { successCount, skippedCount, blockedCount, errorCount, completedCount } = useMemo(() => {
+    let success = 0, skipped = 0, blocked = 0, error = 0;
+    for (const s of itemStatuses) {
+      switch (s.status) {
+        case 'success': success++; break;
+        case 'skipped': skipped++; break;
+        case 'blocked': blocked++; break;
+        case 'error': error++; break;
+      }
+    }
+    return {
+      successCount: success,
+      skippedCount: skipped,
+      blockedCount: blocked,
+      errorCount: error,
+      completedCount: success + skipped + blocked + error,
+    };
+  }, [itemStatuses]);
 
   /* ── Render ──────────────────────────────────────── */
 
@@ -640,52 +640,12 @@ export default function UpdatePage() {
         {/* Per-item status cards */}
         <div className="space-y-2">
           {itemStatuses.map((item, i) => (
-            <div
+            <ItemStatusCard
               key={item.name}
+              item={item}
+              index={i}
               ref={(el) => { itemRefs.current[item.name] = el; }}
-              className={`flex items-center gap-3 px-3 py-2 border transition-colors animate-fade-in ${
-                item.status === 'error'
-                  ? 'border-danger/40 bg-danger-light/50'
-                  : item.status === 'blocked'
-                  ? 'border-warning/40 bg-warning-light/50'
-                  : 'border-muted hover:bg-muted/30'
-              }`}
-              style={{
-                borderRadius: radius.sm,
-                animationDelay: `${i * 50}ms`,
-                animationFillMode: 'backwards',
-              }}
-            >
-              <StatusIcon status={item.status} />
-              <div className="flex-1 min-w-0">
-                <span className="text-pencil font-medium flex items-center gap-1.5">
-                  {item.kind && <KindBadge kind={item.kind} />}
-                  {item.name}
-                </span>
-                {item.message && (
-                  <span
-                    className={`text-sm block ${
-                      item.status === 'error'
-                        ? 'text-danger font-medium whitespace-pre-wrap mt-1'
-                        : item.status === 'blocked'
-                        ? 'text-warning whitespace-pre-wrap mt-1'
-                        : 'text-pencil-light truncate'
-                    }`}
-                  >
-                    {item.message}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {item.auditRiskLabel && item.auditRiskLabel !== 'clean' && (
-                  <Badge variant={item.auditRiskLabel === 'critical' || item.auditRiskLabel === 'high' ? 'danger' : 'warning'}>
-                    <ShieldAlert size={12} className="mr-1" />
-                    {item.auditRiskLabel}
-                  </Badge>
-                )}
-                <StatusBadge status={item.status} />
-              </div>
-            </div>
+            />
           ))}
         </div>
       </div>
@@ -722,75 +682,99 @@ export default function UpdatePage() {
       {/* Per-item result cards with action buttons */}
       <div className="space-y-2">
         {itemStatuses.map((item, i) => (
-          <div
+          <ItemStatusCard
             key={item.name}
-            className={`flex items-center gap-3 px-3 py-2 border transition-colors animate-fade-in ${
-              item.status === 'error'
-                ? 'border-danger/40 bg-danger-light/50'
-                : item.status === 'blocked'
-                ? 'border-warning/40 bg-warning-light/50'
-                : 'border-muted hover:bg-muted/30'
-            }`}
-            style={{
-              borderRadius: radius.sm,
-              animationDelay: `${i * 50}ms`,
-              animationFillMode: 'backwards',
-            }}
-          >
-            <StatusIcon status={item.status} />
-            <div className="flex-1 min-w-0">
-              <span className="text-pencil font-medium flex items-center gap-1.5">
-                {item.kind && <KindBadge kind={item.kind} />}
-                {item.name}
-              </span>
-              {item.message && (
-                <span
-                  className={`text-sm block ${
-                    item.status === 'error'
-                      ? 'text-danger font-medium whitespace-pre-wrap mt-1'
-                      : item.status === 'blocked'
-                      ? 'text-warning whitespace-pre-wrap mt-1'
-                      : 'text-pencil-light truncate'
-                  }`}
-                >
-                  {item.message}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {item.auditRiskLabel && item.auditRiskLabel !== 'clean' && (
-                <Badge variant={item.auditRiskLabel === 'critical' || item.auditRiskLabel === 'high' ? 'danger' : 'warning'}>
-                  <ShieldAlert size={12} className="mr-1" />
-                  {item.auditRiskLabel}
-                </Badge>
-              )}
-              {item.status === 'error' && (
-                isStaleError(item.message) ? (
-                  <Button variant="danger" size="sm" onClick={() => handlePurge(item.name)}>
-                    <Trash2 size={14} />
-                    Purge
-                  </Button>
-                ) : (
-                  <Button variant="danger" size="sm" onClick={() => handleRetryForce(item.name)}>
-                    <RefreshCw size={14} />
-                    Force Retry
-                  </Button>
-                )
-              )}
-              {item.status === 'blocked' && (
-                <Button variant="warning" size="sm" onClick={() => handleRetryForce(item.name)}>
-                  <RefreshCw size={14} />
-                  Force Retry
-                </Button>
-              )}
-              <StatusBadge status={item.status} />
-            </div>
-          </div>
+            item={item}
+            index={i}
+            showActions
+            onRetryForce={handleRetryForce}
+            onPurge={handlePurge}
+          />
         ))}
       </div>
     </div>
   );
 }
+
+/* ── Shared item status card ─────────────────────────── */
+
+interface ItemStatusCardProps {
+  item: ItemUpdateStatus;
+  index: number;
+  showActions?: boolean;
+  onRetryForce?: (name: string) => void;
+  onPurge?: (name: string) => void;
+}
+
+const ItemStatusCard = forwardRef<HTMLDivElement, ItemStatusCardProps>(
+  ({ item, index, showActions, onRetryForce, onPurge }, ref) => (
+    <div
+      ref={ref}
+      className={`flex items-center gap-3 px-3 py-2 border transition-colors animate-fade-in ${
+        item.status === 'error'
+          ? 'border-danger/40 bg-danger-light/50'
+          : item.status === 'blocked'
+          ? 'border-warning/40 bg-warning-light/50'
+          : 'border-muted hover:bg-muted/30'
+      }`}
+      style={{
+        borderRadius: radius.sm,
+        animationDelay: `${index * 50}ms`,
+        animationFillMode: 'backwards',
+      }}
+    >
+      <StatusIcon status={item.status} />
+      <div className="flex-1 min-w-0">
+        <span className="text-pencil font-medium flex items-center gap-1.5">
+          {item.kind && <KindBadge kind={item.kind} />}
+          {item.name}
+        </span>
+        {item.message && (
+          <span
+            className={`text-sm block ${
+              item.status === 'error'
+                ? 'text-danger font-medium whitespace-pre-wrap mt-1'
+                : item.status === 'blocked'
+                ? 'text-warning whitespace-pre-wrap mt-1'
+                : 'text-pencil-light truncate'
+            }`}
+          >
+            {item.message}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {item.auditRiskLabel && item.auditRiskLabel !== 'clean' && (
+          <Badge variant={item.auditRiskLabel === 'critical' || item.auditRiskLabel === 'high' ? 'danger' : 'warning'}>
+            <ShieldAlert size={12} className="mr-1" />
+            {item.auditRiskLabel}
+          </Badge>
+        )}
+        {showActions && item.status === 'error' && (
+          isStaleError(item.message) ? (
+            <Button variant="danger" size="sm" onClick={() => onPurge?.(item.name)}>
+              <Trash2 size={14} />
+              Purge
+            </Button>
+          ) : (
+            <Button variant="danger" size="sm" onClick={() => onRetryForce?.(item.name)}>
+              <RefreshCw size={14} />
+              Force Retry
+            </Button>
+          )
+        )}
+        {showActions && item.status === 'blocked' && (
+          <Button variant="warning" size="sm" onClick={() => onRetryForce?.(item.name)}>
+            <RefreshCw size={14} />
+            Force Retry
+          </Button>
+        )}
+        <StatusBadge status={item.status} />
+      </div>
+    </div>
+  ),
+);
+ItemStatusCard.displayName = 'ItemStatusCard';
 
 /* ── Helper functions ──────────────────────────────── */
 

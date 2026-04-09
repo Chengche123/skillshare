@@ -38,21 +38,7 @@ import { Virtuoso } from 'react-virtuoso';
 import { radius } from '../design';
 import KindBadge from '../components/KindBadge';
 import SourceBadge from '../components/SourceBadge';
-
-/* ── Glob → Regex (supports * and ? only) ──────────── */
-
-function globToRegex(pattern: string): RegExp {
-  // If no glob chars (* or ?), treat as substring search
-  if (!/[*?]/.test(pattern)) {
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(escaped, 'i');
-  }
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*')
-    .replace(/\?/g, '.');
-  return new RegExp(`^${escaped}$`, 'i');
-}
+import { globToRegex } from '../lib/glob';
 
 /* ── Types ──────────────────────────────────────────── */
 
