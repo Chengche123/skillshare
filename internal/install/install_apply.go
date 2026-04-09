@@ -25,6 +25,17 @@ func buildDiscoverySkillSource(source *Source, skillPath string) string {
 	return source.Raw + "/" + skillPath
 }
 
+func discoverySourceRoot(discovery *DiscoveryResult) string {
+	if discovery.Source != nil && discovery.Source.Type == SourceTypeLocalPath {
+		return discovery.RepoPath
+	}
+	return filepath.Join(discovery.RepoPath, "repo")
+}
+
+func installAgentRelativePath(agent AgentInfo) string {
+	return strings.TrimPrefix(filepath.ToSlash(agent.Path), "agents/")
+}
+
 func installImpl(source *Source, destPath string, opts InstallOptions) (*InstallResult, error) {
 	// Derive SourceDir from destPath if not set by caller.
 	// destPath = sourceDir[/into]/skillName, so strip Into + skillName.
@@ -228,17 +239,18 @@ func installFromDiscoveryImpl(discovery *DiscoveryResult, skill SkillInfo, destP
 	}
 
 	// Determine source path in temp repo
+	sourceRoot := discoverySourceRoot(discovery)
 	var srcPath string
 	if discovery.Source.HasSubdir() {
 		// Subdir discovery: paths are relative to the subdir
 		if skill.Path == "." {
-			srcPath = filepath.Join(discovery.RepoPath, "repo", discovery.Source.Subdir)
+			srcPath = filepath.Join(sourceRoot, discovery.Source.Subdir)
 		} else {
-			srcPath = filepath.Join(discovery.RepoPath, "repo", discovery.Source.Subdir, skill.Path)
+			srcPath = filepath.Join(sourceRoot, discovery.Source.Subdir, skill.Path)
 		}
 	} else {
 		// Whole-repo discovery: paths are relative to repo root
-		srcPath = filepath.Join(discovery.RepoPath, "repo", skill.Path)
+		srcPath = filepath.Join(sourceRoot, skill.Path)
 	}
 
 	if err := copyDir(srcPath, destPath); err != nil {
@@ -262,11 +274,11 @@ func installFromDiscoveryImpl(discovery *DiscoveryResult, skill SkillInfo, destP
 	meta := NewMetaFromSource(source)
 	if discovery.CommitHash != "" {
 		meta.Version = discovery.CommitHash
-	} else if hash, err := getGitCommit(filepath.Join(discovery.RepoPath, "repo")); err == nil {
+	} else if hash, err := getGitCommit(sourceRoot); err == nil {
 		meta.Version = hash
 	}
 	if fullSubdir != "" {
-		meta.TreeHash = getSubdirTreeHash(filepath.Join(discovery.RepoPath, "repo"), fullSubdir)
+		meta.TreeHash = getSubdirTreeHash(sourceRoot, fullSubdir)
 	}
 	if hashes, hashErr := ComputeFileHashes(destPath); hashErr == nil {
 		meta.FileHashes = hashes
@@ -406,7 +418,7 @@ func InstallAgentFromDiscovery(discovery *DiscoveryResult, agent AgentInfo, dest
 		Source:    buildDiscoverySkillSource(discovery.Source, agent.Path),
 	}
 
-	destFile := filepath.Join(destDir, agent.FileName)
+	destFile := filepath.Join(destDir, filepath.FromSlash(installAgentRelativePath(agent)))
 	result.SkillPath = destFile
 
 	if opts.DryRun {
@@ -414,7 +426,7 @@ func InstallAgentFromDiscovery(discovery *DiscoveryResult, agent AgentInfo, dest
 		return result, nil
 	}
 
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destFile), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create agents directory: %w", err)
 	}
 
@@ -426,11 +438,12 @@ func InstallAgentFromDiscovery(discovery *DiscoveryResult, agent AgentInfo, dest
 	}
 
 	// Determine source path in temp repo
+	sourceRoot := discoverySourceRoot(discovery)
 	var srcPath string
 	if discovery.Source.HasSubdir() {
-		srcPath = filepath.Join(discovery.RepoPath, "repo", discovery.Source.Subdir, agent.Path)
+		srcPath = filepath.Join(sourceRoot, discovery.Source.Subdir, agent.Path)
 	} else {
-		srcPath = filepath.Join(discovery.RepoPath, "repo", agent.Path)
+		srcPath = filepath.Join(sourceRoot, agent.Path)
 	}
 
 	data, err := os.ReadFile(srcPath)
@@ -456,7 +469,7 @@ func InstallAgentFromDiscovery(discovery *DiscoveryResult, agent AgentInfo, dest
 		meta.Version = discovery.CommitHash
 	}
 	if hash, hashErr := computeSingleFileHash(destFile); hashErr == nil {
-		meta.FileHashes = map[string]string{agent.FileName: hash}
+		meta.FileHashes = map[string]string{filepath.Base(destFile): hash}
 	}
 
 	if err := WriteMetaToStore(opts.SourceDir, destFile, meta); err != nil {

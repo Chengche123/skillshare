@@ -180,6 +180,9 @@ func WriteMetaToStore(sourceDir, destPath string, meta *SkillMeta) error {
 		return fmt.Errorf("relative path: %w", err)
 	}
 	rel = filepath.ToSlash(rel)
+	if meta.Kind == MetadataKindAgent {
+		rel = strings.TrimSuffix(rel, ".md")
+	}
 
 	// Extract group from relative path (e.g. "frontend/foo" → group "frontend").
 	group := ""

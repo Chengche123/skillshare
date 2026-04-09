@@ -70,3 +70,100 @@ func TestHandleInstallBatch_AgentInstallWritesMetadataToAgentsSource(t *testing.
 		t.Fatalf("expected no agent metadata written to skills source, got err=%v", err)
 	}
 }
+
+func TestHandleDiscover_LocalSourceReturnsAgents(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	sourceDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(sourceDir, "reviewer.md"), []byte("# Reviewer agent"), 0o644); err != nil {
+		t.Fatalf("failed to write local agent: %v", err)
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"source": sourceDir,
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/discover", bytes.NewReader(payload))
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		NeedsSelection bool `json:"needsSelection"`
+		Skills         []struct {
+			Name string `json:"name"`
+		} `json:"skills"`
+		Agents []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+			Kind string `json:"kind"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.NeedsSelection {
+		t.Fatal("expected local agent discovery to require selection UI")
+	}
+	if len(resp.Skills) != 0 {
+		t.Fatalf("expected no skills, got %d", len(resp.Skills))
+	}
+	if len(resp.Agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(resp.Agents))
+	}
+	if resp.Agents[0].Name != "reviewer" || resp.Agents[0].Path != "reviewer.md" || resp.Agents[0].Kind != "agent" {
+		t.Fatalf("unexpected agent payload: %+v", resp.Agents[0])
+	}
+}
+
+func TestHandleInstallBatch_LocalAgentInstallPreservesNestedPath(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	agentsDir := filepath.Join(t.TempDir(), "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatalf("failed to create agents dir: %v", err)
+	}
+	s.cfg.AgentsSource = agentsDir
+	s.agentsStore = install.NewMetadataStore()
+
+	sourceDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(sourceDir, "demo"), 0o755); err != nil {
+		t.Fatalf("failed to create nested agent dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "demo", "reviewer.md"), []byte("# Reviewer agent"), 0o644); err != nil {
+		t.Fatalf("failed to write nested agent: %v", err)
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"source": sourceDir,
+		"skills": []map[string]string{
+			{"name": "reviewer", "path": "demo/reviewer.md"},
+		},
+		"kind": "agent",
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/install/batch", bytes.NewReader(payload))
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(agentsDir, "demo", "reviewer.md")); err != nil {
+		t.Fatalf("expected installed nested agent in agents source: %v", err)
+	}
+	if got := s.agentsStore.GetByPath("demo/reviewer"); got == nil {
+		t.Fatal("expected nested agent metadata loaded into agentsStore")
+	}
+}

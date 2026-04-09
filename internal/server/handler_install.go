@@ -13,6 +13,16 @@ import (
 	"skillshare/internal/install"
 )
 
+func discoverInstallSource(source *install.Source) (*install.DiscoveryResult, error) {
+	if source.IsGit() {
+		if source.HasSubdir() {
+			return install.DiscoverFromGitSubdir(source)
+		}
+		return install.DiscoverFromGit(source)
+	}
+	return install.DiscoverLocal(source)
+}
+
 // handleDiscover clones a git repo to a temp dir, discovers skills, then cleans up.
 // Returns whether the caller needs to present a selection UI.
 func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
@@ -41,22 +51,7 @@ func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	}
 	source.Branch = body.Branch
 
-	// Non-git sources (local paths) don't need discovery
-	if !source.IsGit() {
-		writeJSON(w, map[string]any{
-			"needsSelection": false,
-			"skills":         []any{},
-		})
-		return
-	}
-
-	// Use subdir-aware discovery when a subdirectory is specified
-	var discovery *install.DiscoveryResult
-	if source.HasSubdir() {
-		discovery, err = install.DiscoverFromGitSubdir(source)
-	} else {
-		discovery, err = install.DiscoverFromGit(source)
-	}
+	discovery, err := discoverInstallSource(source)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -115,12 +110,7 @@ func (s *Server) handleInstallBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	source.Branch = body.Branch
 
-	var discovery *install.DiscoveryResult
-	if source.HasSubdir() {
-		discovery, err = install.DiscoverFromGitSubdir(source)
-	} else {
-		discovery, err = install.DiscoverFromGit(source)
-	}
+	discovery, err := discoverInstallSource(source)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "discovery failed: "+err.Error())
 		return
@@ -136,7 +126,11 @@ func (s *Server) handleInstallBatch(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure Into directory exists
 	if body.Into != "" {
-		if err := os.MkdirAll(filepath.Join(s.cfg.Source, body.Into), 0755); err != nil {
+		baseDir := s.cfg.Source
+		if body.Kind == "agent" {
+			baseDir = s.agentsSource()
+		}
+		if err := os.MkdirAll(filepath.Join(baseDir, body.Into), 0755); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create into directory: "+err.Error())
 			return
 		}
@@ -176,7 +170,7 @@ func (s *Server) handleInstallBatch(w http.ResponseWriter, r *http.Request) {
 			agentInfo := install.AgentInfo{
 				Name:     sel.Name,
 				Path:     sel.Path,
-				FileName: sel.Name + ".md",
+				FileName: filepath.Base(sel.Path),
 			}
 			res, err := install.InstallAgentFromDiscovery(discovery, agentInfo, agentsDir, installOpts)
 			if err != nil {
@@ -269,6 +263,11 @@ func (s *Server) handleInstallBatch(w http.ResponseWriter, r *http.Request) {
 
 	// Reconcile config after install
 	if installed > 0 {
+		if isAgent {
+			if st, loadErr := install.LoadMetadataWithMigration(s.agentsSource(), install.MetadataKindAgent); loadErr == nil && st != nil {
+				s.agentsStore = st
+			}
+		}
 		if s.IsProjectMode() {
 			if rErr := config.ReconcileProjectSkills(s.projectRoot, s.projectCfg, s.skillsStore, s.cfg.Source); rErr != nil {
 				log.Printf("warning: failed to reconcile project skills config: %v", rErr)

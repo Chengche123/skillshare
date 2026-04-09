@@ -219,6 +219,11 @@ func DiscoverFromGitSubdirWithProgress(source *Source, onProgress ProgressCallba
 	return discoverFromGitSubdirWithProgressImpl(source, onProgress)
 }
 
+// DiscoverLocal inspects a local directory and discovers skills and agents.
+func DiscoverLocal(source *Source) (*DiscoveryResult, error) {
+	return discoverLocalImpl(source)
+}
+
 // CleanupDiscovery removes temporary resources created by discovery.
 func CleanupDiscovery(result *DiscoveryResult) {
 	cleanupDiscoveryImpl(result)

@@ -17,10 +17,15 @@ func newTestServer(t *testing.T) (*Server, string) {
 	t.Helper()
 	tmp := t.TempDir()
 	sourceDir := filepath.Join(tmp, "skills")
+	homeDir := filepath.Join(tmp, "home")
 	os.MkdirAll(sourceDir, 0755)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(tmp, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "xdg-config"))
+	if os.Getenv("HOME") == "" {
+		os.MkdirAll(homeDir, 0755)
+		t.Setenv("HOME", homeDir)
+	}
 
 	cfgPath := filepath.Join(tmp, "config", "config.yaml")
 	t.Setenv("SKILLSHARE_CONFIG", cfgPath)
@@ -43,10 +48,15 @@ func newTestServerWithTargets(t *testing.T, targets map[string]string) (*Server,
 	t.Helper()
 	tmp := t.TempDir()
 	sourceDir := filepath.Join(tmp, "skills")
+	homeDir := filepath.Join(tmp, "home")
 	os.MkdirAll(sourceDir, 0755)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(tmp, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "xdg-config"))
+	if os.Getenv("HOME") == "" {
+		os.MkdirAll(homeDir, 0755)
+		t.Setenv("HOME", homeDir)
+	}
 
 	cfgPath := filepath.Join(tmp, "config", "config.yaml")
 	t.Setenv("SKILLSHARE_CONFIG", cfgPath)

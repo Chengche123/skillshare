@@ -62,6 +62,40 @@ func discoverFromGitImpl(source *Source) (*DiscoveryResult, error) {
 	return discoverFromGitWithProgressImpl(source, nil)
 }
 
+func discoverLocalImpl(source *Source) (*DiscoveryResult, error) {
+	if source == nil {
+		return nil, fmt.Errorf("source is required")
+	}
+	if source.Type != SourceTypeLocalPath {
+		return nil, fmt.Errorf("source is not a local path")
+	}
+
+	info, err := os.Stat(source.Path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot access source path: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("source path is not a directory: %s", source.Path)
+	}
+
+	skills := discoverSkills(source.Path, true)
+	for i := range skills {
+		if skills[i].Path == "." {
+			skills[i].Name = source.Name
+			break
+		}
+	}
+
+	agents := discoverAgents(source.Path, len(skills) > 0)
+
+	return &DiscoveryResult{
+		RepoPath: source.Path,
+		Skills:   skills,
+		Agents:   agents,
+		Source:   source,
+	}, nil
+}
+
 // resolveSubdir resolves a subdirectory path within a cloned repo.
 // It first checks for an exact match. If not found, it scans the repo for
 // SKILL.md files and looks for a skill whose name matches filepath.Base(subdir).

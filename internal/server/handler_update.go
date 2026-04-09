@@ -224,7 +224,7 @@ func (s *Server) updateAgent(name string, _ bool, _ bool) updateResultItem {
 		}
 	}
 
-	destDir := filepath.Dir(localAgent.SourcePath)
+	destDir := agentsSource
 	res, err := install.InstallAgentFromDiscovery(discovery, *target, destDir, install.InstallOptions{
 		Kind:      "agent",
 		Force:     true,

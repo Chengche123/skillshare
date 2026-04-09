@@ -83,16 +83,17 @@ export default function SkillPickerModal({
     if (items.length > 0) onInstall(items);
   };
 
+  const allAgents = skills.length > 0 && skills.every((s) => s.kind === 'agent');
+  const someAgents = skills.some((s) => s.kind === 'agent');
+  const singularLabel = allAgents ? 'agent' : someAgents ? 'resource' : 'skill';
+  const pluralLabel = allAgents ? 'agents' : someAgents ? 'resources' : 'skills';
+
   return (
     <DialogShell open={open} onClose={onCancel} maxWidth="2xl" preventClose={installing}>
           <h3 className="text-xl font-bold text-pencil mb-1">
             {singleSelect
-              ? 'Select a Resource to Install'
-              : skills.some((s) => s.kind === 'agent')
-                ? skills.every((s) => s.kind === 'agent')
-                  ? 'Select Agents to Install'
-                  : 'Select Resources to Install'
-                : 'Select Skills to Install'
+              ? `Select ${singularLabel[0].toUpperCase() + singularLabel.slice(1)} to Install`
+              : `Select ${pluralLabel[0].toUpperCase() + pluralLabel.slice(1)} to Install`
             }
           </h3>
           <p className="text-sm text-pencil-light mb-4 truncate font-mono">
@@ -109,7 +110,7 @@ export default function SkillPickerModal({
               />
               <Input
                 type="text"
-                placeholder="Filter skills..."
+                placeholder={`Filter ${pluralLabel}...`}
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 className="!pl-8 !py-1.5 !text-sm font-mono"
@@ -127,7 +128,7 @@ export default function SkillPickerModal({
               />
               {filter && (
                 <span className="text-xs text-muted-dark">
-                  {filtered.length} of {skills.length} skills
+                  {filtered.length} of {skills.length} {pluralLabel}
                 </span>
               )}
             </div>
@@ -137,7 +138,7 @@ export default function SkillPickerModal({
           {singleSelect && (
             <div className="border-b border-dashed border-pencil-light/30 pb-2 mb-2">
               <span className="text-xs text-muted-dark">
-                Custom name is set — select one skill
+                Custom name is set — select one {singularLabel}
                 {filter && ` (${filtered.length} of ${skills.length})`}
               </span>
             </div>

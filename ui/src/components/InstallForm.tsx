@@ -474,7 +474,7 @@ export default function InstallForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-            <p className="text-xs text-muted-dark mt-1">Only applies to single skill install</p>
+            <p className="text-xs text-muted-dark mt-1">Only applies to single resource install</p>
           </div>
           <Input
             label="Into directory"
@@ -505,7 +505,7 @@ export default function InstallForm({
             />
           </div>
           <p className="text-xs text-muted-dark mt-2">
-            Track keeps the git repo linked for updates · Force overwrites existing skills · Skip audit bypasses security scan
+            Track keeps the git repo linked for updates · Force overwrites existing resources · Skip audit bypasses security scan
           </p>
         </div>
 
@@ -658,7 +658,7 @@ export default function InstallForm({
         <div className="text-left space-y-3">
           <div className="flex items-center gap-2 mb-4">
             <ShieldCheck size={20} className="text-warning" />
-            <span>Skill installed with audit warnings</span>
+            <span>Resource installed with audit warnings</span>
           </div>
           <div className="flex flex-wrap gap-1.5 items-center text-xs text-pencil-light">
             <span>{warningFindings.length} {warningFindings.length === 1 ? 'warning' : 'warnings'}:</span>

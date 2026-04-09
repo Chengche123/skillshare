@@ -33,6 +33,12 @@ func TestHandleCollectScan_Empty(t *testing.T) {
 }
 
 func TestHandleCollectScan_WithLocalSkills(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+
 	tgtPath := filepath.Join(t.TempDir(), "claude-skills")
 	s, _ := newTestServerWithTargets(t, map[string]string{"claude": tgtPath})
 
@@ -71,6 +77,12 @@ func TestHandleCollect_NoSkills(t *testing.T) {
 }
 
 func TestHandleCollectScan_GlobalCopyModeInheritedTarget_SkipsManaged(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+
 	tgtPath := filepath.Join(t.TempDir(), "claude-skills")
 	s, sourceDir := newTestServerWithTargets(t, map[string]string{"claude": tgtPath})
 
@@ -356,6 +368,12 @@ func TestHandleCollect_MixedSkillsAndAgents(t *testing.T) {
 }
 
 func TestHandleCollectScan_AgentKind_NoSource(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+
 	tgtPath := filepath.Join(t.TempDir(), "claude-skills")
 	s, sourceDir := newTestServerWithTargets(t, map[string]string{"claude": tgtPath})
 
