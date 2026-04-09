@@ -34,6 +34,7 @@ import { useToast } from '../components/Toast';
 import { api } from '../api/client';
 import type { Target as TargetType, CheckResult, AuditAllResponse, Extra } from '../api/client';
 import { radius, shadows } from '../design';
+import { clearAuditCache } from '../lib/auditCache';
 
 const STAR_CTA_DISMISSED_KEY = 'skillshare.dashboard.starCta.dismissed';
 
@@ -427,6 +428,7 @@ function TrackedReposSection({ repos }: { repos: { name: string; skillCount: num
   const [deletingRepos, setDeletingRepos] = useState<Set<string>>(new Set());
 
   const invalidateRepoData = async () => {
+    clearAuditCache(queryClient);
     await queryClient.invalidateQueries({ queryKey: queryKeys.overview });
     await queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
     await queryClient.invalidateQueries({ queryKey: queryKeys.trash });

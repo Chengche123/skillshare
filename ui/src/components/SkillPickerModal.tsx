@@ -145,25 +145,32 @@ export default function SkillPickerModal({
           )}
 
           {/* Skill list */}
-          <div className="overflow-y-auto space-y-1 mb-4" style={{ maxHeight: '16rem' }}>
+          <div className="overflow-y-auto space-y-1.5 mb-4" style={{ maxHeight: '22rem' }}>
             {filtered.map((skill) => {
               const isSelected = selected.has(skill.path);
               return (
                 <label
                   key={skill.path}
-                  className="flex items-start gap-2 py-1.5 px-1 rounded-md cursor-pointer hover:bg-muted/30 transition-colors"
+                  className="flex items-start gap-2.5 py-2.5 px-2 rounded-md cursor-pointer hover:bg-muted/30 transition-colors"
                   style={{ borderRadius: radius.sm }}
                 >
                   {singleSelect ? (
-                    <span
-                      className={`mt-1.5 w-4 h-4 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors ${
+                    <button
+                      type="button"
+                      aria-label={`Select ${skill.name}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggle(skill.path);
+                      }}
+                      className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue/20 ${
                         isSelected ? 'border-info bg-info' : 'border-muted-dark'
                       }`}
                     >
                       {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </span>
+                    </button>
                   ) : (
-                    <span className="mt-1.5">
+                    <span className="mt-1">
                       <Checkbox
                         label=""
                         checked={isSelected}

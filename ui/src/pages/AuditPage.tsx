@@ -14,7 +14,7 @@ import {
   Puzzle,
   Bot,
 } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import type { AuditAllResponse, AuditResult, AuditFinding } from '../api/client';
 import Card from '../components/Card';
@@ -31,6 +31,7 @@ import { BlockStamp, RiskMeter, riskColor, riskBgColor } from '../components/aud
 import ScrollToTop from '../components/ScrollToTop';
 import KindBadge from '../components/KindBadge';
 import { queryKeys, staleTimes } from '../lib/queryKeys';
+import { getCachedAuditResult } from '../lib/auditCache';
 
 type SeverityFilter = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 type AuditKind = 'skills' | 'agents';
@@ -48,6 +49,11 @@ const severityFilterOptions: { value: SeverityFilter; label: string }[] = [
 export default function AuditPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const overviewQuery = useQuery({
+    queryKey: queryKeys.overview,
+    queryFn: () => api.getOverview(),
+    staleTime: staleTimes.overview,
+  });
   const [activeKind, setActiveKind] = useState<AuditKind>('skills');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,16 +64,15 @@ export default function AuditPage() {
   // Bump to trigger re-render after writing to query cache
   const [, setCacheTick] = useState(0);
 
-  // Read cached audit results per kind from React Query cache.
-  // Cache survives page navigation; stale after staleTimes.audit (5min).
-  const getCached = (kind: AuditKind): AuditAllResponse | null => {
-    const state = queryClient.getQueryState(queryKeys.audit.all(kind));
-    if (!state || state.dataUpdatedAt === 0) return null;
-    // Respect stale time — don't show data older than threshold
-    if (Date.now() - state.dataUpdatedAt > staleTimes.audit) return null;
-    return queryClient.getQueryData<AuditAllResponse>(queryKeys.audit.all(kind)) ?? null;
+  const installedCounts = {
+    skills: overviewQuery.data?.skillCount,
+    agents: overviewQuery.data?.agentCount,
   };
-  const dataCache = { skills: getCached('skills'), agents: getCached('agents') };
+  const installedCount = installedCounts[activeKind];
+  const dataCache = {
+    skills: getCachedAuditResult(queryClient, 'skills', installedCounts.skills),
+    agents: getCachedAuditResult(queryClient, 'agents', installedCounts.agents),
+  };
   const data = dataCache[activeKind];
 
   // Clean up EventSource on unmount
@@ -122,6 +127,11 @@ export default function AuditPage() {
   }, [toast, activeKind]);
 
   const runAudit = () => {
+    if (installedCount === 0) {
+      toast(`No ${activeKind} installed to audit`, 'info');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setProgress(null);
@@ -154,7 +164,7 @@ export default function AuditPage() {
       <PageHeader
         icon={<ShieldCheck size={24} strokeWidth={2.5} />}
         title="Security Audit"
-        subtitle="Scan installed skills for malicious patterns and security threats"
+        subtitle="Scan installed skills and agents for malicious patterns and security threats"
         actions={
           <>
             <Link to="/audit/rules">
@@ -167,7 +177,7 @@ export default function AuditPage() {
               variant="primary"
               size="sm"
               onClick={runAudit}
-              disabled={loading}
+              disabled={loading || overviewQuery.isPending || installedCount === 0}
             >
               <ShieldCheck size={16} strokeWidth={2.5} />
               {loading ? 'Scanning...' : 'Run Audit'}
@@ -180,8 +190,8 @@ export default function AuditPage() {
       {/* Kind tabs */}
       <nav className="ss-resource-tabs flex items-center gap-6 border-b-2 border-muted -mx-4 px-4 md:-mx-8 md:px-8" role="tablist">
         {([
-          { key: 'skills' as AuditKind, icon: <Puzzle size={16} strokeWidth={2.5} />, label: 'Skills', count: dataCache.skills?.summary.total },
-          { key: 'agents' as AuditKind, icon: <Bot size={16} strokeWidth={2.5} />, label: 'Agents', count: dataCache.agents?.summary.total },
+          { key: 'skills' as AuditKind, icon: <Puzzle size={16} strokeWidth={2.5} />, label: 'Skills', count: installedCounts.skills },
+          { key: 'agents' as AuditKind, icon: <Bot size={16} strokeWidth={2.5} />, label: 'Agents', count: installedCounts.agents },
         ]).map((tab) => (
           <button
             key={tab.key}
@@ -298,7 +308,15 @@ export default function AuditPage() {
       )}
 
       {/* Initial state - no scan run yet */}
-      {!data && !loading && !error && (
+      {!data && !loading && !error && installedCount === 0 && (
+        <EmptyState
+          icon={ShieldCheck}
+          title={`No ${activeKind} installed`}
+          description={`Install ${activeKind === 'agents' ? 'an agent' : 'a skill'} first to run a security audit`}
+        />
+      )}
+
+      {!data && !loading && !error && installedCount !== 0 && (
         <EmptyState
           icon={ShieldCheck}
           title={`No ${activeKind} audit results yet`}

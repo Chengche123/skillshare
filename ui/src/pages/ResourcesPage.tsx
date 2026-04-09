@@ -32,6 +32,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { VirtuosoGrid, Virtuoso } from 'react-virtuoso';
 import type { GridComponents } from 'react-virtuoso';
 import { queryKeys, staleTimes } from '../lib/queryKeys';
+import { clearAuditCache } from '../lib/auditCache';
 import Badge from '../components/Badge';
 import KindBadge from '../components/KindBadge';
 import SourceBadge from '../components/SourceBadge';
@@ -91,7 +92,8 @@ function summarizeAgentTargets(entries: SyncMatrixEntry[]): { label: string; tit
     };
   }
 
-  const synced = entries
+  const applicable = entries.filter((entry) => entry.status !== 'na');
+  const synced = applicable
     .filter((entry) => entry.status === 'synced')
     .map((entry) => entry.target)
     .sort();
@@ -100,6 +102,14 @@ function summarizeAgentTargets(entries: SyncMatrixEntry[]): { label: string; tit
     return {
       label: 'Filtered out',
       title: 'This agent is excluded by the current target agent filters.',
+    };
+  }
+
+  // All applicable targets synced → "All"
+  if (synced.length === applicable.length) {
+    return {
+      label: 'All',
+      title: 'All targets',
     };
   }
 
@@ -158,6 +168,7 @@ function useResourceActions() {
       return { previous };
     },
     onSuccess: (_, { name, kind }) => {
+      clearAuditCache(queryClient);
       toast(`Uninstalled ${resourceLabel(kind)} ${name}`, 'success');
     },
     onError: (err: Error, _, ctx) => {
@@ -177,6 +188,7 @@ function useResourceActions() {
       return { previous };
     },
     onSuccess: (_, repoName) => {
+      clearAuditCache(queryClient);
       toast(`Uninstalled repo ${repoName}`, 'success');
     },
     onError: (err: Error, _, ctx) => {
@@ -200,7 +212,8 @@ function useResourceActions() {
       return { previous };
     },
     onSuccess: (_, { name, target }) => {
-      toast(`${name} now available in ${target ?? 'All'}`, 'success');
+      const display = name.replace(/__/g, '/').replace(/\.md$/, '');
+      toast(`${display} now available in ${target ?? 'All'}`, 'success');
     },
     onError: (err: Error, _, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
@@ -1051,7 +1064,6 @@ export default function SkillsPage() {
           anchorPoint={gridContextMenu.point}
           currentTargets={gridContextMenu.currentTargets}
           isUniform={true}
-          showTargets={gridContextMenu.kind !== 'agent'}
           extraItems={buildResourceExtraItems(
             {
               flatName: gridContextMenu.skillFlatName,
@@ -1132,6 +1144,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { getSkillTargets: treeGetSkillTargets } = useSyncMatrix();
   const {
     uninstallMutation,
     uninstallRepoMutation,
@@ -1339,6 +1352,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
     const skill = node.skill!;
     const nt = normalizeTargets(skill.targets);
     const skillTargetLabel = nt.length > 0 ? nt.join(', ') : 'All';
+    const agentTargetInfo = skill.kind === 'agent' ? summarizeAgentTargets(treeGetSkillTargets(skill.flatName)) : null;
     const tooltipContent = (
       <div>
         <div>{skill.relPath}</div>
@@ -1399,6 +1413,14 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
                   <Badge variant="default">
                     <Target size={10} strokeWidth={2.5} className="inline -mt-px mr-0.5" />
                     {skillTargetLabel}
+                  </Badge>
+                </Tooltip>
+              )}
+              {resourceKind === 'agent' && agentTargetInfo && (
+                <Tooltip content={agentTargetInfo.title}>
+                  <Badge variant="default">
+                    <Target size={10} strokeWidth={2.5} className="inline -mt-px mr-0.5" />
+                    {agentTargetInfo.label}
                   </Badge>
                 </Tooltip>
               )}
@@ -1501,23 +1523,22 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
           anchorPoint={contextMenu.point}
           currentTargets={contextMenu.currentTargets}
           isUniform={contextMenu.isUniform}
-          showTargets={resourceKind === 'skill'}
           label={contextMenu.mode === 'folder' ? 'Folder available in...' : 'Available in...'}
           extraItems={contextMenu.mode === 'skill' ? buildExtraItems(
-            {
-              flatName: contextMenu.skillFlatName!,
-              name: contextMenu.skillName ?? contextMenu.skillFlatName!,
-              relPath: contextMenu.relPath ?? '',
-              disabled: !!contextMenu.disabled,
-              isInRepo: !!contextMenu.isInRepo,
-              kind: contextMenu.kind ?? resourceKind,
-            },
-            () => setConfirmUninstall({
-              flatName: contextMenu.skillFlatName!,
-              name: contextMenu.skillName ?? contextMenu.skillFlatName!,
-              kind: contextMenu.kind ?? resourceKind,
-            }),
-            (repoName) => { setConfirmUninstallRepo(repoName); setContextMenu(null); },
+              {
+                flatName: contextMenu.skillFlatName!,
+                name: contextMenu.skillName ?? contextMenu.skillFlatName!,
+                relPath: contextMenu.relPath ?? '',
+                disabled: !!contextMenu.disabled,
+                isInRepo: !!contextMenu.isInRepo,
+                kind: contextMenu.kind ?? resourceKind,
+              },
+              () => setConfirmUninstall({
+                flatName: contextMenu.skillFlatName!,
+                name: contextMenu.skillName ?? contextMenu.skillFlatName!,
+                kind: contextMenu.kind ?? resourceKind,
+              }),
+              (repoName) => { setConfirmUninstallRepo(repoName); setContextMenu(null); },
           ) : undefined}
           onSelect={(target) => {
             if (batchMutation.isPending) return;

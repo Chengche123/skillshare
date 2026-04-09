@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -141,6 +142,90 @@ targets:
 	// Claude agents should be synced
 	if _, err := os.Lstat(filepath.Join(claudeAgents, "tutor.md")); err != nil {
 		t.Error("claude agent should be synced")
+	}
+}
+
+func TestDiff_Default_ShowsAgentPruneAfterUninstallAll(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	createAgentSource(t, sb, map[string]string{
+		"tutor.md": "# Tutor agent",
+	})
+	claudeAgents := createAgentTarget(t, sb, "claude")
+
+	sb.WriteConfig(`source: ` + sb.SourcePath + `
+targets:
+  claude:
+    skills:
+      path: ` + sb.CreateTarget("claude") + `
+    agents:
+      path: ` + claudeAgents + `
+`)
+
+	sb.RunCLI("sync", "-g", "agents").AssertSuccess(t)
+	sb.RunCLI("uninstall", "-g", "agents", "--all", "--force").AssertSuccess(t)
+
+	result := sb.RunCLI("diff", "-g", "--json")
+	result.AssertSuccess(t)
+
+	output := parseJSON(t, result.Stdout)
+	targets, ok := output["targets"].([]any)
+	if !ok || len(targets) == 0 {
+		t.Fatalf("expected diff targets, got %v", output["targets"])
+	}
+
+	foundPrune := false
+	for _, rawTarget := range targets {
+		target, ok := rawTarget.(map[string]any)
+		if !ok || target["name"] != "claude" {
+			continue
+		}
+		items, _ := target["items"].([]any)
+		for _, rawItem := range items {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			if item["name"] == "tutor.md" && item["kind"] == "agent" && item["action"] == "remove" {
+				foundPrune = true
+			}
+		}
+	}
+
+	if !foundPrune {
+		pretty, _ := json.MarshalIndent(output, "", "  ")
+		t.Fatalf("expected agent prune in diff output, got:\n%s", string(pretty))
+	}
+}
+
+func TestSync_Agents_PrunesTargetAfterUninstallAll(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	createAgentSource(t, sb, map[string]string{
+		"tutor.md": "# Tutor agent",
+	})
+	claudeAgents := createAgentTarget(t, sb, "claude")
+
+	sb.WriteConfig(`source: ` + sb.SourcePath + `
+targets:
+  claude:
+    skills:
+      path: ` + sb.CreateTarget("claude") + `
+    agents:
+      path: ` + claudeAgents + `
+`)
+
+	sb.RunCLI("sync", "-g", "agents").AssertSuccess(t)
+	sb.RunCLI("uninstall", "-g", "agents", "--all", "--force").AssertSuccess(t)
+
+	syncResult := sb.RunCLI("sync", "-g", "agents")
+	syncResult.AssertSuccess(t)
+	syncResult.AssertAnyOutputContains(t, "1 pruned")
+
+	if _, err := os.Lstat(filepath.Join(claudeAgents, "tutor.md")); !os.IsNotExist(err) {
+		t.Fatalf("expected tutor.md to be pruned from target, got err=%v", err)
 	}
 }
 

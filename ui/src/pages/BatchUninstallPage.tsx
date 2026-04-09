@@ -18,6 +18,7 @@ import {
   Bot,
 } from 'lucide-react';
 import { queryKeys, staleTimes } from '../lib/queryKeys';
+import { clearAuditCache } from '../lib/auditCache';
 import { api } from '../api/client';
 import type { Skill, BatchUninstallItemResult } from '../api/client';
 import Button from '../components/Button';
@@ -279,6 +280,7 @@ export default function BatchUninstallPage() {
       setResults(res.results);
       setSummary(res.summary);
       setPhase('done');
+      clearAuditCache(queryClient);
       queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
       queryClient.invalidateQueries({ queryKey: ['overview'] });
       queryClient.invalidateQueries({ queryKey: ['trash'] });

@@ -10,6 +10,7 @@ import ConfirmDialog from './ConfirmDialog';
 import { useToast } from './Toast';
 import { api, type InstallResult, type DiscoveredSkill, type DiscoveredAgent } from '../api/client';
 import { queryKeys } from '../lib/queryKeys';
+import { clearAuditCache } from '../lib/auditCache';
 import { radius } from '../design';
 
 interface InstallFormProps {
@@ -142,6 +143,7 @@ export default function InstallForm({
   };
 
   const invalidateAfterInstall = () => {
+    clearAuditCache(queryClient);
     queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.overview });
   };

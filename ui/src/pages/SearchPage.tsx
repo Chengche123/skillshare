@@ -14,6 +14,7 @@ import Tooltip from '../components/Tooltip';
 import EmptyState from '../components/EmptyState';
 import { useToast } from '../components/Toast';
 import { api, type SearchResult, type DiscoveredSkill } from '../api/client';
+import { clearAuditCache } from '../lib/auditCache';
 import { queryKeys } from '../lib/queryKeys';
 
 type SearchMode = 'github' | 'hub';
@@ -199,6 +200,7 @@ export default function SearchPage() {
             }
           }
           toast(res.summary, hasAuditBlock ? 'warning' : 'success');
+          clearAuditCache(queryClient);
           queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
           queryClient.invalidateQueries({ queryKey: queryKeys.overview });
           return;
@@ -226,6 +228,7 @@ export default function SearchPage() {
           }
         }
         toast(res.summary, hasAuditBlock ? 'warning' : 'success');
+        clearAuditCache(queryClient);
         queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
         queryClient.invalidateQueries({ queryKey: queryKeys.overview });
       } else {
@@ -237,6 +240,7 @@ export default function SearchPage() {
         if (res.warnings?.length > 0) {
           res.warnings.forEach((w) => toast(w, 'warning'));
         }
+        clearAuditCache(queryClient);
         queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
         queryClient.invalidateQueries({ queryKey: queryKeys.overview });
       }
@@ -270,6 +274,7 @@ export default function SearchPage() {
       }
       toast(res.summary, hasAuditBlock ? 'warning' : 'success');
       setShowPicker(false);
+      clearAuditCache(queryClient);
       queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.overview });
     } catch (e: unknown) {

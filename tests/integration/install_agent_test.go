@@ -4,9 +4,11 @@ package integration
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"skillshare/internal/install"
 	"skillshare/internal/testutil"
 )
 
@@ -229,5 +231,73 @@ targets: {}
 	wrongPath := filepath.Join(sb.SourcePath, "my-agent.md")
 	if sb.FileExists(wrongPath) {
 		t.Error("agent should NOT be in skills source dir")
+	}
+}
+
+func TestInstall_TrackAgentRepo_UsesTrackedRepoFlow(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	sb.WriteConfig(`source: ` + sb.SourcePath + `
+targets: {}
+`)
+
+	repoDir := filepath.Join(sb.Home, "tracked-agent-repo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "reviewer.md"), []byte("# Reviewer v1"), 0o644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+	initGitRepo(t, repoDir)
+
+	installResult := sb.RunCLI("install", "file://"+repoDir, "--track", "--kind", "agent")
+	installResult.AssertSuccess(t)
+
+	agentsDir := filepath.Join(filepath.Dir(sb.SourcePath), "agents")
+	source, err := install.ParseSource("file://" + repoDir)
+	if err != nil {
+		t.Fatalf("parse source: %v", err)
+	}
+	trackedRepoDir := filepath.Join(agentsDir, "_"+source.TrackName())
+	if _, err := os.Stat(filepath.Join(trackedRepoDir, ".git")); err != nil {
+		t.Fatalf("expected tracked agent repo .git to exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(trackedRepoDir, "reviewer.md")); err != nil {
+		t.Fatalf("expected tracked agent file to exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sb.SourcePath, "_tracked-agent-repo")); !os.IsNotExist(err) {
+		t.Fatalf("expected no tracked agent repo in skills source, got err=%v", err)
+	}
+
+	checkResult := sb.RunCLI("check", "agents")
+	checkResult.AssertSuccess(t)
+	checkResult.AssertAnyOutputContains(t, "reviewer")
+	checkResult.AssertOutputNotContains(t, "local agent")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "reviewer.md"), []byte("# Reviewer v2"), 0o644); err != nil {
+		t.Fatalf("update agent: %v", err)
+	}
+	for _, args := range [][]string{
+		{"add", "reviewer.md"},
+		{"commit", "-m", "update reviewer"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %s %v", args, out, err)
+		}
+	}
+
+	updateResult := sb.RunCLI("update", "agents", "--all")
+	updateResult.AssertSuccess(t)
+	updateResult.AssertAnyOutputContains(t, "updated")
+
+	content, err := os.ReadFile(filepath.Join(trackedRepoDir, "reviewer.md"))
+	if err != nil {
+		t.Fatalf("read updated agent: %v", err)
+	}
+	if string(content) != "# Reviewer v2" {
+		t.Fatalf("expected updated tracked agent content, got %q", string(content))
 	}
 }

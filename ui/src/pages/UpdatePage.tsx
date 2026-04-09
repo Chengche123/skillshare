@@ -12,6 +12,7 @@ import EmptyState from '../components/EmptyState';
 import { Checkbox, Input } from '../components/Input';
 import Badge from '../components/Badge';
 import { queryKeys } from '../lib/queryKeys';
+import { clearAuditCache } from '../lib/auditCache';
 import { useToast } from '../components/Toast';
 import { api } from '../api/client';
 import type { CheckResult } from '../api/client';
@@ -270,6 +271,7 @@ export default function UpdatePage() {
     setItemStatuses((prev) => prev.map((s) => s.name === name ? { ...s, ...patch } : s));
 
   const invalidateSkillData = () => {
+    clearAuditCache(queryClient);
     queryClient.invalidateQueries({ queryKey: queryKeys.overview });
     queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
   };

@@ -27,6 +27,7 @@ import { radius, shadows } from '../design';
 import { BlockStamp, RiskMeter } from '../components/audit';
 import { severityBadgeVariant } from '../lib/severity';
 import { useSyncMatrix } from '../hooks/useSyncMatrix';
+import { clearAuditCache } from '../lib/auditCache';
 
 const FileViewerModal = lazy(() => import('../components/FileViewerModal'));
 
@@ -292,6 +293,7 @@ export default function SkillDetailPage() {
         await api.deleteResource(resource.flatName, resource.kind);
         toast(`${resource.kind === 'agent' ? 'Agent' : 'Skill'} "${resource.name}" uninstalled.`, 'success');
       }
+      clearAuditCache(queryClient);
       await queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
       await queryClient.invalidateQueries({ queryKey: queryKeys.overview });
       await queryClient.invalidateQueries({ queryKey: queryKeys.trash });
@@ -319,6 +321,7 @@ export default function SkillDetailPage() {
           ? ` · Security: ${item.auditRiskLabel.toUpperCase()}${item.auditRiskScore ? ` (${item.auditRiskScore}/100)` : ''}`
           : '';
         toast(`Updated: ${item.name} — ${item.message}${auditInfo}`, 'success');
+        clearAuditCache(queryClient);
         await queryClient.invalidateQueries({ queryKey: queryKeys.skills.detail(name!) });
         await queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
         await queryClient.invalidateQueries({ queryKey: queryKeys.overview });

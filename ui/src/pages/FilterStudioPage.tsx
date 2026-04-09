@@ -15,6 +15,7 @@ import EmptyState from '../components/EmptyState';
 import FilterTagInput from '../components/FilterTagInput';
 import KindBadge from '../components/KindBadge';
 import { radius } from '../design';
+import { formatPreviewResourceName } from '../lib/resourceNames';
 
 type FilterKind = 'skill' | 'agent';
 
@@ -149,8 +150,11 @@ export default function FilterStudioPage() {
   const filteredPreview = useMemo(() => {
     if (!previewSearch) return kindPreview;
     const q = previewSearch.toLowerCase();
-    return kindPreview.filter((e) => e.skill.toLowerCase().includes(q));
-  }, [kindPreview, previewSearch]);
+    return kindPreview.filter((e) => {
+      const displayName = formatPreviewResourceName(e.skill, kind);
+      return e.skill.toLowerCase().includes(q) || displayName.toLowerCase().includes(q);
+    });
+  }, [kindPreview, previewSearch, kind]);
 
   // Summary counts (from kind-filtered preview, not search-filtered)
   const { syncedCount, totalCount } = useMemo(() => ({
@@ -329,6 +333,7 @@ const PreviewRow = memo(function PreviewRow({
   const isMismatch = entry.status === 'skill_target_mismatch';
   const clickable = !isMismatch;
   const label = kind === 'agent' ? 'agent' : 'skill';
+  const displayName = formatPreviewResourceName(entry.skill, kind);
 
   return (
     <div
@@ -350,7 +355,7 @@ const PreviewRow = memo(function PreviewRow({
     >
       <StatusIcon status={entry.status} />
       <span className="font-mono text-pencil flex-1 min-w-0 truncate">
-        {entry.skill}
+        {displayName}
       </span>
       {entry.status === 'excluded' && entry.reason && (
         <span className="text-xs text-pencil-light shrink-0">({entry.reason})</span>
