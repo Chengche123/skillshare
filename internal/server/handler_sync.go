@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"skillshare/internal/config"
+	"skillshare/internal/resource"
 	"skillshare/internal/skillignore"
 	ssync "skillshare/internal/sync"
 )
@@ -211,6 +212,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before slow I/O.
 	s.mu.RLock()
 	source := s.cfg.Source
+	agentsSource := s.agentsSource()
 	globalMode := s.cfg.Mode
 	targets := s.cloneTargets()
 	s.mu.RUnlock()
@@ -233,6 +235,61 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		diffs = append(diffs, s.computeTargetDiff(name, target, discovered, globalMode, source))
+	}
+
+	// Agent diffs — discover agents and compute per-target diffs
+	var agents []resource.DiscoveredResource
+	if agentsSource != "" {
+		discovered, _ := resource.AgentKind{}.Discover(agentsSource)
+		agents = resource.ActiveAgents(discovered)
+	}
+
+	if len(agents) > 0 {
+		var builtinAgents map[string]config.TargetConfig
+		if s.IsProjectMode() {
+			builtinAgents = config.ProjectAgentTargets()
+		} else {
+			builtinAgents = config.DefaultAgentTargets()
+		}
+
+		for name, target := range targets {
+			if filterTarget != "" && filterTarget != name {
+				continue
+			}
+
+			ac := target.AgentsConfig()
+			agentPath := ac.Path
+			if agentPath == "" {
+				if builtin, ok := builtinAgents[name]; ok {
+					agentPath = builtin.Path
+				}
+			}
+			if agentPath == "" {
+				continue
+			}
+			agentPath = config.ExpandPath(agentPath)
+
+			agentItems := computeAgentTargetDiff(agentPath, agents)
+			if len(agentItems) == 0 {
+				continue
+			}
+
+			// Merge into existing diff for this target
+			merged := false
+			for i := range diffs {
+				if diffs[i].Target == name {
+					diffs[i].Items = append(diffs[i].Items, agentItems...)
+					merged = true
+					break
+				}
+			}
+			if !merged {
+				diffs = append(diffs, diffTarget{
+					Target: name,
+					Items:  agentItems,
+				})
+			}
+		}
 	}
 
 	resp := map[string]any{"diffs": diffs}
