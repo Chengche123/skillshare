@@ -1558,3 +1558,40 @@ func TestAudit_ProfileInConfig(t *testing.T) {
 		t.Fatalf("expected policyDedupe=global from strict profile default, got %s", payload.Summary.PolicyDedupe)
 	}
 }
+
+func TestAudit_AgentsTerminology(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	// Create an agent in the agents source directory.
+	agentsDir := filepath.Join(sb.Home, ".config", "skillshare", "agents")
+	agentDir := filepath.Join(agentsDir, "test-agent")
+	os.MkdirAll(agentDir, 0o755)
+	os.WriteFile(filepath.Join(agentDir, "agent.md"), []byte("# Test Agent\nA safe agent."), 0o644)
+
+	sb.WriteConfig("source: " + sb.SourcePath + "\nagents_source: " + agentsDir + "\ntargets: {}\n")
+
+	result := sb.RunCLI("audit", "agents", "--no-tui")
+	result.AssertSuccess(t)
+	// Output should use "agent" terminology, not "skill"
+	result.AssertAnyOutputContains(t, "agent")
+	result.AssertOutputNotContains(t, "skill(s)")
+	result.AssertOutputNotContains(t, "Scanned:   1 skill")
+}
+
+func TestAudit_SkillsTerminology(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	sb.CreateSkill("my-skill", map[string]string{
+		"SKILL.md": "---\nname: my-skill\n---\n# Safe skill",
+	})
+	sb.WriteConfig("source: " + sb.SourcePath + "\ntargets: {}\n")
+
+	result := sb.RunCLI("audit", "--no-tui")
+	result.AssertSuccess(t)
+	// Default audit should use "skill" terminology
+	result.AssertAnyOutputContains(t, "skill")
+	result.AssertOutputNotContains(t, "agent(s)")
+	result.AssertOutputNotContains(t, "Scanned:   1 agent")
+}
