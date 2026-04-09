@@ -35,6 +35,8 @@ import { queryKeys, staleTimes } from '../lib/queryKeys';
 type SeverityFilter = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 type AuditKind = 'skills' | 'agents';
 
+const CROSS_SKILL_NAME = '_cross-skill';
+
 const severityFilterOptions: { value: SeverityFilter; label: string }[] = [
   { value: 'INFO', label: 'All (INFO+)' },
   { value: 'LOW', label: 'LOW+' },
@@ -79,7 +81,7 @@ export default function AuditPage() {
   // Cross-skill analysis is a derived insight, not an actual scanned resource.
   const realResults = useMemo(() => {
     if (!data) return [];
-    return data.results.filter((r) => r.skillName !== '_cross-skill');
+    return data.results.filter((r) => r.skillName !== CROSS_SKILL_NAME);
   }, [data]);
 
   const totalFindings = useMemo(() => {

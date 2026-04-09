@@ -77,27 +77,16 @@ func launchAuditTUIWithTabs(results []*audit.Result, scanOutputs []audit.ScanOut
 	var otherOutputs []audit.ScanOutput
 	var otherSummary auditRunSummary
 
+	otherKindFilter := kindAgents
 	otherSource := ctx.agentsSourcePath
-	otherKind := "agent"
 	if ctx.kind == kindAgents {
+		otherKindFilter = kindSkills
 		otherSource = ctx.sourcePath
-		otherKind = "skill"
 	}
 
 	if otherSource != "" {
-		var otherPaths []auditSkillRef
-		var err error
-		if otherKind == "agent" {
-			otherPaths, err = collectInstalledAgentPaths(otherSource)
-		} else {
-			otherPaths, err = collectInstalledSkillPaths(otherSource)
-		}
-		var otherInputs []audit.SkillInput
-		if otherKind == "agent" {
-			otherInputs = toAgentAuditInputs(otherPaths)
-		} else {
-			otherInputs = toAuditInputs(otherPaths)
-		}
+		otherPaths, err := discoverForKind(otherKindFilter, otherSource)
+		otherInputs := toInputsForKind(otherKindFilter, otherPaths)
 		if err == nil && len(otherPaths) > 0 {
 			otherScanResults := audit.ParallelScan(otherInputs, ctx.projectRoot, nil, ctx.registry)
 			for i := range otherPaths {
@@ -106,7 +95,7 @@ func launchAuditTUIWithTabs(results []*audit.Result, scanOutputs []audit.ScanOut
 					if sr.Err == nil {
 						sr.Result.Threshold = ctx.threshold
 						sr.Result.IsBlocked = sr.Result.HasSeverityAtOrAbove(ctx.threshold)
-						sr.Result.Kind = otherKind
+						sr.Result.Kind = otherKindFilter.SingularNoun()
 						if rel, relErr := filepath.Rel(otherSource, sr.Result.ScanTarget); relErr == nil {
 							sr.Result.SkillName = rel
 						}
@@ -124,7 +113,7 @@ func launchAuditTUIWithTabs(results []*audit.Result, scanOutputs []audit.ScanOut
 	var filteredResults []*audit.Result
 	var filteredOutputs []audit.ScanOutput
 	for i, r := range results {
-		if r.SkillName != "_cross-skill" {
+		if r.SkillName != audit.CrossSkillResultName {
 			filteredResults = append(filteredResults, r)
 			if i < len(scanOutputs) {
 				filteredOutputs = append(filteredOutputs, scanOutputs[i])

@@ -477,18 +477,10 @@ func scanSkillPath(skillPath, projectRoot string, registry *audit.Registry) (*au
 	return audit.ScanSkill(skillPath)
 }
 
-func toAuditInputs(skills []auditSkillRef) []audit.SkillInput {
-	inputs := make([]audit.SkillInput, len(skills))
-	for i, s := range skills {
-		inputs[i] = audit.SkillInput{Name: s.name, Path: s.path}
-	}
-	return inputs
-}
-
-func toAgentAuditInputs(agents []auditSkillRef) []audit.SkillInput {
-	inputs := make([]audit.SkillInput, len(agents))
-	for i, a := range agents {
-		inputs[i] = audit.SkillInput{Name: a.name, Path: a.path, IsFile: true}
+func toAuditInputs(items []auditSkillRef, isFile bool) []audit.SkillInput {
+	inputs := make([]audit.SkillInput, len(items))
+	for i, item := range items {
+		inputs[i] = audit.SkillInput{Name: item.name, Path: item.path, IsFile: isFile}
 	}
 	return inputs
 }
@@ -510,6 +502,17 @@ func collectInstalledAgentPaths(agentsSourcePath string) ([]auditSkillRef, error
 		agentPaths = append(agentPaths, auditSkillRef{name: d.FlatName, path: d.AbsPath})
 	}
 	return agentPaths, nil
+}
+
+func discoverForKind(kind resourceKindFilter, sourcePath string) ([]auditSkillRef, error) {
+	if kind == kindAgents {
+		return collectInstalledAgentPaths(sourcePath)
+	}
+	return collectInstalledSkillPaths(sourcePath)
+}
+
+func toInputsForKind(kind resourceKindFilter, items []auditSkillRef) []audit.SkillInput {
+	return toAuditInputs(items, kind == kindAgents)
 }
 
 func scanPathTarget(targetPath, projectRoot string, registry *audit.Registry) (*audit.Result, error) {
@@ -596,12 +599,7 @@ func auditInstalled(sourcePath, agentsSourcePath, mode, projectRoot, threshold s
 			progressBar.Increment()
 		}
 	}
-	var scanInputs []audit.SkillInput
-	if kind == kindAgents {
-		scanInputs = toAgentAuditInputs(skillPaths)
-	} else {
-		scanInputs = toAuditInputs(skillPaths)
-	}
+	scanInputs := toInputsForKind(kind, skillPaths)
 	scanResults := audit.ParallelScan(scanInputs, projectRoot, onDone, reg)
 	if progressBar != nil {
 		progressBar.Stop()
@@ -755,12 +753,7 @@ func auditFiltered(sourcePath, agentsSourcePath string, names, groups []string, 
 			progressBar.Increment()
 		}
 	}
-	var scanInputs []audit.SkillInput
-	if kind == kindAgents {
-		scanInputs = toAgentAuditInputs(matched)
-	} else {
-		scanInputs = toAuditInputs(matched)
-	}
+	scanInputs := toInputsForKind(kind, matched)
 	scanResults := audit.ParallelScan(scanInputs, projectRoot, onDone, reg)
 	if progressBar != nil {
 		progressBar.Stop()
