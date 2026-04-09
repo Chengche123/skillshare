@@ -21,7 +21,7 @@ func riskColor(label string) string {
 // presentAuditResults handles the common output path for audit scans:
 // prints per-skill list only when TUI is unavailable, always prints summary,
 // and launches TUI when conditions are met.
-func presentAuditResults(results []*audit.Result, elapsed []time.Duration, scanOutputs []audit.ScanOutput, summary auditRunSummary, jsonOutput bool, opts auditOptions, headerMinWidth int) error {
+func presentAuditResults(results []*audit.Result, elapsed []time.Duration, scanOutputs []audit.ScanOutput, summary auditRunSummary, jsonOutput bool, opts auditOptions, headerMinWidth int, kind ...resourceKindFilter) error {
 	useTUI := !jsonOutput && shouldLaunchTUI(opts.NoTUI, nil) && len(results) > 1
 
 	if !jsonOutput {
@@ -37,7 +37,7 @@ func presentAuditResults(results []*audit.Result, elapsed []time.Duration, scanO
 			}
 			fmt.Println()
 		}
-		summaryLines := buildAuditSummaryLines(summary)
+		summaryLines := buildAuditSummaryLines(summary, kind...)
 		printAuditSummary(summary, summaryLines, headerMinWidth)
 	}
 
@@ -155,7 +155,7 @@ func printSkillResult(result *audit.Result, elapsed time.Duration) {
 }
 
 // buildAuditSummaryLines builds the summary box lines (without printing).
-func buildAuditSummaryLines(summary auditRunSummary) []string {
+func buildAuditSummaryLines(summary auditRunSummary, kind ...resourceKindFilter) []string {
 	var lines []string
 	maxSeverity := summary.MaxSeverity
 	if maxSeverity == "" {
@@ -167,8 +167,12 @@ func buildAuditSummaryLines(summary auditRunSummary) []string {
 	lines = append(lines, fmt.Sprintf("  Max sev:   %s", ui.Colorize(ui.SeverityColor(maxSeverity), maxSeverity)))
 
 	// -- Result counts --
+	noun := "skill(s)"
+	if len(kind) > 0 {
+		noun = kind[0].Noun(summary.Scanned)
+	}
 	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("  Scanned:   %d skill(s)", summary.Scanned))
+	lines = append(lines, fmt.Sprintf("  Scanned:   %d %s", summary.Scanned, noun))
 	lines = append(lines, fmt.Sprintf("  Passed:    %d", summary.Passed))
 	if summary.Warning > 0 {
 		lines = append(lines, fmt.Sprintf("  Warning:   %s", ui.Colorize(ui.Yellow, fmt.Sprintf("%d", summary.Warning))))
