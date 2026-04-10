@@ -162,23 +162,39 @@ export default function UpdatePage() {
   const applyCheckResult = useCallback((result: CheckResult, filterNames?: Set<string>) => {
     setCheckStatuses((prev) => {
       const next = new Map(prev);
+
+      // Tracked repos: propagate the repo's status to every item belonging to it.
+      // The backend returns one entry per repo directory (e.g. `_awesome-claude-agents`)
+      // but the UI uses per-item keys (`api-architect`, `backend-developer`, ...).
       for (const repo of result.tracked_repos) {
-        if (filterNames && !filterNames.has(repo.name)) continue;
-        next.set(repo.name, {
+        const repoStatus: CheckItemStatus = {
           status: repo.status === 'behind' ? 'behind' : 'up-to-date',
           message: repo.message,
           behind: repo.behind,
-        });
+        };
+        for (const item of allUpdatableItems) {
+          if (!item.isInRepo) continue;
+          if (item.relPath.split('/')[0] !== repo.name) continue;
+          if (filterNames && !filterNames.has(item.name)) continue;
+          next.set(item.name, repoStatus);
+        }
       }
+
+      // Individual non-repo skills (GitHub-installed)
       for (const skill of result.skills) {
-        if (filterNames && !filterNames.has(skill.name)) continue;
-        next.set(skill.name, {
+        const item = allUpdatableItems.find(
+          (i) => !i.isInRepo && (i.name === skill.name || i.flatName === skill.name),
+        );
+        if (!item) continue;
+        if (filterNames && !filterNames.has(item.name)) continue;
+        next.set(item.name, {
           status: skill.status === 'update_available' ? 'update-available' : 'up-to-date',
         });
       }
+
       return next;
     });
-  }, []);
+  }, [allUpdatableItems]);
 
   const runCheck = useCallback((filterNames?: Set<string>) => {
     esRef.current?.close();
@@ -187,13 +203,14 @@ export default function UpdatePage() {
     setCheckProgress(null);
     startTimeRef.current = Date.now();
 
-    // Mark items as checking
+    // Mark items as checking. "Check All" marks every item (across both tabs)
+    // because a full scan updates results for all of them.
     setCheckStatuses((prev) => {
       const next = new Map(prev);
       if (filterNames) {
         for (const name of filterNames) next.set(name, { status: 'checking' });
       } else {
-        for (const item of updatableItems) next.set(item.name, { status: 'checking' });
+        for (const item of allUpdatableItems) next.set(item.name, { status: 'checking' });
       }
       return next;
     });
@@ -216,7 +233,7 @@ export default function UpdatePage() {
           if (filterNames) {
             for (const name of filterNames) next.set(name, { status: 'error' });
           } else {
-            for (const item of updatableItems) next.set(item.name, { status: 'error' });
+            for (const item of allUpdatableItems) next.set(item.name, { status: 'error' });
           }
           return next;
         });
@@ -225,7 +242,7 @@ export default function UpdatePage() {
         setCheckProgress(null);
       },
     );
-  }, [updatableItems, applyCheckResult, toast]);
+  }, [allUpdatableItems, applyCheckResult, toast]);
 
   const handleCheckAll = useCallback(() => runCheck(), [runCheck]);
   const handleCheckSelected = useCallback(() => {
