@@ -225,6 +225,10 @@ func DiscoverFromGitSubdirWithProgress(source *Source, onProgress ProgressCallba
 // Pure-agent repositories resolve to "agent". Mixed repositories must specify
 // the kind explicitly to avoid ambiguous install roots.
 func InferTrackedKind(source *Source, explicitKind string) (string, error) {
+	if !source.IsGit() {
+		return "", fmt.Errorf("--track requires a git repository source")
+	}
+
 	if explicitKind == "skill" || explicitKind == "agent" {
 		return explicitKind, nil
 	}
