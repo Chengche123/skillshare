@@ -436,7 +436,7 @@ export default function BatchUninstallPage() {
       {/* ── Skill List ─────────────────────────────────── */}
       {filtered.length === 0 ? (
         <div className="py-12 text-center">
-          <p className="text-pencil-light text-sm">No skills match your filter.</p>
+          <p className="text-pencil-light text-sm">No {activeTab === 'agents' ? 'agents' : 'skills'} match your filter.</p>
         </div>
       ) : (
         <div
