@@ -1,7 +1,7 @@
 # Graph Report - /Users/chengx/develop/skillshare-dev  (2026-04-19)
 
 ## Corpus Check
-- 698 files · ~2,153,808 words
+- 698 files · ~2,153,813 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -1080,12 +1080,12 @@ Nodes (0):
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `contains()` connect `Community 8` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 13`, `Community 15`, `Community 18`, `Community 20`, `Community 21`, `Community 24`?**
-  _High betweenness centrality (0.077) - this node is a cross-community bridge._
 - **Why does `run()` connect `Community 5` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 7`, `Community 8`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 13`, `Community 15`, `Community 16`, `Community 17`, `Community 22`, `Community 23`?**
-  _High betweenness centrality (0.048) - this node is a cross-community bridge._
+  _High betweenness centrality (0.088) - this node is a cross-community bridge._
+- **Why does `contains()` connect `Community 8` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 13`, `Community 15`, `Community 18`, `Community 20`, `Community 21`, `Community 24`?**
+  _High betweenness centrality (0.064) - this node is a cross-community bridge._
 - **Why does `Get()` connect `Community 3` to `Community 0`, `Community 1`, `Community 2`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 14`, `Community 15`, `Community 19`?**
-  _High betweenness centrality (0.035) - this node is a cross-community bridge._
+  _High betweenness centrality (0.034) - this node is a cross-community bridge._
 - **Are the 971 inferred relationships involving `NewSandbox()` (e.g. with `TestShowTargetInfo_ShowsAgentsSectionForBuiltinTarget()` and `TestShowTargetInfo_OmitsAgentsSectionWhenTargetHasNoAgentsPath()`) actually correct?**
   _`NewSandbox()` has 971 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 378 inferred relationships involving `contains()` (e.g. with `handler()` and `handleClick()`) actually correct?**

@@ -218,7 +218,7 @@ func TestBasePath_EmbeddedFallbackWithPrefix(t *testing.T) {
 	}
 }
 
-func TestUIRoutes_DiskDistTakesPriorityOverEmbedded(t *testing.T) {
+func TestUIRoutes_EmbeddedTakesPriorityOverDiskDist(t *testing.T) {
 	withEmbeddedUITestOverride(t, true, func(basePath string) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("embedded"))
@@ -234,12 +234,12 @@ func TestUIRoutes_DiskDistTakesPriorityOverEmbedded(t *testing.T) {
 	rr := httptest.NewRecorder()
 	s.handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
-		t.Fatalf("GET / with disk UI: expected 200, got %d", rr.Code)
+		t.Fatalf("GET / with embedded UI: expected 200, got %d", rr.Code)
 	}
-	if strings.Contains(rr.Body.String(), "embedded") {
-		t.Fatalf("expected disk UI to take priority over embedded UI, got %q", rr.Body.String())
+	if !strings.Contains(rr.Body.String(), "embedded") {
+		t.Fatalf("expected embedded UI response, got %q", rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "disk") {
-		t.Fatalf("expected disk UI response, got %q", rr.Body.String())
+	if strings.Contains(rr.Body.String(), "disk") {
+		t.Fatalf("expected embedded UI to take priority over disk UI, got %q", rr.Body.String())
 	}
 }

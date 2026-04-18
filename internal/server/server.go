@@ -35,7 +35,7 @@ type Server struct {
 	projectCfg  *config.ProjectConfig
 
 	// uiDistDir, when non-empty, serves UI from this disk directory
-	// instead of the embedded SPA. Used for runtime-downloaded UI assets.
+	// when the embedded SPA is unavailable. Used for runtime-downloaded UI assets.
 	uiDistDir string
 
 	// basePath is the URL prefix under which the UI and API are served
@@ -91,7 +91,7 @@ func (s *Server) wrapBasePath() {
 }
 
 // New creates a new Server for global mode.
-// uiDistDir, when non-empty, serves UI from disk instead of the embedded SPA.
+// uiDistDir, when non-empty, serves UI from disk when the embedded SPA is unavailable.
 func New(cfg *config.Config, addr, basePath, uiDistDir string) *Server {
 	skillsStore, _ := install.LoadMetadataWithMigration(cfg.Source, "")
 	if skillsStore == nil {
@@ -117,7 +117,7 @@ func New(cfg *config.Config, addr, basePath, uiDistDir string) *Server {
 }
 
 // NewProject creates a new Server for project mode.
-// uiDistDir, when non-empty, serves UI from disk instead of the embedded SPA.
+// uiDistDir, when non-empty, serves UI from disk when the embedded SPA is unavailable.
 func NewProject(cfg *config.Config, projectCfg *config.ProjectConfig, projectRoot, addr, basePath, uiDistDir string) *Server {
 	skillsDir := filepath.Join(projectRoot, ".skillshare", "skills")
 	agentsDir := filepath.Join(projectRoot, ".skillshare", "agents")
@@ -488,10 +488,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PUT /api/agentignore", s.handlePutAgentignore)
 
 	// SPA fallback — must be last
-	if s.uiDistDir != "" {
-		s.mux.Handle("/", spaHandlerFromDisk(s.uiDistDir, s.basePath))
-	} else if embeddedUIAvailableFn() {
+	if embeddedUIAvailableFn() {
 		s.mux.Handle("/", spaHandlerEmbeddedFn(s.basePath))
+	} else if s.uiDistDir != "" {
+		s.mux.Handle("/", spaHandlerFromDisk(s.uiDistDir, s.basePath))
 	} else {
 		s.mux.Handle("/", uiPlaceholderHandler())
 	}
