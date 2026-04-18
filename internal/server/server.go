@@ -52,6 +52,11 @@ var (
 	spaHandlerEmbeddedFn  = spaHandlerEmbedded
 )
 
+// EmbeddedUIAvailable reports whether this binary can serve an embedded UI.
+func EmbeddedUIAvailable() bool {
+	return embeddedUIAvailableFn()
+}
+
 // NormalizeBasePath ensures the base path starts with "/" and has no trailing slash.
 // An empty or "/" input returns "".
 func NormalizeBasePath(p string) string {

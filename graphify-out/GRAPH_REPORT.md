@@ -1,12 +1,12 @@
 # Graph Report - /Users/chengx/develop/skillshare-dev  (2026-04-19)
 
 ## Corpus Check
-- 698 files · ~2,153,813 words
+- 699 files · ~2,154,211 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 6610 nodes · 26343 edges · 166 communities detected
-- Extraction: 34% EXTRACTED · 66% INFERRED · 0% AMBIGUOUS · INFERRED: 17316 edges (avg confidence: 0.8)
+- 6615 nodes · 26358 edges · 166 communities detected
+- Extraction: 34% EXTRACTED · 66% INFERRED · 0% AMBIGUOUS · INFERRED: 17325 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
@@ -205,103 +205,103 @@
 
 ### Community 0 - "Community 0"
 Cohesion: 0.01
-Nodes (948): EnrichAgentResultsWithRemote(), countHealthyAgentLinks(), countLocalAgents(), countManagedAgents(), dirExists(), newBuilder(), NewGlobalBuilder(), NewProjectBuilder() (+940 more)
+Nodes (1005): TestBackup_Agents_CreatesBackup(), TestBackup_Agents_DryRun(), TestBackup_Agents_ProjectMode_CreatesBackup(), TestBackup_Agents_ProjectMode_DryRun(), TestBackup_Agents_ProjectMode_RestoreRoundTrip(), TestBackup_Agents_RestoreRoundTrip(), TestBackup_Default_DoesNotBackupAgents(), TestRestore_Agents_SkillsProjectModeRejected() (+997 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.01
-Nodes (984): TestBackup_Agents_CreatesBackup(), TestBackup_Agents_DryRun(), TestBackup_Agents_ProjectMode_CreatesBackup(), TestBackup_Agents_ProjectMode_DryRun(), TestBackup_Agents_ProjectMode_RestoreRoundTrip(), TestBackup_Agents_RestoreRoundTrip(), TestBackup_Default_DoesNotBackupAgents(), TestRestore_Agents_SkillsProjectModeRejected() (+976 more)
+Nodes (891): EnrichAgentResultsWithRemote(), countHealthyAgentLinks(), countLocalAgents(), countManagedAgents(), dirExists(), newBuilder(), NewGlobalBuilder(), NewProjectBuilder() (+883 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.01
-Nodes (312): formatTokensStr(), groupAnalyzeTargets(), computeThresholds(), lintIcon(), renderTokenBar(), tokenColorCode(), newAnalyzeTUIModel(), runAnalyzeTUI() (+304 more)
+Nodes (309): formatTokensStr(), groupAnalyzeTargets(), computeThresholds(), lintIcon(), renderTokenBar(), tokenColorCode(), newAnalyzeTUIModel(), runAnalyzeTUI() (+301 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.01
-Nodes (406): ActiveAgents(), agentIgnorePayload(), discoverActiveAgents(), discoverAllAgents(), mergeAgentDiffItems(), resolveAgentPath(), buildGroups(), invalidateOneSkillMeta() (+398 more)
+Nodes (334): ActiveAgents(), AgentFile(), AgentName(), checkTrackedAgentRepo(), agentIgnorePayload(), discoverActiveAgents(), discoverAllAgents(), mergeAgentDiffItems() (+326 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.01
-Nodes (351): auditFiltered(), auditHeaderSubtitle(), auditHeaderTitle(), auditInstalled(), auditPath(), auditSkillByName(), CalculateRiskScore(), categoryForPattern() (+343 more)
+Nodes (363): CheckAgentCollisions(), FindLocalAgents(), PruneOrphanAgentCopies(), PruneOrphanAgentLinks(), PullAgent(), PullAgents(), SyncAgents(), syncAgentsCopy() (+355 more)
 
 ### Community 5 - "Community 5"
 Cohesion: 0.01
-Nodes (316): TestScanContent_AdditionalInvisibleUnicode(), TestScanContent_BidiCharacters(), TestScanContent_Clean(), TestScanContent_ConfigManipulation(), TestScanContent_CredentialAccess(), TestScanContent_DataExfiltration(), TestScanContent_DataURI(), TestScanContent_DestructiveCommands() (+308 more)
+Nodes (330): buildGroups(), invalidateOneSkillMeta(), List(), newTestServerWithBasePath(), TestBasePath_APIHealthWithoutPrefix_Returns404(), TestBasePath_APIHealthWithPrefix(), TestBasePath_BarePathRedirect(), TestBasePath_EmbeddedFallbackWithPrefix() (+322 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.02
-Nodes (285): AgentFile(), AgentFlatName(), AgentName(), agentNameFromFile(), CheckAgents(), checkOneAgent(), TestCheckAgents_Drifted(), TestCheckAgents_InvalidCentralizedMetadata() (+277 more)
+Cohesion: 0.01
+Nodes (302): TestAnalyzability_EmptySkill(), TestAnalyzability_HighScoreNoWarning(), TestAnalyzability_LowScoreEmitsWarning(), TestAnalyzability_PureMarkdown(), TestAnalyzability_WithBinary(), auditHeaderSubtitle(), auditHeaderTitle(), auditPath() (+294 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.02
-Nodes (215): checkTrackedAgentRepo(), authEnv(), AuthEnvForURL(), detectPlatform(), DetectPlatformForURL(), existingConfigCount(), extractHost(), IsAuthError() (+207 more)
+Nodes (286): CompiledRule, TestAuditConfig_EmptyOmitsNewFields(), TestAuditConfig_RoundTrip(), MarkdownOptions, PatternGroup, rule, auditRulesPathForMode(), cmdAuditRules() (+278 more)
 
 ### Community 8 - "Community 8"
-Cohesion: 0.02
-Nodes (217): TestAuditConfig_EmptyOmitsNewFields(), TestAuditConfig_RoundTrip(), MarkdownOptions, HubConfig, IsValidSyncMode(), TestIsValidSyncMode(), TestValidateConfig_BuiltinTarget_NoPath_OK(), TestValidateConfig_CustomTarget_MissingPath() (+209 more)
+Cohesion: 0.01
+Nodes (267): authEnv(), detectPlatform(), DetectPlatformForURL(), existingConfigCount(), extractHost(), IsAuthError(), isHTTPS(), IsSSLError() (+259 more)
 
 ### Community 9 - "Community 9"
-Cohesion: 0.02
-Nodes (192): CheckAgentCollisions(), FindLocalAgents(), PruneOrphanAgentCopies(), PruneOrphanAgentLinks(), PullAgent(), PullAgents(), SyncAgents(), syncAgentsCopy() (+184 more)
+Cohesion: 0.01
+Nodes (219): TestLoad_DefaultAuditThreshold(), TestLoad_InvalidAuditThreshold(), TestLoadProject_DefaultAuditThreshold(), TestLoadProject_InvalidAuditThreshold(), TestNormalizeBasePath(), TestBaseDir_DefaultFallback(), TestBaseDir_RespectsXDGConfigHome(), TestConfigPath_RespectsXDGConfigHome() (+211 more)
 
 ### Community 10 - "Community 10"
-Cohesion: 0.03
-Nodes (144): collectChecksumEntries(), PruneOrphanCopies(), PruneOrphanCopiesWithSkills(), SyncTargetCopy(), SyncTargetCopyWithSkills(), TestDiscoverSourceSkills_CharClassPattern(), TestDiscoverSourceSkills_DirOnlyPattern(), TestDiscoverSourceSkills_DoubleStarPattern() (+136 more)
+Cohesion: 0.02
+Nodes (174): TestScanContent_AdditionalInvisibleUnicode(), TestScanContent_BidiCharacters(), TestScanContent_Clean(), TestScanContent_ConfigManipulation(), TestScanContent_CredentialAccess(), TestScanContent_DataExfiltration(), TestScanContent_DataURI(), TestScanContent_DestructiveCommands() (+166 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.02
-Nodes (106): clearAuditCache(), getCachedAuditResult(), isAuditCacheFresh(), handleCreate(), FilterEntries(), ParseSince(), TestFilterEntries_CmdCaseInsensitive(), TestFilterEntries_CmdOnly() (+98 more)
+Cohesion: 0.03
+Nodes (57): clearAuditCache(), getCachedAuditResult(), isAuditCacheFresh(), handleCreate(), FilterEntries(), ParseSince(), TestFilterEntries_CmdCaseInsensitive(), TestFilterEntries_CmdOnly() (+49 more)
 
 ### Community 12 - "Community 12"
-Cohesion: 0.03
-Nodes (77): checkAuthorityLanguage(), checkPublisherMismatch(), extractRepoOwner(), findMetaEntry(), isWellKnownOrg(), parseFrontmatterNameDesc(), readMetaFileHashes(), readMetaRepoURL() (+69 more)
-
-### Community 13 - "Community 13"
 Cohesion: 0.04
 Nodes (66): runChecklistTUI(), matchGlob(), filterAgentsByName(), filterSkillsByName(), groupSkillsByDirectory(), promptAgentInstallSelection(), promptLargeRepoSelection(), promptMultiSelect() (+58 more)
 
+### Community 13 - "Community 13"
+Cohesion: 0.05
+Nodes (75): addGitIgnoreEntries(), containsGitignoreEntry(), ensureMarkerBlock(), findMarkerBlock(), GitignoreContains(), readGitignoreLines(), RemoveFromGitIgnore(), RemoveFromGitIgnoreBatch() (+67 more)
+
 ### Community 14 - "Community 14"
-Cohesion: 0.04
-Nodes (69): Check(), cleanupLegacyCache(), ClearCache(), compareVersions(), GetCachedVersion(), getCachePath(), legacyCachePath(), loadCache() (+61 more)
+Cohesion: 0.07
+Nodes (53): allTargetsIdentical(), buildAnalyzeEntries(), cmdAnalyze(), colorTargetNames(), estimateTokens(), filterAnalyzeSkills(), parseAnalyzeArgs(), printAnalyzeEntry() (+45 more)
 
 ### Community 15 - "Community 15"
 Cohesion: 0.07
-Nodes (53): searchBuiltinIndex(), SkillEntry, buildHubRequest(), BuildIndex(), gitLabWebToAPIRawURL(), hubHTTPError(), isRelativeSource(), loadIndex() (+45 more)
+Nodes (29): checkAuthorityLanguage(), checkPublisherMismatch(), extractRepoOwner(), findMetaEntry(), isWellKnownOrg(), parseFrontmatterNameDesc(), readMetaFileHashes(), readMetaRepoURL() (+21 more)
 
 ### Community 16 - "Community 16"
-Cohesion: 0.1
-Nodes (40): ClassifySkillForTarget(), TestClassifySkillForTarget(), FilterAgents(), FilterSkills(), FilterSkillsByTarget(), firstMatchingPattern(), matchesAnyPattern(), normalizedFilterPatterns() (+32 more)
+Cohesion: 0.09
+Nodes (36): BackupInfo, copyDir(), copyDirFollowTopSymlinks(), copyFile(), ListTargetsWithBackups(), TargetBackupSummary, assertFileContent(), TestBackupDir_RespectsXDGDataHome() (+28 more)
 
 ### Community 17 - "Community 17"
-Cohesion: 0.08
-Nodes (31): Registry, ResourceEntry, SkillEntry, TestMetadataEntry_EffectiveKind(), TestRegistryMigration_OldFormatPreservesEntries(), PruneStaleSkills(), fileExists(), TestRegistry_KindField_Persisted() (+23 more)
+Cohesion: 0.11
+Nodes (26): Registry, ResourceEntry, TestMetadataEntry_EffectiveKind(), TestRegistryMigration_OldFormatPreservesEntries(), fileExists(), TestRegistry_KindField_Persisted(), TestRegistry_OldFormat_NoKind(), TestSkillEntry_EffectiveKind_Default() (+18 more)
 
 ### Community 18 - "Community 18"
-Cohesion: 0.12
-Nodes (28): cutTag(), matchSkillItem(), normalizeKindValue(), normalizeTypeValue(), parseFilterQuery(), skillGroup(), skillTypeCategory(), TestMatchSkillItem_ANDLogic() (+20 more)
+Cohesion: 0.1
+Nodes (23): AgentFlatName(), agentNameFromFile(), findTrackedRepoRelPath(), TestAgentKind_Discover(), TestAgentKind_Discover_EmptyDir(), TestAgentKind_Discover_Nested(), TestAgentKind_Discover_RespectsAgentignore(), TestAgentKind_Discover_SkipsGitDir() (+15 more)
 
 ### Community 19 - "Community 19"
 Cohesion: 0.12
-Nodes (26): ANSI(), fg256(), abbreviateSource(), countRepoSkills(), displayName(), displaySkillsCompact(), displaySkillsVerbose(), extractGroupDir() (+18 more)
+Nodes (28): cutTag(), matchSkillItem(), normalizeKindValue(), normalizeTypeValue(), parseFilterQuery(), skillGroup(), skillTypeCategory(), TestMatchSkillItem_ANDLogic() (+20 more)
 
 ### Community 20 - "Community 20"
 Cohesion: 0.17
 Nodes (24): evalLintRule(), LintSkill(), loadLintRules(), resolveField(), assertHasIssue(), assertNoIssue(), TestLintSkill_CategoryField(), TestLintSkill_CleanSkill() (+16 more)
 
 ### Community 21 - "Community 21"
-Cohesion: 0.17
-Nodes (23): addGitIgnoreEntries(), containsGitignoreEntry(), ensureMarkerBlock(), findMarkerBlock(), GitignoreContains(), readGitignoreLines(), RemoveFromGitIgnore(), RemoveFromGitIgnoreBatch() (+15 more)
-
-### Community 22 - "Community 22"
 Cohesion: 0.11
 Nodes (20): sarifArtifactLoc, sarifDefaultConf, sarifDriver, sarifLocation, sarifLog, sarifMessage, SARIFOptions, sarifPhysicalLoc (+12 more)
 
+### Community 22 - "Community 22"
+Cohesion: 0.19
+Nodes (17): DedupeMode, Policy, PolicyInputs, Profile, coalesce(), resolveDedupeMode(), ResolvePolicy(), resolveProfile() (+9 more)
+
 ### Community 23 - "Community 23"
-Cohesion: 0.13
-Nodes (14): newExtrasInitTUIModel(), targetPlaceholder(), TestValidateExtraFlatten_CopyAllows(), TestValidateExtraFlatten_EmptyModeAllows(), TestValidateExtraFlatten_FalseAlwaysAllows(), TestValidateExtraFlatten_MergeAllows(), TestValidateExtraFlatten_SymlinkRejects(), TestValidateExtraName() (+6 more)
+Cohesion: 0.22
+Nodes (16): literalConstraint, appendUniqueConstraint(), deriveRulePrefilter(), equivalentConstraint(), intersectConstraints(), isSelectiveLiteral(), mergeConstraintPair(), normalizeConstraint() (+8 more)
 
 ### Community 24 - "Community 24"
 Cohesion: 0.22
-Nodes (16): literalConstraint, appendUniqueConstraint(), deriveRulePrefilter(), equivalentConstraint(), intersectConstraints(), isSelectiveLiteral(), mergeConstraintPair(), normalizeConstraint() (+8 more)
+Nodes (13): CheckAgents(), checkOneAgent(), TestCheckAgents_Drifted(), TestCheckAgents_InvalidCentralizedMetadata(), TestCheckAgents_LocalAgent(), TestCheckAgents_Nested(), TestCheckAgents_NoAgents(), TestCheckAgents_NonExistentDir() (+5 more)
 
 ### Community 25 - "Community 25"
 Cohesion: 0.18
@@ -316,20 +316,20 @@ Cohesion: 0.31
 Nodes (6): formatSyncToast(), invalidateAfterSync(), summarizeSyncResults(), extractIgnoreSources(), handleSync(), handleSync()
 
 ### Community 28 - "Community 28"
-Cohesion: 0.22
-Nodes (2): targetListDelegate, targetTUIItem
+Cohesion: 0.36
+Nodes (7): dirExists(), MigrateExtrasDir(), TestMigrateExtras_AlreadyMigrated(), TestMigrateExtras_BothExist_Warns(), TestMigrateExtras_MovesOldToNew(), TestMigrateExtras_NothingToMigrate(), TestMigrateExtras_OnlyConfiguredNames()
 
 ### Community 29 - "Community 29"
 Cohesion: 0.25
 Nodes (7): checkoutRequest, checkoutResponse, gitBranchesResponse, gitStatusResponse, pullResponse, pushRequest, pushResponse
 
 ### Community 30 - "Community 30"
-Cohesion: 0.48
-Nodes (6): canonicalPath(), TestCanonicalPath_NonExistent(), TestCanonicalPath_RelativeSegments(), TestCanonicalPath_Symlink(), TestCanonicalPath_SymlinkParentNonExistentTail(), TestCanonicalPath_TrailingSlash()
+Cohesion: 0.33
+Nodes (2): useAppContext(), TourProvider()
 
 ### Community 31 - "Community 31"
 Cohesion: 0.33
-Nodes (2): useAppContext(), TourProvider()
+Nodes (0): 
 
 ### Community 32 - "Community 32"
 Cohesion: 0.33
@@ -337,27 +337,27 @@ Nodes (0):
 
 ### Community 33 - "Community 33"
 Cohesion: 0.33
-Nodes (0): 
-
-### Community 34 - "Community 34"
-Cohesion: 0.33
 Nodes (3): ConfigInstallResult, InstallContext, SkillEntryDTO
 
-### Community 35 - "Community 35"
+### Community 34 - "Community 34"
 Cohesion: 0.4
 Nodes (2): CopyButton(), useToast()
 
-### Community 36 - "Community 36"
+### Community 35 - "Community 35"
 Cohesion: 0.7
 Nodes (3): findKeyLine(), validateEnum(), validateYaml()
 
-### Community 37 - "Community 37"
+### Community 36 - "Community 36"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 38 - "Community 38"
+### Community 37 - "Community 37"
 Cohesion: 0.6
 Nodes (4): buildLCS(), computeLineDiff(), computeSimpleChangeCount(), useLineDiff()
+
+### Community 38 - "Community 38"
+Cohesion: 0.6
+Nodes (4): formatSummaryLine(), TestFormatSummaryLine_NoDuration(), TestFormatSummaryLine_Plain(), TestFormatSummaryLine_ZeroCounts()
 
 ### Community 39 - "Community 39"
 Cohesion: 0.5
@@ -1080,12 +1080,12 @@ Nodes (0):
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `run()` connect `Community 5` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 7`, `Community 8`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 13`, `Community 15`, `Community 16`, `Community 17`, `Community 22`, `Community 23`?**
-  _High betweenness centrality (0.088) - this node is a cross-community bridge._
-- **Why does `contains()` connect `Community 8` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 13`, `Community 15`, `Community 18`, `Community 20`, `Community 21`, `Community 24`?**
-  _High betweenness centrality (0.064) - this node is a cross-community bridge._
-- **Why does `Get()` connect `Community 3` to `Community 0`, `Community 1`, `Community 2`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 14`, `Community 15`, `Community 19`?**
-  _High betweenness centrality (0.034) - this node is a cross-community bridge._
+- **Why does `contains()` connect `Community 7` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 8`, `Community 9`, `Community 10`, `Community 12`, `Community 13`, `Community 14`, `Community 15`, `Community 19`, `Community 20`, `Community 23`?**
+  _High betweenness centrality (0.102) - this node is a cross-community bridge._
+- **Why does `run()` connect `Community 10` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 8`, `Community 9`, `Community 11`, `Community 12`, `Community 13`, `Community 14`, `Community 15`, `Community 17`, `Community 21`?**
+  _High betweenness centrality (0.070) - this node is a cross-community bridge._
+- **Why does `Get()` connect `Community 3` to `Community 0`, `Community 1`, `Community 2`, `Community 5`, `Community 6`, `Community 8`, `Community 9`, `Community 13`?**
+  _High betweenness centrality (0.037) - this node is a cross-community bridge._
 - **Are the 971 inferred relationships involving `NewSandbox()` (e.g. with `TestShowTargetInfo_ShowsAgentsSectionForBuiltinTarget()` and `TestShowTargetInfo_OmitsAgentsSectionWhenTargetHasNoAgentsPath()`) actually correct?**
   _`NewSandbox()` has 971 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 378 inferred relationships involving `contains()` (e.g. with `handler()` and `handleClick()`) actually correct?**
