@@ -747,6 +747,46 @@ function ContextMenuTip() {
   );
 }
 
+/* -- Search match snippet component -------------- */
+
+const SearchSnippet = memo(function SearchSnippet({ content, query }: { content?: string; query: string }) {
+  if (!query || !content) return null;
+  const q = query.toLowerCase();
+  const c = content.toLowerCase();
+  const index = c.indexOf(q);
+  if (index === -1) return null;
+
+  // Take some context
+  const contextBefore = 30;
+  const contextAfter = 60;
+
+  let start = index - contextBefore;
+  if (start < 0) start = 0;
+
+  let end = index + query.length + contextAfter;
+  if (end > content.length) end = content.length;
+
+  let snippet = content.substring(start, end).replace(/\r?\n/g, ' ').replace(/\s+/g, ' ');
+
+  // Find query again in the snippet for exact casing
+  const snippetLower = snippet.toLowerCase();
+  const qIndex = snippetLower.indexOf(q);
+
+  const before = snippet.substring(0, qIndex);
+  const match = snippet.substring(qIndex, qIndex + query.length);
+  const after = snippet.substring(qIndex + query.length);
+
+  return (
+    <span className="text-[11px] text-pencil-light/40 ml-4 truncate flex-1 min-w-0 font-normal italic" title={snippet}>
+      {start > 0 && '...'}
+      {before}
+      <span className="bg-yellow-200/40 dark:bg-yellow-500/20 text-pencil-light not-italic px-0.5 rounded-sm border border-yellow-300/20">{match}</span>
+      {after}
+      {end < content.length && '...'}
+    </span>
+  );
+});
+
 /* -- Main page ------------------------------------ */
 
 export default function SkillsPage() {
@@ -1048,12 +1088,13 @@ export default function SkillsPage() {
             skills={tabFiltered}
             resourceKind={activeTab === 'agents' ? 'agent' : 'skill'}
             totalCount={skills.length}
+            search={search}
             isSearching={!!search || filterType !== 'all'}
             stickyTop={toolbarH}
             onClearFilters={(filterType !== 'all' || search) ? () => { setFilterType('all'); setSearch(''); } : undefined}
           />
         ) : (
-          <SkillsTable skills={tabFiltered} resourceKind={activeTab === 'agents' ? 'agent' : 'skill'} />
+          <SkillsTable skills={tabFiltered} resourceKind={activeTab === 'agents' ? 'agent' : 'skill'} search={search} />
         )
       ) : (
         <EmptyState
@@ -1131,10 +1172,11 @@ export default function SkillsPage() {
 const INDENT_PX = 24;
 
 
-function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyTop = 0, onClearFilters }: {
+function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, onClearFilters }: {
   skills: Skill[];
   resourceKind: Skill['kind'];
   totalCount: number;
+  search: string;
   isSearching: boolean;
   stickyTop?: number;
   onClearFilters?: () => void;
@@ -1414,6 +1456,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
               : <Puzzle size={14} strokeWidth={2} className="text-pencil-light/60 shrink-0" />
             }
             <span className="text-sm text-pencil truncate">{skill.name}</span>
+            <SearchSnippet content={skill.content} query={search} />
             <span className="ml-auto shrink-0 flex items-center gap-1">
               {skill.disabled && <Badge variant="danger">Disabled</Badge>}
               <SourceBadge type={skill.type} isInRepo={skill.isInRepo} />
@@ -1608,7 +1651,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
 
 const TABLE_PAGE_SIZES = [10, 25, 50] as const;
 
-function SkillsTable({ skills, resourceKind }: { skills: Skill[]; resourceKind: Skill['kind'] }) {
+function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resourceKind: Skill['kind']; search: string }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(() => {
     const saved = localStorage.getItem('skillshare:table-page-size');
@@ -1733,6 +1776,7 @@ function SkillsTable({ skills, resourceKind }: { skills: Skill[]; resourceKind: 
                             {skill.relPath}
                           </span>
                         )}
+                        <SearchSnippet content={skill.content} query={search} />
                       </div>
                       {skill.source && (() => {
                         const parsed = parseRemoteURL(skill.source);
