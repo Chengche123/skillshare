@@ -125,10 +125,10 @@ function optimisticPatch(
   queryClient: ReturnType<typeof useQueryClient>,
   patchFn: (skills: Skill[]) => Skill[],
 ) {
-  queryClient.cancelQueries({ queryKey: queryKeys.skills.all });
-  const previous = queryClient.getQueryData<SkillsData>(queryKeys.skills.all);
+  queryClient.cancelQueries({ queryKey: queryKeys.skills.withContent });
+  const previous = queryClient.getQueryData<SkillsData>(queryKeys.skills.withContent);
   if (previous) {
-    queryClient.setQueryData<SkillsData>(queryKeys.skills.all, {
+    queryClient.setQueryData<SkillsData>(queryKeys.skills.withContent, {
       ...previous,
       resources: patchFn(previous.resources),
     });
@@ -155,7 +155,7 @@ function useResourceActions() {
       toast(`${resourceLabel(kind, true)} ${display} ${disable ? 'disabled' : 'enabled'}`, 'success');
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
@@ -175,7 +175,7 @@ function useResourceActions() {
       toast(`Uninstalled ${resourceLabel(kind)} ${display}`, 'success');
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
@@ -196,7 +196,7 @@ function useResourceActions() {
       toast(`Uninstalled repo ${display}`, 'success');
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
@@ -220,7 +220,7 @@ function useResourceActions() {
       toast(`${display} now available in ${target ?? 'All'}`, 'success');
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
@@ -751,8 +751,8 @@ function ContextMenuTip() {
 
 export default function SkillsPage() {
   const { data, isPending, error } = useQuery({
-    queryKey: queryKeys.skills.all,
-    queryFn: () => api.listSkills(),
+    queryKey: queryKeys.skills.withContent,
+    queryFn: () => api.listSkills(undefined, { includeContent: true }),
     staleTime: staleTimes.skills,
   });
 
@@ -851,7 +851,8 @@ export default function SkillsPage() {
       (s) =>
         (s.name.toLowerCase().includes(q) ||
           s.flatName.toLowerCase().includes(q) ||
-          (s.source ?? '').toLowerCase().includes(q)) &&
+          (s.source ?? '').toLowerCase().includes(q) ||
+          (s.content ?? '').toLowerCase().includes(q)) &&
         matchFilter(s, filterType),
     );
     return sortSkills(result, sortType);
@@ -1196,7 +1197,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
       }
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),

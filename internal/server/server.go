@@ -47,6 +47,11 @@ type Server struct {
 	onReady func()
 }
 
+var (
+	embeddedUIAvailableFn = embeddedUIAvailable
+	spaHandlerEmbeddedFn  = spaHandlerEmbedded
+)
+
 // NormalizeBasePath ensures the base path starts with "/" and has no trailing slash.
 // An empty or "/" input returns "".
 func NormalizeBasePath(p string) string {
@@ -60,13 +65,17 @@ func NormalizeBasePath(p string) string {
 	return p
 }
 
+func (s *Server) hasUIAssets() bool {
+	return s.uiDistDir != "" || embeddedUIAvailableFn()
+}
+
 // wrapBasePath wraps the handler chain with StripPrefix and bare-path redirect
-// when basePath is set. Skips wrapping in dev mode (no uiDistDir) and prints a warning.
+// when basePath is set. Skips wrapping only when no UI assets are available.
 func (s *Server) wrapBasePath() {
 	if s.basePath == "" {
 		return
 	}
-	if s.uiDistDir == "" {
+	if !s.hasUIAssets() {
 		fmt.Fprintf(os.Stderr, "Warning: --base-path is ignored in dev mode (no UI assets). Start Vite without base path.\n")
 		s.basePath = ""
 		return
@@ -481,6 +490,8 @@ func (s *Server) registerRoutes() {
 	// SPA fallback — must be last
 	if s.uiDistDir != "" {
 		s.mux.Handle("/", spaHandlerFromDisk(s.uiDistDir, s.basePath))
+	} else if embeddedUIAvailableFn() {
+		s.mux.Handle("/", spaHandlerEmbeddedFn(s.basePath))
 	} else {
 		s.mux.Handle("/", uiPlaceholderHandler())
 	}

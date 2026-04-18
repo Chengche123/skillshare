@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"skillshare/internal/config"
 )
@@ -57,6 +58,20 @@ func newTestServerWithBasePath(t *testing.T, basePath string) *Server {
 	os.WriteFile(filepath.Join(uiDir, "index.html"), []byte("<!DOCTYPE html><html><head><title>Test</title></head><body>Skillshare UI</body></html>"), 0644)
 	s := New(cfg, "127.0.0.1:0", basePath, uiDir)
 	return s
+}
+
+func withEmbeddedUITestOverride(t *testing.T, available bool, factory func(basePath string) http.Handler) {
+	t.Helper()
+	oldAvailable := embeddedUIAvailableFn
+	oldHandler := spaHandlerEmbeddedFn
+	embeddedUIAvailableFn = func() bool { return available }
+	if factory != nil {
+		spaHandlerEmbeddedFn = factory
+	}
+	t.Cleanup(func() {
+		embeddedUIAvailableFn = oldAvailable
+		spaHandlerEmbeddedFn = oldHandler
+	})
 }
 
 func TestBasePath_APIHealthWithPrefix(t *testing.T) {
@@ -169,5 +184,62 @@ func TestBasePath_SPAFallbackWithInjection(t *testing.T) {
 	body := rr.Body.String()
 	if !strings.Contains(body, `window.__BASE_PATH__="/myapp"`) {
 		t.Errorf("SPA fallback should inject __BASE_PATH__, got:\n%s", body)
+	}
+}
+
+func TestBasePath_EmbeddedFallbackWithPrefix(t *testing.T) {
+	fsys := fstest.MapFS{
+		"index.html": &fstest.MapFile{
+			Data: []byte(`<!DOCTYPE html><html><head><title>Embedded</title></head><body>Embedded UI</body></html>`),
+		},
+	}
+	withEmbeddedUITestOverride(t, true, func(basePath string) http.Handler {
+		return spaHandlerFromFS(fsys, basePath)
+	})
+
+	base := newTestServerWithBasePath(t, "")
+	s := New(base.cfg, "127.0.0.1:0", "/app", "")
+
+	apiReq := httptest.NewRequest(http.MethodGet, "/app/api/health", nil)
+	apiRR := httptest.NewRecorder()
+	s.handler.ServeHTTP(apiRR, apiReq)
+	if apiRR.Code != http.StatusOK {
+		t.Fatalf("GET /app/api/health with embedded UI: expected 200, got %d", apiRR.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/app/", nil)
+	rr := httptest.NewRecorder()
+	s.handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /app/ with embedded UI: expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `window.__BASE_PATH__="/app"`) {
+		t.Errorf("expected embedded SPA to inject __BASE_PATH__, got:\n%s", rr.Body.String())
+	}
+}
+
+func TestUIRoutes_DiskDistTakesPriorityOverEmbedded(t *testing.T) {
+	withEmbeddedUITestOverride(t, true, func(basePath string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("embedded"))
+		})
+	})
+
+	base := newTestServerWithBasePath(t, "")
+	uiDir := t.TempDir()
+	os.WriteFile(filepath.Join(uiDir, "index.html"), []byte(`<!DOCTYPE html><html><head><title>Disk</title></head><body>disk</body></html>`), 0644)
+	s := New(base.cfg, "127.0.0.1:0", "", uiDir)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	s.handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET / with disk UI: expected 200, got %d", rr.Code)
+	}
+	if strings.Contains(rr.Body.String(), "embedded") {
+		t.Fatalf("expected disk UI to take priority over embedded UI, got %q", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "disk") {
+		t.Fatalf("expected disk UI response, got %q", rr.Body.String())
 	}
 }

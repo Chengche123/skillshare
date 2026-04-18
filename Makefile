@@ -1,4 +1,4 @@
-.PHONY: help build build-meta build-windows run test test-unit test-int test-docker test-docker-online test-redteam test-redteam-signal test-redteam-rules-signal playground playground-down devc devc-up devc-down devc-restart devc-reset devc-status dev-docker dev-docker-down docker-build docker-build-multiarch lint fmt fmt-check check install clean ui-install ui-build ui-dev build-all
+.PHONY: help build build-meta build-windows run test test-unit test-int test-docker test-docker-online test-redteam test-redteam-signal test-redteam-rules-signal playground playground-down devc devc-up devc-down devc-restart devc-reset devc-status dev-docker dev-docker-down docker-build docker-build-multiarch lint fmt fmt-check check install clean ui-install ui-build ui-stage-embed ui-dev build-all
 
 help:
 	@echo "Common tasks:"
@@ -26,7 +26,7 @@ help:
 	@echo "  make ui-dev         # Go API server + Vite dev server (requires local Go)"
 	@echo "  make dev-docker     # Go API in Docker + auto-rebuild (pair with: cd ui && pnpm run dev)"
 	@echo "  make dev-docker-down  # stop dev Docker container"
-	@echo "  make build-all      # ui-build + build"
+	@echo "  make build-all      # single binary with embedded frontend"
 	@echo "  make clean          # remove build artifacts"
 	@echo ""
 	@echo "Advanced (run scripts directly):"
@@ -130,12 +130,18 @@ ui-install:
 ui-build: ui-install
 	cd ui && pnpm run build
 
+ui-stage-embed: ui-build
+	mkdir -p internal/server/dist
+	find internal/server/dist -mindepth 1 ! -name .keep -exec rm -rf {} +
+	cp -R ui/dist/. internal/server/dist/
+
 ui-dev:
 	@trap 'kill 0' EXIT; \
 	air & \
 	cd ui && pnpm run dev
 
-build-all: ui-build build
+build-all: ui-stage-embed
+	mkdir -p $(dir $(BINARY)) && go build -tags embedui -o $(BINARY) ./cmd/skillshare
 
 clean:
 	rm -rf bin $(BINARY) coverage.out

@@ -94,6 +94,42 @@ func TestHandleListSkills_AgentDisabled(t *testing.T) {
 	}
 }
 
+func TestHandleListSkills_AgentIncludeContent(t *testing.T) {
+	s, _ := newTestServer(t)
+	agentsDir := s.agentsSource()
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatalf("create agents dir: %v", err)
+	}
+	addAgent(t, agentsDir, "demo/reviewer.md")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources?kind=agent&include=content", nil)
+	rr := httptest.NewRecorder()
+	s.handleListSkills(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Resources []struct {
+			FlatName string `json:"flatName"`
+			Content  string `json:"content"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Resources) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(resp.Resources))
+	}
+	if resp.Resources[0].FlatName != "demo__reviewer.md" {
+		t.Fatalf("expected demo__reviewer.md, got %q", resp.Resources[0].FlatName)
+	}
+	if !strings.Contains(resp.Resources[0].Content, "# agent") {
+		t.Fatalf("expected agent markdown content in response, got %q", resp.Resources[0].Content)
+	}
+}
+
 func TestHandleToggleSkill_AgentKind(t *testing.T) {
 	s, _ := newTestServer(t)
 	agentsDir := s.agentsSource()
