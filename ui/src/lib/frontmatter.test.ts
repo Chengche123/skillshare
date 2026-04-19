@@ -25,6 +25,20 @@ describe('parseSkillMarkdown', () => {
     expect(frontmatter.description).toBe('Line one\nLine two');
   });
 
+  it('handles folded block scalars with chomping indicator (>-)', () => {
+    const { frontmatter } = parseSkillMarkdown(
+      '---\n'
+        + 'description: >-\n'
+        + '  Run isolated E2E tests in devcontainer from ai_docs/tests runbooks. Use this\n'
+        + '  skill whenever the user asks to validate a feature end-to-end.\n'
+        + '---\n'
+        + 'body'
+    );
+    expect(frontmatter.description).toBe(
+      'Run isolated E2E tests in devcontainer from ai_docs/tests runbooks. Use this skill whenever the user asks to validate a feature end-to-end.'
+    );
+  });
+
   it('returns hasFrontmatter=false when missing', () => {
     const result = parseSkillMarkdown('# just a body');
     expect(result.hasFrontmatter).toBe(false);
