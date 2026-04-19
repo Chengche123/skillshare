@@ -781,10 +781,10 @@ const SearchSnippet = memo(function SearchSnippet({ content, query }: { content?
   const after = snippet.substring(qIndex + query.length);
 
   return (
-    <span className="text-[11px] text-pencil-light/70 ml-4 truncate flex-1 min-w-0 font-normal" title={snippet}>
+    <span className="text-xs text-pencil-light/70 ml-4 truncate flex-1 min-w-0 font-normal" title={snippet}>
       {start > 0 && '...'}
       {before}
-      <span className="bg-yellow-200/60 dark:bg-yellow-500/30 text-pencil font-semibold not-italic px-0.5 rounded-sm border border-yellow-300/40">{match}</span>
+      <span className="bg-warning-light text-pencil font-semibold not-italic px-0.5 rounded-sm border border-warning/30">{match}</span>
       {after}
       {end < content.length && '...'}
     </span>
