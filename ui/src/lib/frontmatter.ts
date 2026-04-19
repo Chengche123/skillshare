@@ -58,14 +58,10 @@ function parseYaml(text: string): Frontmatter {
       i++;
       continue;
     }
-    if (after === '|' || after === '>') {
-      const block: string[] = [];
-      i++;
-      while (i < lines.length && /^\s{2,}/.test(lines[i])) {
-        block.push(lines[i].replace(/^\s{2}/, ''));
-        i++;
-      }
-      out[key] = after === '|' ? block.join('\n') : block.join(' ').trim();
+    if (isBlockScalarHeader(after)) {
+      const parsed = parseBlockScalar(lines, i, after);
+      out[key] = parsed.value;
+      i = parsed.nextIndex;
       continue;
     }
     if (after.startsWith('[') && after.endsWith(']')) {
@@ -126,6 +122,77 @@ function parseYaml(text: string): Frontmatter {
     i++;
   }
   return out;
+}
+
+function isBlockScalarHeader(value: string): boolean {
+  if (!value || (value[0] !== '|' && value[0] !== '>')) return false;
+  const rest = value.slice(1);
+  return rest === '' || /^([1-9][+-]?|[+-][1-9]?|[+-])$/.test(rest);
+}
+
+function parseBlockScalar(
+  lines: string[],
+  headerIndex: number,
+  header: string,
+): { value: string; nextIndex: number } {
+  const style = header[0];
+  const indentMatch = header.slice(1).match(/[1-9]/);
+  let indent = indentMatch ? Number(indentMatch[0]) : 0;
+  let i = headerIndex + 1;
+
+  if (indent === 0) {
+    for (let j = i; j < lines.length; j++) {
+      if (lines[j].trim() === '') continue;
+      indent = leadingSpaceCount(lines[j]);
+      break;
+    }
+  }
+
+  if (indent === 0) {
+    return { value: '', nextIndex: i };
+  }
+
+  const block: string[] = [];
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === '') {
+      block.push('');
+      i++;
+      continue;
+    }
+    if (leadingSpaceCount(line) < indent) break;
+    block.push(line.slice(indent));
+    i++;
+  }
+
+  return {
+    value: style === '|' ? block.join('\n') : foldBlockScalar(block),
+    nextIndex: i,
+  };
+}
+
+function leadingSpaceCount(line: string): number {
+  const match = line.match(/^ */);
+  return match ? match[0].length : 0;
+}
+
+function foldBlockScalar(lines: string[]): string {
+  let out = '';
+  let previousBlank = false;
+  for (const line of lines) {
+    if (line === '') {
+      out += '\n';
+      previousBlank = true;
+      continue;
+    }
+    if (!out || previousBlank) {
+      out += line;
+    } else {
+      out += ' ' + line;
+    }
+    previousBlank = false;
+  }
+  return out.trim();
 }
 
 function unquote(s: string): string | number | boolean {
