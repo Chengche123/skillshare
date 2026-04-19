@@ -178,8 +178,14 @@ targets: {}
 		t.Skip("git not available")
 	}
 
+	remotePath := filepath.Join(sb.Root, "remote.git")
+	cmd = exec.Command("git", "init", "--bare", remotePath)
+	if err := cmd.Run(); err != nil {
+		t.Skip("git bare repo not available")
+	}
+
 	// Run init with --remote on already initialized setup
-	result := sb.RunCLI("init", "--remote", "git@github.com:test/skills.git")
+	result := sb.RunCLI("init", "--remote", remotePath)
 
 	result.AssertSuccess(t)
 	result.AssertOutputContains(t, "Git remote configured")
@@ -191,7 +197,7 @@ targets: {}
 	if err != nil {
 		t.Errorf("failed to check git remote: %v", err)
 	}
-	if !strings.Contains(string(output), "git@github.com:test/skills.git") {
+	if !strings.Contains(string(output), remotePath) {
 		t.Errorf("remote should be configured, got: %s", output)
 	}
 }

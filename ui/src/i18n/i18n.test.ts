@@ -11,8 +11,14 @@ import {
   translate,
 } from './index';
 
+const ENGLISH_ONLY_INFLECTION_PLACEHOLDERS = new Set(['s', 'ies']);
+
 function placeholders(value: string): string[] {
-  return [...value.matchAll(/\{([a-zA-Z0-9_.-]+)\}/g)].map((match) => match[1]).sort();
+  return [...new Set(
+    [...value.matchAll(/\{([a-zA-Z0-9_.-]+)\}/g)]
+      .map((match) => match[1])
+      .filter((name) => !ENGLISH_ONLY_INFLECTION_PLACEHOLDERS.has(name)),
+  )].sort();
 }
 
 describe('i18n locale detection', () => {
@@ -53,7 +59,7 @@ describe('i18n dictionaries', () => {
     }
   });
 
-  it('keeps placeholders in parity with English', () => {
+  it('keeps semantic placeholders in parity with English', () => {
     for (const [key, english] of Object.entries(messagesByLocale.en)) {
       const expected = placeholders(english);
       for (const { code } of supportedLocales) {

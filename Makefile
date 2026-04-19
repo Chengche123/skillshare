@@ -1,4 +1,4 @@
-.PHONY: help build build-meta build-windows run test test-unit test-int test-docker test-docker-online test-redteam test-redteam-signal test-redteam-rules-signal playground playground-down devc devc-up devc-down devc-restart devc-reset devc-status dev-docker dev-docker-down docker-build docker-build-multiarch lint fmt fmt-check check install clean ui-install ui-build ui-stage-embed ui-dev build-all
+.PHONY: help build build-meta build-windows run test test-unit test-int test-ui test-all test-docker test-docker-online test-redteam test-redteam-signal test-redteam-rules-signal playground playground-down devc devc-up devc-down devc-restart devc-reset devc-status dev-docker dev-docker-down docker-build docker-build-multiarch lint fmt fmt-check check install clean ui-install ui-build ui-stage-embed ui-dev build-all
 
 help:
 	@echo "Common tasks:"
@@ -7,6 +7,8 @@ help:
 	@echo "  make test           # unit + integration tests"
 	@echo "  make test-unit      # unit tests only"
 	@echo "  make test-int       # integration tests only"
+	@echo "  make test-ui        # UI tests (Vitest)"
+	@echo "  make test-all       # Go tests + UI tests"
 	@echo "  make test-docker    # docker offline sandbox (build + unit + integration)"
 	@echo "  make test-docker-online  # docker online install/update tests"
 	@echo "  make test-redteam   # red team supply-chain security tests"
@@ -57,6 +59,11 @@ test-unit:
 
 test-int:
 	./scripts/test.sh --int
+
+test-ui:
+	cd ui && pnpm run test
+
+test-all: test test-ui
 
 test-docker:
 	./scripts/test_docker.sh
