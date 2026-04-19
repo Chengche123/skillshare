@@ -200,8 +200,13 @@ export const api = {
   getOverview: () => apiFetch<Overview>('/overview'),
 
   // Resources (skills + agents)
-  listSkills: (kind?: 'skill' | 'agent') =>
-    apiFetch<{ resources: Skill[] }>(kind ? `/resources?kind=${kind}` : '/resources'),
+  listSkills: (kind?: 'skill' | 'agent', opts?: { includeContent?: boolean }) => {
+    const params = new URLSearchParams();
+    if (kind) params.set('kind', kind);
+    if (opts?.includeContent) params.set('include', 'content');
+    const query = params.toString();
+    return apiFetch<{ resources: Skill[] }>(query ? `/resources?${query}` : '/resources');
+  },
   getResource: (name: string, kind?: 'skill' | 'agent') =>
     apiFetch<{ resource: Skill; skillMdContent: string; files: string[] }>(
       `/resources/${encodeURIComponent(name)}${kind ? `?kind=${kind}` : ''}`
@@ -662,6 +667,7 @@ export interface Skill {
   version?: string;
   disabled?: boolean;
   branch?: string;
+  content?: string;
 }
 
 export interface SkillPattern {

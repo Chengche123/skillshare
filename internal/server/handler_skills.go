@@ -31,7 +31,25 @@ type skillItem struct {
 	RepoURL     string   `json:"repoUrl,omitempty"`
 	Version     string   `json:"version,omitempty"`
 	Branch      string   `json:"branch,omitempty"`
+	Content     string   `json:"content,omitempty"`
 	Disabled    bool     `json:"disabled"`
+}
+
+func shouldIncludeResourceContent(r *http.Request) bool {
+	for _, value := range strings.Split(r.URL.Query().Get("include"), ",") {
+		if strings.TrimSpace(value) == "content" {
+			return true
+		}
+	}
+	return false
+}
+
+func readResourceContent(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // enrichSkillBranch fills item.Branch from metadata, falling back to
@@ -46,6 +64,7 @@ func enrichSkillBranch(item *skillItem) {
 
 func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	kindFilter := r.URL.Query().Get("kind") // "", "skill", "agent"
+	includeContent := shouldIncludeResourceContent(r)
 
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
@@ -73,6 +92,9 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 				IsInRepo:   d.IsInRepo,
 				Targets:    d.Targets,
 				Disabled:   d.Disabled,
+			}
+			if includeContent {
+				item.Content = readResourceContent(filepath.Join(d.SourcePath, "SKILL.md"))
 			}
 
 			if entry := s.skillsStore.GetByPath(d.RelPath); entry != nil {
@@ -104,6 +126,9 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 				IsInRepo:   d.IsInRepo,
 				Disabled:   d.Disabled,
 				Targets:    d.Targets,
+			}
+			if includeContent {
+				item.Content = readResourceContent(d.SourcePath)
 			}
 
 			// Read from centralized agents metadata store

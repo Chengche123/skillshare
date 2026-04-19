@@ -35,7 +35,7 @@ type Server struct {
 	projectCfg  *config.ProjectConfig
 
 	// uiDistDir, when non-empty, serves UI from this disk directory
-	// instead of the embedded SPA. Used for runtime-downloaded UI assets.
+	// when the embedded SPA is unavailable. Used for runtime-downloaded UI assets.
 	uiDistDir string
 
 	// basePath is the URL prefix under which the UI and API are served
@@ -45,6 +45,16 @@ type Server struct {
 	// onReady is called after the listener is bound but before serving.
 	// Used to open the browser only after the port is confirmed available.
 	onReady func()
+}
+
+var (
+	embeddedUIAvailableFn = embeddedUIAvailable
+	spaHandlerEmbeddedFn  = spaHandlerEmbedded
+)
+
+// EmbeddedUIAvailable reports whether this binary can serve an embedded UI.
+func EmbeddedUIAvailable() bool {
+	return embeddedUIAvailableFn()
 }
 
 // NormalizeBasePath ensures the base path starts with "/" and has no trailing slash.
@@ -60,13 +70,17 @@ func NormalizeBasePath(p string) string {
 	return p
 }
 
+func (s *Server) hasUIAssets() bool {
+	return s.uiDistDir != "" || embeddedUIAvailableFn()
+}
+
 // wrapBasePath wraps the handler chain with StripPrefix and bare-path redirect
-// when basePath is set. Skips wrapping in dev mode (no uiDistDir) and prints a warning.
+// when basePath is set. Skips wrapping only when no UI assets are available.
 func (s *Server) wrapBasePath() {
 	if s.basePath == "" {
 		return
 	}
-	if s.uiDistDir == "" {
+	if !s.hasUIAssets() {
 		fmt.Fprintf(os.Stderr, "Warning: --base-path is ignored in dev mode (no UI assets). Start Vite without base path.\n")
 		s.basePath = ""
 		return
@@ -82,7 +96,7 @@ func (s *Server) wrapBasePath() {
 }
 
 // New creates a new Server for global mode.
-// uiDistDir, when non-empty, serves UI from disk instead of the embedded SPA.
+// uiDistDir, when non-empty, serves UI from disk when the embedded SPA is unavailable.
 func New(cfg *config.Config, addr, basePath, uiDistDir string) *Server {
 	skillsStore, _ := install.LoadMetadataWithMigration(cfg.Source, "")
 	if skillsStore == nil {
@@ -108,7 +122,7 @@ func New(cfg *config.Config, addr, basePath, uiDistDir string) *Server {
 }
 
 // NewProject creates a new Server for project mode.
-// uiDistDir, when non-empty, serves UI from disk instead of the embedded SPA.
+// uiDistDir, when non-empty, serves UI from disk when the embedded SPA is unavailable.
 func NewProject(cfg *config.Config, projectCfg *config.ProjectConfig, projectRoot, addr, basePath, uiDistDir string) *Server {
 	skillsDir := filepath.Join(projectRoot, ".skillshare", "skills")
 	agentsDir := filepath.Join(projectRoot, ".skillshare", "agents")
@@ -481,7 +495,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PUT /api/agentignore", s.handlePutAgentignore)
 
 	// SPA fallback — must be last
-	if s.uiDistDir != "" {
+	if embeddedUIAvailableFn() {
+		s.mux.Handle("/", spaHandlerEmbeddedFn(s.basePath))
+	} else if s.uiDistDir != "" {
 		s.mux.Handle("/", spaHandlerFromDisk(s.uiDistDir, s.basePath))
 	} else {
 		s.mux.Handle("/", uiPlaceholderHandler())

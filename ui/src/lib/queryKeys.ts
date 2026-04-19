@@ -4,6 +4,7 @@ export const queryKeys = {
 
   skills: {
     all: ['skills'] as const,
+    withContent: ['skills', 'content'] as const,
     detail: (name: string) => ['skills', name] as const,
   },
 

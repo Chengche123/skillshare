@@ -14,6 +14,12 @@ import (
 	versionpkg "skillshare/internal/version"
 )
 
+var (
+	uiDistIsCachedFn      = uidist.IsCached
+	uiDistDownloadFn      = uidist.Download
+	embeddedUIAvailableFn = server.EmbeddedUIAvailable
+)
+
 func cmdUI(args []string) error {
 	if wantsHelp(args) {
 		printUIHelp()
@@ -100,9 +106,14 @@ func cmdUI(args []string) error {
 func ensureUIAvailable() (string, error) {
 	ver := versionpkg.Version
 
+	// Embedded UI makes the binary self-contained; skip uidist cache/downloads.
+	if embeddedUIAvailableFn() {
+		return "", nil
+	}
+
 	// Check cache first — works for all versions including "dev"
 	// (e.g., Docker playground pre-populates cache for "dev")
-	if dir, ok := uidist.IsCached(ver); ok {
+	if dir, ok := uiDistIsCachedFn(ver); ok {
 		return dir, nil
 	}
 
@@ -113,7 +124,7 @@ func ensureUIAvailable() (string, error) {
 
 	// Download with spinner
 	sp := ui.StartSpinner("Downloading UI assets...")
-	if err := uidist.Download(ver); err != nil {
+	if err := uiDistDownloadFn(ver); err != nil {
 		sp.Fail("Download failed")
 		fmt.Println()
 		ui.Warning("Install with the full installer to get the web UI:")
@@ -122,7 +133,7 @@ func ensureUIAvailable() (string, error) {
 	}
 	sp.Success("UI assets downloaded and cached")
 
-	dir, ok := uidist.IsCached(ver)
+	dir, ok := uiDistIsCachedFn(ver)
 	if !ok {
 		return "", fmt.Errorf("UI assets were downloaded but cache verification failed")
 	}

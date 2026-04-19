@@ -54,6 +54,64 @@ func TestHandleListSkills_WithSkills(t *testing.T) {
 	}
 }
 
+func TestHandleListSkills_IncludeContent(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "alpha")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources?include=content", nil)
+	rr := httptest.NewRecorder()
+	s.handleListSkills(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Resources []struct {
+			FlatName string `json:"flatName"`
+			Content  string `json:"content"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resp.Resources))
+	}
+	if resp.Resources[0].FlatName != "alpha" {
+		t.Fatalf("expected alpha, got %q", resp.Resources[0].FlatName)
+	}
+	if !strings.Contains(resp.Resources[0].Content, "# alpha") {
+		t.Fatalf("expected SKILL.md content in response, got %q", resp.Resources[0].Content)
+	}
+}
+
+func TestHandleListSkills_OmitsContentByDefault(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "alpha")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
+	rr := httptest.NewRecorder()
+	s.handleListSkills(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Resources []map[string]any `json:"resources"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resp.Resources))
+	}
+	if _, ok := resp.Resources[0]["content"]; ok {
+		t.Fatalf("expected content to be omitted by default, got %+v", resp.Resources[0]["content"])
+	}
+}
+
 func TestHandleGetSkill_Found(t *testing.T) {
 	s, src := newTestServer(t)
 	addSkill(t, src, "my-skill")

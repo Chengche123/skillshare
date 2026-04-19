@@ -99,7 +99,7 @@ Command cheat sheet for skillshare.
 | `make playground-down` | Stop and remove playground |
 | `./scripts/sandbox.sh <cmd>` | Advanced sandbox management (up/down/shell/reset/status/logs/bare) |
 | `make ui-build` | Build frontend |
-| `make build-all` | Full binary with frontend |
+| `make build-all` | Build single binary with embedded frontend |
 
 ---
 

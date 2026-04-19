@@ -2,9 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -26,6 +26,7 @@ pre{background:#f0f0f0;padding:12px 16px;border-radius:6px;overflow-x:auto}</sty
 <pre>cd ui && pnpm run dev</pre>
 <p>Then open <a href="http://localhost:5173">http://localhost:5173</a> (Vite proxies <code>/api</code> to this server).</p>
 <p>Or use <code>make ui-dev</code> to start both together.</p>
+<p>To build a single local binary with the frontend embedded, use <code>make build-all</code>.</p>
 <hr>
 <p style="color:#888;font-size:0.85em">In production builds, <code>skillshare ui</code> downloads and serves the frontend automatically.</p>
 </body>
@@ -34,25 +35,17 @@ pre{background:#f0f0f0;padding:12px 16px;border-radius:6px;overflow-x:auto}</sty
 }
 
 // spaHandlerFromDisk serves a SPA from a directory on disk.
+func spaHandlerFromDisk(dir, basePath string) http.Handler {
+	return spaHandlerFromFS(os.DirFS(dir), basePath)
+}
+
+// spaHandlerFromFS serves a SPA from a filesystem.
 // Unknown paths fall back to index.html for client-side routing.
 // When basePath is non-empty, a <script> tag injecting window.__BASE_PATH__
 // is inserted into index.html after <head>.
-func spaHandlerFromDisk(dir, basePath string) http.Handler {
-	fileServer := http.FileServer(http.Dir(dir))
-
-	// Always cache index.html at startup (avoids per-request disk reads on SPA fallback).
-	// When basePath is set, inject window.__BASE_PATH__ for the frontend.
-	var cachedIndex []byte
-	indexPath := filepath.Join(dir, "index.html")
-	if raw, err := os.ReadFile(indexPath); err == nil {
-		if basePath != "" {
-			encoded, _ := json.Marshal(basePath)
-			injection := "<script>window.__BASE_PATH__=" + string(encoded) + "</script>"
-			cachedIndex = []byte(strings.Replace(string(raw), "<head>", "<head>"+injection, 1))
-		} else {
-			cachedIndex = raw
-		}
-	}
+func spaHandlerFromFS(fsys fs.FS, basePath string) http.Handler {
+	fileServer := http.FileServer(http.FS(fsys))
+	cachedIndex := cachedSPAIndex(fsys, basePath)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Try to serve the file directly
@@ -61,8 +54,7 @@ func spaHandlerFromDisk(dir, basePath string) http.Handler {
 			path = "index.html"
 		}
 
-		fullPath := filepath.Join(dir, path)
-		if _, err := os.Stat(fullPath); err == nil {
+		if _, err := fs.Stat(fsys, path); err == nil {
 			if path == "index.html" && cachedIndex != nil {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.Write(cachedIndex)
@@ -80,4 +72,18 @@ func spaHandlerFromDisk(dir, basePath string) http.Handler {
 		}
 		http.Error(w, "UI assets not found", http.StatusNotFound)
 	})
+}
+
+func cachedSPAIndex(fsys fs.FS, basePath string) []byte {
+	// Cache index.html at startup to avoid per-request reads on SPA fallback.
+	raw, err := fs.ReadFile(fsys, "index.html")
+	if err != nil {
+		return nil
+	}
+	if basePath == "" {
+		return raw
+	}
+	encoded, _ := json.Marshal(basePath)
+	injection := "<script>window.__BASE_PATH__=" + string(encoded) + "</script>"
+	return []byte(strings.Replace(string(raw), "<head>", "<head>"+injection, 1))
 }

@@ -1,4 +1,4 @@
-.PHONY: help build build-meta build-windows run test test-unit test-int test-docker test-docker-online test-redteam test-redteam-signal test-redteam-rules-signal playground playground-down devc devc-up devc-down devc-restart devc-reset devc-status dev-docker dev-docker-down docker-build docker-build-multiarch lint fmt fmt-check check install clean ui-install ui-build ui-dev build-all
+.PHONY: help build build-meta build-windows run test test-unit test-int test-ui test-all test-docker test-docker-online test-redteam test-redteam-signal test-redteam-rules-signal playground playground-down devc devc-up devc-down devc-restart devc-reset devc-status dev-docker dev-docker-down docker-build docker-build-multiarch lint fmt fmt-check check install clean ui-install ui-build ui-stage-embed ui-dev build-all
 
 help:
 	@echo "Common tasks:"
@@ -7,6 +7,8 @@ help:
 	@echo "  make test           # unit + integration tests"
 	@echo "  make test-unit      # unit tests only"
 	@echo "  make test-int       # integration tests only"
+	@echo "  make test-ui        # UI tests (Vitest)"
+	@echo "  make test-all       # Go tests + UI tests"
 	@echo "  make test-docker    # docker offline sandbox (build + unit + integration)"
 	@echo "  make test-docker-online  # docker online install/update tests"
 	@echo "  make test-redteam   # red team supply-chain security tests"
@@ -26,7 +28,7 @@ help:
 	@echo "  make ui-dev         # Go API server + Vite dev server (requires local Go)"
 	@echo "  make dev-docker     # Go API in Docker + auto-rebuild (pair with: cd ui && pnpm run dev)"
 	@echo "  make dev-docker-down  # stop dev Docker container"
-	@echo "  make build-all      # ui-build + build"
+	@echo "  make build-all      # single binary with embedded frontend"
 	@echo "  make clean          # remove build artifacts"
 	@echo ""
 	@echo "Advanced (run scripts directly):"
@@ -57,6 +59,11 @@ test-unit:
 
 test-int:
 	./scripts/test.sh --int
+
+test-ui:
+	cd ui && pnpm run test
+
+test-all: test test-ui
 
 test-docker:
 	./scripts/test_docker.sh
@@ -130,12 +137,18 @@ ui-install:
 ui-build: ui-install
 	cd ui && pnpm run build
 
+ui-stage-embed: ui-build
+	mkdir -p internal/server/dist
+	find internal/server/dist -mindepth 1 ! -name .keep -exec rm -rf {} +
+	cp -R ui/dist/. internal/server/dist/
+
 ui-dev:
 	@trap 'kill 0' EXIT; \
 	air & \
 	cd ui && pnpm run dev
 
-build-all: ui-build build
+build-all: ui-stage-embed
+	mkdir -p $(dir $(BINARY)) && go build -tags embedui -o $(BINARY) ./cmd/skillshare
 
 clean:
 	rm -rf bin $(BINARY) coverage.out

@@ -126,10 +126,10 @@ function optimisticPatch(
   queryClient: ReturnType<typeof useQueryClient>,
   patchFn: (skills: Skill[]) => Skill[],
 ) {
-  queryClient.cancelQueries({ queryKey: queryKeys.skills.all });
-  const previous = queryClient.getQueryData<SkillsData>(queryKeys.skills.all);
+  queryClient.cancelQueries({ queryKey: queryKeys.skills.withContent });
+  const previous = queryClient.getQueryData<SkillsData>(queryKeys.skills.withContent);
   if (previous) {
-    queryClient.setQueryData<SkillsData>(queryKeys.skills.all, {
+    queryClient.setQueryData<SkillsData>(queryKeys.skills.withContent, {
       ...previous,
       resources: patchFn(previous.resources),
     });
@@ -158,7 +158,7 @@ function useResourceActions() {
       toast(disable ? t('resources.toast.disabled', { kind: kindLabel, name: display }) : t('resources.toast.enabled', { kind: kindLabel, name: display }), 'success');
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
@@ -178,7 +178,7 @@ function useResourceActions() {
       toast(t('resources.toast.uninstalled', { kind: resourceLabel(kind), name: display }), 'success');
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
@@ -199,7 +199,7 @@ function useResourceActions() {
       toast(t('resources.toast.repoUninstalled', { name: display }), 'success');
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
@@ -223,7 +223,7 @@ function useResourceActions() {
       toast(t('resources.toast.nowAvailableIn', { name: display, target: target ?? t('resources.targets.all') }), 'success');
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
@@ -751,13 +751,53 @@ function ContextMenuTip() {
   );
 }
 
+/* -- Search match snippet component -------------- */
+
+const SearchSnippet = memo(function SearchSnippet({ content, query }: { content?: string; query: string }) {
+  if (!query || !content) return null;
+  const q = query.toLowerCase();
+  const c = content.toLowerCase();
+  const index = c.indexOf(q);
+  if (index === -1) return null;
+
+  // Take some context
+  const contextBefore = 30;
+  const contextAfter = 60;
+
+  let start = index - contextBefore;
+  if (start < 0) start = 0;
+
+  let end = index + query.length + contextAfter;
+  if (end > content.length) end = content.length;
+
+  let snippet = content.substring(start, end).replace(/\r?\n/g, ' ').replace(/\s+/g, ' ');
+
+  // Find query again in the snippet for exact casing
+  const snippetLower = snippet.toLowerCase();
+  const qIndex = snippetLower.indexOf(q);
+
+  const before = snippet.substring(0, qIndex);
+  const match = snippet.substring(qIndex, qIndex + query.length);
+  const after = snippet.substring(qIndex + query.length);
+
+  return (
+    <span className="text-[11px] text-pencil-light/70 ml-4 truncate flex-1 min-w-0 font-normal" title={snippet}>
+      {start > 0 && '...'}
+      {before}
+      <span className="bg-yellow-200/60 dark:bg-yellow-500/30 text-pencil font-semibold not-italic px-0.5 rounded-sm border border-yellow-300/40">{match}</span>
+      {after}
+      {end < content.length && '...'}
+    </span>
+  );
+});
+
 /* -- Main page ------------------------------------ */
 
 export default function SkillsPage() {
   const t = useT();
   const { data, isPending, error } = useQuery({
-    queryKey: queryKeys.skills.all,
-    queryFn: () => api.listSkills(),
+    queryKey: queryKeys.skills.withContent,
+    queryFn: () => api.listSkills(undefined, { includeContent: true }),
     staleTime: staleTimes.skills,
   });
 
@@ -856,7 +896,8 @@ export default function SkillsPage() {
       (s) =>
         (s.name.toLowerCase().includes(q) ||
           s.flatName.toLowerCase().includes(q) ||
-          (s.source ?? '').toLowerCase().includes(q)) &&
+          (s.source ?? '').toLowerCase().includes(q) ||
+          (s.content ?? '').toLowerCase().includes(q)) &&
         matchFilter(s, filterType),
     );
     return sortSkills(result, sortType);
@@ -1052,12 +1093,13 @@ export default function SkillsPage() {
             skills={tabFiltered}
             resourceKind={activeTab === 'agents' ? 'agent' : 'skill'}
             totalCount={skills.length}
+            search={search}
             isSearching={!!search || filterType !== 'all'}
             stickyTop={toolbarH}
             onClearFilters={(filterType !== 'all' || search) ? () => { setFilterType('all'); setSearch(''); } : undefined}
           />
         ) : (
-          <SkillsTable skills={tabFiltered} resourceKind={activeTab === 'agents' ? 'agent' : 'skill'} />
+          <SkillsTable skills={tabFiltered} resourceKind={activeTab === 'agents' ? 'agent' : 'skill'} search={search} />
         )
       ) : (
         <EmptyState
@@ -1135,10 +1177,11 @@ export default function SkillsPage() {
 const INDENT_PX = 24;
 
 
-function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyTop = 0, onClearFilters }: {
+function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, onClearFilters }: {
   skills: Skill[];
   resourceKind: Skill['kind'];
   totalCount: number;
+  search: string;
   isSearching: boolean;
   stickyTop?: number;
   onClearFilters?: () => void;
@@ -1202,7 +1245,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
       }
     },
     onError: (err: Error, _, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.all, ctx.previous);
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
       toast(err.message, 'error');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
@@ -1419,6 +1462,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
               : <Puzzle size={14} strokeWidth={2} className="text-pencil-light/60 shrink-0" />
             }
             <span className="text-sm text-pencil truncate">{skill.name}</span>
+            <SearchSnippet content={skill.content} query={search} />
             <span className="ml-auto shrink-0 flex items-center gap-1">
               {skill.disabled && <Badge variant="danger">Disabled</Badge>}
               <SourceBadge type={skill.type} isInRepo={skill.isInRepo} />
@@ -1613,7 +1657,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, isSearching, stickyT
 
 const TABLE_PAGE_SIZES = [10, 25, 50] as const;
 
-function SkillsTable({ skills, resourceKind }: { skills: Skill[]; resourceKind: Skill['kind'] }) {
+function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resourceKind: Skill['kind']; search: string }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(() => {
     const saved = localStorage.getItem('skillshare:table-page-size');
@@ -1739,6 +1783,7 @@ function SkillsTable({ skills, resourceKind }: { skills: Skill[]; resourceKind: 
                             {skill.relPath}
                           </span>
                         )}
+                        <SearchSnippet content={skill.content} query={search} />
                       </div>
                       {skill.source && (() => {
                         const parsed = parseRemoteURL(skill.source);

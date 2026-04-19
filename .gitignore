@@ -18,12 +18,13 @@ Thumbs.db
 # Test
 coverage.out
 .claude/
-AGENTS.md
+# AGENTS.md
 CLAUDE.md
 docs/plans/
 docs/superpowers/
 .agents/
 .codex/
+.gemini
 .skillshare/*
 !.skillshare/skills/
 !.skillshare/config.yaml
@@ -52,7 +53,8 @@ video/node_modules/
 # Web UI
 ui/node_modules/
 ui/dist/
-internal/server/dist/
+internal/server/dist/*
+!internal/server/dist/.keep
 
 # Air hot-reload
 tmp/
@@ -60,3 +62,14 @@ MEMORY.md
 .spectra/
 openspec/.vector-search.db*
 .spectra.yaml
+inline.md
+
+# Graphify outputs: ignore generated contents, but keep any GRAPH_REPORT.md
+**/.graphify/**
+!**/.graphify/**/
+!**/.graphify/**/GRAPH_REPORT.md
+**/graphify-out/**
+!**/graphify-out/**/
+!**/graphify-out/**/GRAPH_REPORT.md
+.graphify_*.json
+.graphify_python

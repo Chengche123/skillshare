@@ -19,9 +19,8 @@ func TestInit_Fresh_CreatesConfigAndSource(t *testing.T) {
 	// Remove config file to simulate fresh state
 	os.Remove(sb.ConfigPath)
 
-	// Run init with input to skip interactive prompts
-	// Input: "2" to start fresh, "n" to skip adding other targets, "n" to skip git, "n" to skip skill
-	result := sb.RunCLIWithInput("2\nn\nn\nn\n", "init")
+	// Use explicit flags because init target selection now uses a TUI checklist.
+	result := sb.RunCLI("init", "--no-copy", "--no-targets", "--no-git", "--no-skill")
 
 	result.AssertSuccess(t)
 	result.AssertOutputContains(t, "Initialized successfully")
@@ -46,8 +45,7 @@ func TestInit_WithSourceFlag_UsesCustomPath(t *testing.T) {
 
 	customSource := filepath.Join(sb.Home, "my-skills")
 
-	// Input: "1" to start fresh (no skills detected), "n" to skip git, "n" to skip skill
-	result := sb.RunCLIWithInput("1\nn\nn\n", "init", "--source", customSource)
+	result := sb.RunCLI("init", "--source", customSource, "--no-copy", "--no-targets", "--no-git", "--no-skill")
 
 	result.AssertSuccess(t)
 	result.AssertOutputContains(t, customSource)
@@ -65,7 +63,7 @@ func TestInit_DryRun_DoesNotWrite(t *testing.T) {
 	os.Remove(sb.ConfigPath)
 	os.RemoveAll(sb.SourcePath)
 
-	result := sb.RunCLIWithInput("n\nn\n", "init", "--dry-run")
+	result := sb.RunCLI("init", "--dry-run", "--no-copy", "--no-targets", "--no-git", "--no-skill")
 
 	result.AssertSuccess(t)
 	result.AssertOutputContains(t, "Dry run")
@@ -132,8 +130,7 @@ func TestInit_DetectsCLI_OffersImport(t *testing.T) {
 	os.MkdirAll(testSkillPath, 0755)
 	os.WriteFile(filepath.Join(testSkillPath, "SKILL.md"), []byte("# Test"), 0644)
 
-	// Input: "2" to start fresh (not copy), "y" to add claude as target, "n" to skip git, "n" to skip skill
-	result := sb.RunCLIWithInput("2\ny\nn\nn\n", "init")
+	result := sb.RunCLI("init", "--no-copy", "--all-targets", "--no-git", "--no-skill")
 
 	result.AssertSuccess(t)
 	result.AssertOutputContains(t, "claude")
@@ -153,8 +150,7 @@ func TestInit_WithSkills_CopiesOnConfirm(t *testing.T) {
 	os.MkdirAll(testSkillPath, 0755)
 	os.WriteFile(filepath.Join(testSkillPath, "SKILL.md"), []byte("# My Test Skill"), 0644)
 
-	// Input: "1" to copy from claude, "n" to skip git, "n" to skip skill
-	result := sb.RunCLIWithInput("1\nn\nn\n", "init")
+	result := sb.RunCLI("init", "--copy-from", "claude", "--no-targets", "--no-git", "--no-skill")
 
 	result.AssertSuccess(t)
 	result.AssertOutputContains(t, "Copy")
@@ -182,8 +178,14 @@ targets: {}
 		t.Skip("git not available")
 	}
 
+	remotePath := filepath.Join(sb.Root, "remote.git")
+	cmd = exec.Command("git", "init", "--bare", remotePath)
+	if err := cmd.Run(); err != nil {
+		t.Skip("git bare repo not available")
+	}
+
 	// Run init with --remote on already initialized setup
-	result := sb.RunCLI("init", "--remote", "git@github.com:test/skills.git")
+	result := sb.RunCLI("init", "--remote", remotePath)
 
 	result.AssertSuccess(t)
 	result.AssertOutputContains(t, "Git remote configured")
@@ -195,7 +197,7 @@ targets: {}
 	if err != nil {
 		t.Errorf("failed to check git remote: %v", err)
 	}
-	if !strings.Contains(string(output), "git@github.com:test/skills.git") {
+	if !strings.Contains(string(output), remotePath) {
 		t.Errorf("remote should be configured, got: %s", output)
 	}
 }
