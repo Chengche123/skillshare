@@ -544,11 +544,10 @@ func TestInstall_Project_JSON_Agent_PureJSON(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
-	projectDir := sb.Root + "/agent-project"
+	// Pre-initialize the project so this test focuses on JSON install behavior
+	// instead of the interactive project init flow.
+	projectDir := sb.SetupProjectDir()
 	agentSource := sb.Root + "/agent-bundle"
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		t.Fatalf("mkdir project: %v", err)
-	}
 	sb.WriteFile(agentSource+"/reviewer.md", "# Reviewer\n")
 	initGitRepo(t, agentSource)
 
