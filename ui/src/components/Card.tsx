@@ -11,6 +11,7 @@ interface CardProps {
   padding?: 'none' | 'sm' | 'md';
   style?: CSSProperties;
   skillCard?: boolean;
+  onClick?: () => void;
 }
 
 const variantStyles = {
@@ -41,9 +42,15 @@ export default function Card({
   padding = 'md',
   style,
   skillCard = false,
+  onClick,
 }: CardProps) {
+  const interactive = !!onClick;
   return (
     <div
+      onClick={onClick}
+      onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick!(); } } : undefined}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
       className={`
         ss-card
         ${skillCard ? 'ss-skill-card' : ''}

@@ -435,12 +435,20 @@ func discoverFromGitSubdirImpl(source *Source) (*DiscoveryResult, error) {
 	return discoverFromGitSubdirWithProgressImpl(source, nil)
 }
 
-// CleanupDiscovery removes the temporary directory from discovery
+// CleanupDiscovery removes the temporary directory created for git-based
+// discovery (clone under RepoPath). It only runs when Source is known to be
+// a git remote; local paths, missing source metadata, and other types are
+// skipped so RepoPath is never treated as disposable unless it came from a
+// git clone.
 
 func cleanupDiscoveryImpl(result *DiscoveryResult) {
-	if result != nil && result.RepoPath != "" {
-		os.RemoveAll(result.RepoPath)
+	if result == nil || result.RepoPath == "" || result.Source == nil {
+		return
 	}
+	if !result.Source.IsGit() {
+		return
+	}
+	os.RemoveAll(result.RepoPath)
 }
 
 // InstallFromDiscovery installs a skill from a discovered repository

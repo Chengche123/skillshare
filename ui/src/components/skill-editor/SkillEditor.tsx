@@ -1,6 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { highlightArgs } from '../../lib/highlightArgs';
 import {
   AlignLeft,
   ArrowLeft,
@@ -18,6 +19,8 @@ import {
 } from 'lucide-react';
 import { useToast } from '../Toast';
 import ConfirmDialog from '../ConfirmDialog';
+import KindBadge from '../KindBadge';
+import SourceBadge from '../SourceBadge';
 import FrontmatterEditor from './FrontmatterEditor';
 import { useT } from '../../i18n';
 import Outline, { parseOutline, type HeadingItem } from './Outline';
@@ -29,6 +32,7 @@ import {
 } from '../../lib/frontmatter';
 import { api, ApiError } from '../../api/client';
 import Button from '../Button';
+import { Input } from '../Input';
 import EditorSegment from './controls/EditorSegment';
 import './styles.css';
 
@@ -81,6 +85,9 @@ export default function SkillEditor({
     migrateRootTargets({ ...initial.frontmatter })
   );
   const [draftBody, setDraftBody] = useState<string>(() => initial.body);
+  const [draftSource, setDraftSource] = useState<string>(derived.source ?? '');
+  const sourceChanged = draftSource !== (derived.source ?? '');
+  const [fmDirty, setFmDirty] = useState(false);
   const [yamlMode, setYamlMode] = useState(false);
   const [previewMode, setPreviewMode] = useState<PreviewMode>('split');
   const [dirty, setDirty] = useState(false);
@@ -234,25 +241,19 @@ export default function SkillEditor({
     scheduleSync('preview');
   };
 
-  const requestSave = useCallback(() => {
-    if (!dirty) return;
-    const descLen = String(draftFrontmatter.description ?? '').length;
-    const wtuLen = String(draftFrontmatter.when_to_use ?? '').length;
-    if (descLen + wtuLen > 1536) {
-      toast(
-        `Description + when_to_use exceed 1,536 chars (${descLen + wtuLen}). Trim either field.`,
-        'error',
-      );
-      return;
-    }
-    setShowDiff(true);
-  }, [dirty, draftFrontmatter, toast]);
+  const hasPendingChanges = dirty || sourceChanged;
 
   const commitSave = useCallback(async () => {
     setSaving(true);
-    const next = composeSkillMarkdown(migrateRootTargets(draftFrontmatter), draftBody);
+    const rawFm = fmDirty ? undefined : initial.rawFrontmatter;
+    const next = composeSkillMarkdown(migrateRootTargets(draftFrontmatter), draftBody, undefined, rawFm);
     try {
-      await api.saveSkillContent(skillName, next, kind);
+      if (sourceChanged) {
+        await api.updateSkillSource(skillName, draftSource.trim(), kind);
+      }
+      if (dirty) {
+        await api.saveSkillContent(skillName, next, kind);
+      }
       setDirty(false);
       setShowDiff(false);
       toast(t('skillEditor.toast.saved', { name: skillName }), 'success');
@@ -263,7 +264,26 @@ export default function SkillEditor({
     } finally {
       setSaving(false);
     }
-  }, [draftFrontmatter, draftBody, skillName, kind, toast, onSaved]);
+  }, [draftFrontmatter, draftBody, skillName, kind, toast, onSaved, sourceChanged, draftSource, dirty, fmDirty, initial]);
+
+  const requestSave = useCallback(() => {
+    if (!hasPendingChanges) return;
+    const descLen = String(draftFrontmatter.description ?? '').length;
+    const wtuLen = String(draftFrontmatter.when_to_use ?? '').length;
+    if (descLen + wtuLen > 1536) {
+      toast(
+        `Description + when_to_use exceed 1,536 chars (${descLen + wtuLen}). Trim either field.`,
+        'error',
+      );
+      return;
+    }
+    // Skip diff review when only source URL changed (no SKILL.md edits).
+    if (!dirty && sourceChanged) {
+      commitSave();
+      return;
+    }
+    setShowDiff(true);
+  }, [hasPendingChanges, draftFrontmatter, toast, dirty, sourceChanged, commitSave]);
 
   const discardAndExit = useCallback(() => {
     setShowDiscardConfirm(false);
@@ -271,12 +291,12 @@ export default function SkillEditor({
   }, [onBack]);
 
   const cancelEdit = useCallback(() => {
-    if (dirty) {
+    if (hasPendingChanges) {
       setShowDiscardConfirm(true);
       return;
     }
     discardAndExit();
-  }, [dirty, discardAndExit]);
+  }, [hasPendingChanges, discardAndExit]);
 
   const openInEditor = useCallback(async () => {
     try {
@@ -335,13 +355,11 @@ export default function SkillEditor({
 
   const deferredBody = useDeferredValue(draftBody);
 
-  const argsCount = useMemo(() => {
-    const matches = draftBody.match(/\$ARGUMENTS\b/g);
-    return matches ? matches.length : 0;
-  }, [draftBody]);
+  const hasArgs = useMemo(() => /\$ARGUMENTS\b/.test(draftBody), [draftBody]);
 
   const patchFrontmatter = useCallback((next: Frontmatter) => {
     setDraftFrontmatter(next);
+    setFmDirty(true);
     setDirty(true);
   }, []);
 
@@ -387,9 +405,9 @@ export default function SkillEditor({
         </button>
         <div className="title-row">
           <h1 className="title mono">{displayName}</h1>
-          <span className="kind-badge">{kind.toUpperCase()}</span>
-          {tracked && <span className="tracked-badge">{t('skillEditor.trackedBadge')}</span>}
-          {dirty && <span className="dirty-pill">{t('skillEditor.dirtyPill')}</span>}
+          <KindBadge kind={kind} />
+          <SourceBadge isInRepo={tracked} />
+          {hasPendingChanges && <span className="dirty-pill">{t('skillEditor.dirtyPill')}</span>}
         </div>
         <div className="mode-actions">
           <Button variant="ghost" size="sm" onClick={openInEditor}>
@@ -402,7 +420,7 @@ export default function SkillEditor({
             variant="primary"
             size="sm"
             onClick={requestSave}
-            disabled={!dirty || saving}
+            disabled={!hasPendingChanges || saving}
             loading={saving}
           >
             <Check size={14} /> {t('skillEditor.saveButton')}
@@ -447,7 +465,7 @@ export default function SkillEditor({
                   </>
                 )}
                 <span className="doc-kicker-sep">·</span>
-                {dirty ? (
+                {hasPendingChanges ? (
                   <span className="kicker-status dirty">{t('skillEditor.unsavedChanges')}</span>
                 ) : (
                   <span className="kicker-status">{t('skillEditor.noChanges')}</span>
@@ -477,6 +495,19 @@ export default function SkillEditor({
                   {String(draftFrontmatter.description ?? '') ||
                     t('skillEditor.descPlaceholder')}
                 </p>
+              </div>
+              <div className="source-edit-row">
+                <label className="source-edit-label">
+                  <span className="fm-key">{t('skillEditor.sourceLabel')}</span>
+                  <span className="fm-hint">{t('skillEditor.sourceHint')}</span>
+                </label>
+                <Input
+                  size="sm"
+                  className="mono"
+                  value={draftSource}
+                  onChange={(e) => setDraftSource(e.target.value)}
+                  placeholder={t('skillEditor.sourcePlaceholder')}
+                />
               </div>
             </section>
 
@@ -573,13 +604,13 @@ export default function SkillEditor({
                   onScroll={handleTextareaScroll}
                   spellCheck={false}
                 />
-                {argsCount > 0 && (
+                {hasArgs && (
                   <div
                     className="args-hint"
                     title={t('skillEditor.argsTitle')}
                   >
                     <span className="args-token-pill">$ARGUMENTS</span>
-                    <span>{t('skillEditor.argsHint', { count: argsCount })}</span>
+                    <span>{t('skillEditor.argsHint')}</span>
                   </div>
                 )}
               </div>
@@ -609,7 +640,7 @@ export default function SkillEditor({
         <DiffView
           open
           oldText={initialContent}
-          newText={composeSkillMarkdown(migrateRootTargets(draftFrontmatter), draftBody)}
+          newText={composeSkillMarkdown(migrateRootTargets(draftFrontmatter), draftBody, undefined, fmDirty ? undefined : initial.rawFrontmatter)}
           onConfirm={commitSave}
           onCancel={() => setShowDiff(false)}
           saving={saving}
@@ -654,16 +685,6 @@ function migrateRootTargets(fm: Frontmatter): Frontmatter {
   meta.targets = list;
   next.metadata = meta as Frontmatter[string];
   return next;
-}
-
-function highlightArgs(children: React.ReactNode): React.ReactNode {
-  if (typeof children === 'string') return highlightArgsInString(children);
-  if (Array.isArray(children)) {
-    return children.map((c, i) =>
-      typeof c === 'string' ? <span key={i}>{highlightArgsInString(c)}</span> : c
-    );
-  }
-  return children;
 }
 
 function measureTextareaLineTops(
@@ -753,17 +774,4 @@ function slugifyChildren(children: React.ReactNode): string {
     .replace(/\s+/g, '-');
 }
 
-function highlightArgsInString(s: string): React.ReactNode {
-  const parts = s.split(/(\$ARGUMENTS\b)/g);
-  if (parts.length === 1) return s;
-  return parts.map((p, i) =>
-    p === '$ARGUMENTS' ? (
-      <span key={i} className="arg-token">
-        $ARGUMENTS
-      </span>
-    ) : (
-      p
-    )
-  );
-}
 

@@ -340,6 +340,8 @@ export const api = {
     apiFetch<{ results: SearchResult[] }>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   searchHub: (q: string, hubURL: string) =>
     apiFetch<{ results: SearchResult[] }>(`/search?q=${encodeURIComponent(q)}&hub=${encodeURIComponent(hubURL)}`),
+  preview: (source: string) =>
+    apiFetch<SkillPreview>(`/preview?source=${encodeURIComponent(source)}`),
   check: () => apiFetch<CheckResult>('/check'),
   checkStream: (
     onDiscovering: () => void,
@@ -413,6 +415,16 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ content }),
     }),
+
+  // Update source URL for a tracked skill or agent.
+  updateSkillSource: (name: string, source: string, kind?: 'skill' | 'agent') =>
+    apiFetch<{ success: boolean; source: string; repoUrl: string }>(
+      `/resources/${encodeURIComponent(name)}/source${kind ? `?kind=${kind}` : ''}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ source }),
+      },
+    ),
 
   // Launch an external editor (VS Code / Cursor / $EDITOR) against the skill file.
   openSkillInEditor: (
@@ -777,6 +789,18 @@ export interface SearchResult {
   owner: string;
   repo: string;
   tags?: string[];
+}
+
+export interface SkillPreview {
+  name: string;
+  description: string;
+  license?: string;
+  tags?: string[];
+  content: string;
+  source: string;
+  stars: number;
+  owner: string;
+  repo: string;
 }
 
 export interface InstallResult {

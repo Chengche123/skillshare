@@ -379,6 +379,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/resources/{name}", s.handleGetSkill)
 	s.mux.HandleFunc("GET /api/resources/{name}/files/{filepath...}", s.handleGetSkillFile)
 	s.mux.HandleFunc("PUT /api/resources/{name}/content", s.handlePutSkillContent)
+	s.mux.HandleFunc("PATCH /api/resources/{name}/source", s.handlePatchSkillSource)
 	s.mux.HandleFunc("POST /api/resources/{name}/open-in-editor", s.handleOpenSkillInEditor)
 	s.mux.HandleFunc("POST /api/resources/{name}/disable", s.handleDisableSkill)
 	s.mux.HandleFunc("POST /api/resources/{name}/enable", s.handleEnableSkill)
@@ -414,6 +415,7 @@ func (s *Server) registerRoutes() {
 
 	// Search & Install
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
+	s.mux.HandleFunc("GET /api/preview", s.handlePreview)
 	s.mux.HandleFunc("POST /api/discover", s.handleDiscover)
 	s.mux.HandleFunc("POST /api/install", s.handleInstall)
 	s.mux.HandleFunc("POST /api/install/batch", s.handleInstallBatch)
