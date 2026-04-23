@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"skillshare/internal/config"
 	"skillshare/internal/resource"
 )
 
@@ -119,22 +118,9 @@ func shouldSyncFlatName(name string, includePatterns, excludePatterns []string) 
 	return true
 }
 
-// FilterSkillsByTarget removes skills whose Targets field does not include
-// the given target name.  Skills with nil Targets (no field declared) pass
-// through unconditionally.
-func FilterSkillsByTarget(skills []DiscoveredSkill, targetName string) []DiscoveredSkill {
-	filtered := make([]DiscoveredSkill, 0, len(skills))
-	for _, skill := range skills {
-		if skill.Targets == nil {
-			filtered = append(filtered, skill)
-			continue
-		}
-		for _, t := range skill.Targets {
-			if config.MatchesTargetName(t, targetName) {
-				filtered = append(filtered, skill)
-				break
-			}
-		}
-	}
+// FilterSkillsByTarget treats declared Targets as passthrough metadata.
+func FilterSkillsByTarget(skills []DiscoveredSkill, _ string) []DiscoveredSkill {
+	filtered := make([]DiscoveredSkill, len(skills))
+	copy(filtered, skills)
 	return filtered
 }

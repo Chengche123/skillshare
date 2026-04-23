@@ -229,7 +229,7 @@ targets:
 	}
 }
 
-func TestAnalyze_SkillTargetRestriction(t *testing.T) {
+func TestAnalyze_DeclaredSkillTargetsDoNotRestrictCounts(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
@@ -271,8 +271,8 @@ targets:
 				t.Errorf("claude: expected 2 skills, got %d", tgt.SkillCount)
 			}
 		case "cursor":
-			if tgt.SkillCount != 1 {
-				t.Errorf("cursor: expected 1 skill (universal only), got %d", tgt.SkillCount)
+			if tgt.SkillCount != 2 {
+				t.Errorf("cursor: expected 2 skills, got %d", tgt.SkillCount)
 			}
 		}
 	}
