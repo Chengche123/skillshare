@@ -190,6 +190,44 @@ targets:
 	}
 }
 
+func TestSync_Agents_DeclaredTargetsAreIgnored(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	agentsDir := filepath.Join(filepath.Dir(sb.SourcePath), "agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsDir, "cursor-only.md"), []byte("---\nname: cursor-only\ntargets:\n  - cursor\n---\n# Cursor Only"), 0644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	claudeSkills := filepath.Join(sb.Home, ".claude", "skills")
+	claudeAgents := filepath.Join(sb.Home, ".claude", "agents")
+	if err := os.MkdirAll(claudeSkills, 0755); err != nil {
+		t.Fatalf("mkdir claude skills: %v", err)
+	}
+	if err := os.MkdirAll(claudeAgents, 0755); err != nil {
+		t.Fatalf("mkdir claude agents: %v", err)
+	}
+
+	sb.WriteConfig(`source: ` + sb.SourcePath + `
+targets:
+  claude:
+    skills:
+      path: "` + claudeSkills + `"
+    agents:
+      path: "` + claudeAgents + `"
+`)
+
+	result := sb.RunCLI("sync", "agents")
+	result.AssertSuccess(t)
+
+	if _, err := os.Lstat(filepath.Join(claudeAgents, "cursor-only.md")); err != nil {
+		t.Fatalf("cursor-only.md should be synced despite declared targets: %v", err)
+	}
+}
+
 func TestSync_Agents_DisabledAgentsNotSynced(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
