@@ -261,6 +261,72 @@ func TestHandleSyncMatrixPreview_IncludesAgents(t *testing.T) {
 	}
 }
 
+func TestHandleSyncMatrixPreview_IgnoresDeclaredTargetsForSkillsAndAgents(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+
+	tgtPath := filepath.Join(t.TempDir(), "claude-skills")
+	s, sourceDir := newTestServerWithTargets(t, map[string]string{"claude": tgtPath})
+
+	skillDir := filepath.Join(sourceDir, "cursor-only")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: cursor-only\ntargets:\n  - cursor\n---\n# cursor-only"), 0644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	agentsSource := s.cfg.EffectiveAgentsSource()
+	if err := os.MkdirAll(agentsSource, 0755); err != nil {
+		t.Fatalf("mkdir agents source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsSource, "cursor-agent.md"), []byte("---\nname: cursor-agent\ntargets:\n  - cursor\n---\n# agent"), 0644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	body := `{"target":"claude","include":[],"exclude":[],"agent_include":[],"agent_exclude":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sync-matrix/preview", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Entries []struct {
+			Skill  string `json:"skill"`
+			Status string `json:"status"`
+			Kind   string `json:"kind"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	statusByName := map[string]string{}
+	kindByName := map[string]string{}
+	for _, entry := range resp.Entries {
+		statusByName[entry.Skill] = entry.Status
+		kindByName[entry.Skill] = entry.Kind
+	}
+
+	if statusByName["cursor-only"] != "synced" {
+		t.Fatalf("cursor-only status = %q, want synced", statusByName["cursor-only"])
+	}
+	if kindByName["cursor-only"] != "" {
+		t.Fatalf("cursor-only kind = %q, want empty", kindByName["cursor-only"])
+	}
+	if statusByName["cursor-agent.md"] != "synced" {
+		t.Fatalf("cursor-agent.md status = %q, want synced", statusByName["cursor-agent.md"])
+	}
+	if kindByName["cursor-agent.md"] != "agent" {
+		t.Fatalf("cursor-agent.md kind = %q, want agent", kindByName["cursor-agent.md"])
+	}
+}
+
 func TestHandleSyncMatrixPreview_NoAgentsWhenNoAgentPath(t *testing.T) {
 	// custom-tool has no agent path in builtin targets
 	tgtPath := filepath.Join(t.TempDir(), "custom-skills")
