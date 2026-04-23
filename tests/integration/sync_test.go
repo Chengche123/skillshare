@@ -586,6 +586,30 @@ targets:
 	}
 }
 
+func TestSync_MergeMode_IgnoresDeclaredSkillTargets(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	sb.CreateSkill("cursor-only", map[string]string{
+		"SKILL.md": "---\nname: cursor-only\ntargets:\n  - cursor\n---\n# Cursor Only",
+	})
+	targetPath := sb.CreateTarget("claude")
+
+	sb.WriteConfig(`source: ` + sb.SourcePath + `
+mode: merge
+targets:
+  claude:
+    path: ` + targetPath + `
+`)
+
+	result := sb.RunCLI("sync")
+	result.AssertSuccess(t)
+
+	if !sb.IsSymlink(filepath.Join(targetPath, "cursor-only")) {
+		t.Error("skill should sync despite mismatched declared targets")
+	}
+}
+
 func TestSync_Pruning_RemovesExcludedSourceLinkedSkill(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
