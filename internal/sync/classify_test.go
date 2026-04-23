@@ -31,3 +31,30 @@ func TestClassifySkillForTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestClassifyAgentForTarget(t *testing.T) {
+	tests := []struct {
+		name       string
+		flatName   string
+		include    []string
+		exclude    []string
+		wantStatus string
+		wantReason string
+	}{
+		{name: "include_matches_name_without_extension", flatName: "code-reviewer.md", include: []string{"code-reviewer"}, wantStatus: "synced"},
+		{name: "include_miss_uses_name_without_extension", flatName: "draft-helper.md", include: []string{"code-reviewer"}, wantStatus: "not_included"},
+		{name: "exclude_matches_name_without_extension", flatName: "draft-helper.md", exclude: []string{"draft-helper"}, wantStatus: "excluded", wantReason: "draft-helper"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status, reason := ClassifyAgentForTarget(tt.flatName, tt.include, tt.exclude)
+			if status != tt.wantStatus {
+				t.Errorf("status = %q, want %q", status, tt.wantStatus)
+			}
+			if reason != tt.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tt.wantReason)
+			}
+		})
+	}
+}

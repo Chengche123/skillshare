@@ -261,6 +261,114 @@ func TestHandleSyncMatrixPreview_IncludesAgents(t *testing.T) {
 	}
 }
 
+func TestHandleSyncMatrix_AgentIncludeMatchesNameWithoutMarkdownExtension(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+
+	tgtPath := filepath.Join(t.TempDir(), "claude-skills")
+	s, _ := newTestServerWithTargets(t, map[string]string{"claude": tgtPath})
+	s.cfg.Targets["claude"] = config.TargetConfig{
+		Path: tgtPath,
+		Mode: "merge",
+		Agents: &config.ResourceTargetConfig{
+			Include: []string{"code-reviewer"},
+		},
+	}
+	if err := s.cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	agentsSource := s.cfg.EffectiveAgentsSource()
+	addAgentFile(t, agentsSource, "code-reviewer.md")
+	addAgentFile(t, agentsSource, "draft-helper.md")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sync-matrix", nil)
+	rr := httptest.NewRecorder()
+	s.handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Entries []struct {
+			Skill  string `json:"skill"`
+			Status string `json:"status"`
+			Kind   string `json:"kind"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	statusByName := map[string]string{}
+	for _, entry := range resp.Entries {
+		if entry.Kind != "agent" {
+			continue
+		}
+		statusByName[entry.Skill] = entry.Status
+	}
+
+	if statusByName["code-reviewer.md"] != "synced" {
+		t.Fatalf("code-reviewer.md status = %q, want synced", statusByName["code-reviewer.md"])
+	}
+	if statusByName["draft-helper.md"] != "not_included" {
+		t.Fatalf("draft-helper.md status = %q, want not_included", statusByName["draft-helper.md"])
+	}
+}
+
+func TestHandleSyncMatrixPreview_AgentIncludeMatchesNameWithoutMarkdownExtension(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+
+	tgtPath := filepath.Join(t.TempDir(), "claude-skills")
+	s, sourceDir := newTestServerWithTargets(t, map[string]string{"claude": tgtPath})
+	addSkill(t, sourceDir, "my-skill")
+
+	agentsSource := s.cfg.EffectiveAgentsSource()
+	addAgentFile(t, agentsSource, "code-reviewer.md")
+	addAgentFile(t, agentsSource, "draft-helper.md")
+
+	body := `{"target":"claude","include":[],"exclude":[],"agent_include":["code-reviewer"],"agent_exclude":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sync-matrix/preview", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Entries []struct {
+			Skill  string `json:"skill"`
+			Status string `json:"status"`
+			Kind   string `json:"kind"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	statusByName := map[string]string{}
+	for _, entry := range resp.Entries {
+		if entry.Kind != "agent" {
+			continue
+		}
+		statusByName[entry.Skill] = entry.Status
+	}
+
+	if statusByName["code-reviewer.md"] != "synced" {
+		t.Fatalf("code-reviewer.md status = %q, want synced", statusByName["code-reviewer.md"])
+	}
+	if statusByName["draft-helper.md"] != "not_included" {
+		t.Fatalf("draft-helper.md status = %q, want not_included", statusByName["draft-helper.md"])
+	}
+}
+
 func TestHandleSyncMatrixPreview_IgnoresDeclaredTargetsForSkillsAndAgents(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	if err := os.MkdirAll(home, 0755); err != nil {

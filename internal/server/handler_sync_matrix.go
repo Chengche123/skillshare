@@ -114,7 +114,7 @@ func (s *Server) handleSyncMatrix(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			for _, agent := range agents {
-				status, reason := ssync.ClassifySkillForTarget(agent.FlatName, ac.Include, ac.Exclude)
+				status, reason := ssync.ClassifyAgentForTarget(agent.FlatName, ac.Include, ac.Exclude)
 				entries = append(entries, newSyncMatrixEntry(agent.FlatName, name, status, reason, "agent"))
 			}
 		}
@@ -157,11 +157,11 @@ func (s *Server) handleSyncMatrixPreview(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	// Validate agent patterns
-	if _, err := ssync.FilterSkills(nil, body.AgentInclude, nil); err != nil {
+	if _, err := ssync.FilterAgents(nil, body.AgentInclude, nil); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid agent include pattern: "+err.Error())
 		return
 	}
-	if _, err := ssync.FilterSkills(nil, nil, body.AgentExclude); err != nil {
+	if _, err := ssync.FilterAgents(nil, nil, body.AgentExclude); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid agent exclude pattern: "+err.Error())
 		return
 	}
@@ -207,7 +207,7 @@ func (s *Server) handleSyncMatrixPreview(w http.ResponseWriter, r *http.Request)
 				}
 			} else {
 				for _, agent := range agents {
-					status, reason := ssync.ClassifySkillForTarget(agent.FlatName, body.AgentInclude, body.AgentExclude)
+					status, reason := ssync.ClassifyAgentForTarget(agent.FlatName, body.AgentInclude, body.AgentExclude)
 					entries = append(entries, newSyncMatrixEntry(agent.FlatName, body.Target, status, reason, "agent"))
 				}
 			}
