@@ -9,6 +9,45 @@ All notable changes to skillshare are documented here. For the full commit histo
 
 ---
 
+## [0.19.5] - 2026-04-23
+
+### New Features
+
+#### Search Experience
+
+- **Skill preview modal** — clicking a search result card or table row now opens a preview modal that renders the remote `SKILL.md` so you can read the full content before installing. The **Install** button has moved inside the modal
+  ```bash
+  skillshare ui              # open Search, click any result
+  ```
+  Backed by a new `GET /api/preview?source=owner/repo/path` endpoint that fetches `SKILL.md` from the GitHub Contents API with a Git Tree fallback for hub sources, plus a 5-minute in-memory cache. If the fetch fails but hub metadata exists, the modal falls back to showing the description and tags instead of an error. Refs: #141
+
+- **Higher-quality search results** — the scoring formula that ranked search hits was dominated by name matches (45%) while stars — the strongest quality signal — only contributed 5%, so zero-star personal experiments often outranked well-known skill repos. Weights are now rebalanced (name 30%, description 20%, stars 25%, source 25%), with a better star-count curve in the 5–50 range where most useful skills live
+- **Low-quality result filtering** — search now filters out 0-star non-preferred repos, results with very short descriptions, and known spam orgs, and boosts preferred hubs like `anthropics/skills` and `vercel-labs/skills`. Results are also deduplicated when the same skill appears from multiple sources
+- **Repo-scoped search queries** — you can now search inside a specific repo (or subdirectory) using `owner/repo` or `owner/repo/subdir` patterns
+- **Frontmatter validation** — search results without valid `SKILL.md` frontmatter are filtered out, so non-skill `.md` files no longer appear in results
+
+#### Skill Detail Editor
+
+- **Editable source URL on skill detail page** — the skill editor now exposes a **Source URL** field so you can correct or reassign the upstream URL without touching disk
+  ```bash
+  skillshare ui              # open any skill's detail page → edit Source URL
+  ```
+  For tracked repos, updating one skill's source URL updates every sibling skill from the same repo and rewrites the git remote origin to match. Saving source-URL-only changes skips the diff review dialog
+- Backed by a new `PATCH /api/resources/{name}/source` endpoint
+
+### Bug Fixes
+
+- Fixed a skill lookup collision when a standalone skill and a tracked-repo skill shared the same base name — detail-page requests now prefer an exact `FlatName` match before falling back to the base name, so the correct skill is always returned
+- Fixed spurious frontmatter diffs when only the body or source URL changed — the YAML serializer now preserves the original formatting (quote style, line wrapping) unless a field's value actually changed
+- Fixed `IntersectionObserver` on the Search page not reconnecting after "load more", so infinite scrolling now continues to fire as you reach the bottom of the list
+- Fixed background page scrolling when a modal was open — `DialogShell` now locks body scroll for all modal dialogs
+
+### Improvements
+
+- **Keyboard-accessible search results** — search result cards and table rows now have `role="button"` with `tabIndex=0` and respond to Enter/Space, so the preview modal can be opened without a mouse
+- **Bounded preview cache** — the preview cache is now capped at 200 entries with TTL purge plus a full reset on overflow to prevent unbounded memory growth on long-running UI sessions
+- **Shared input components in the frontmatter editor** — the editor now uses the same `Input` / `Textarea` primitives as the rest of the UI (with a new `size="sm"` variant) for visual consistency, and the editor header now uses the shared `KindBadge` / `SourceBadge` components
+
 ## [0.19.4] - 2026-04-22
 
 ### Bug Fixes

@@ -9,10 +9,11 @@ import (
 // Stars weight is high because it's the strongest proxy for "someone actually uses this."
 // Name match still matters but shouldn't let 0-star repos dominate results.
 const (
-	weightName        = 0.30
-	weightDescription = 0.20
-	weightStars       = 0.25
-	weightSource      = 0.25
+	weightName        = 0.28
+	weightDescription = 0.18
+	weightStars       = 0.24
+	weightSource      = 0.12
+	weightRepository  = 0.18
 )
 
 // scoreResult computes a composite relevance score for a search result.
@@ -27,8 +28,9 @@ func scoreResult(r SearchResult, query string) float64 {
 	desc := descriptionMatchScore(r.Description, query)
 	stars := normalizeStars(r.Stars)
 	source := sourceQualityScore(r)
+	repository := repositoryMatchScore(r, query)
 
-	return name*weightName + desc*weightDescription + stars*weightStars + source*weightSource
+	return name*weightName + desc*weightDescription + stars*weightStars + source*weightSource + repository*weightRepository
 }
 
 // nameMatchScore scores how well a skill name matches the query.
@@ -124,6 +126,26 @@ func sourceQualityScore(r SearchResult) float64 {
 		return 1
 	}
 	return score
+}
+
+func repositoryMatchScore(r SearchResult, query string) float64 {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return 0
+	}
+
+	repo := strings.ToLower(strings.TrimSpace(r.Repo))
+	owner := strings.ToLower(strings.TrimSpace(r.Owner))
+	fullName := strings.Trim(owner+"/"+repo, "/")
+
+	if repo == query || fullName == query {
+		return 1.0
+	}
+	if strings.Contains(repo, query) {
+		return 0.7
+	}
+
+	return 0
 }
 
 func isPreferredSkillRepo(owner, repo string) bool {

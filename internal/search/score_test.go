@@ -59,6 +59,30 @@ func TestDescriptionMatchScore(t *testing.T) {
 	}
 }
 
+func TestRepositoryMatchScore(t *testing.T) {
+	tests := []struct {
+		desc   string
+		result SearchResult
+		query  string
+		want   float64
+	}{
+		{"repo exact", SearchResult{Owner: "obra", Repo: "superpowers"}, "superpowers", 1.0},
+		{"full name exact", SearchResult{Owner: "obra", Repo: "superpowers"}, "obra/superpowers", 1.0},
+		{"repo contains", SearchResult{Owner: "team", Repo: "awesome-superpowers"}, "superpowers", 0.7},
+		{"path ignored", SearchResult{Owner: "team", Repo: "toolbox", Path: "skills/superpowers"}, "superpowers", 0.0},
+		{"no match", SearchResult{Owner: "team", Repo: "toolbox"}, "superpowers", 0.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			got := repositoryMatchScore(tt.result, tt.query)
+			if math.Abs(got-tt.want) > 0.01 {
+				t.Errorf("repositoryMatchScore() = %f, want %f", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeStars(t *testing.T) {
 	tests := []struct {
 		desc  string
@@ -108,6 +132,32 @@ func TestScoreResult(t *testing.T) {
 
 		if scoreLow >= scoreHigh {
 			t.Errorf("high stars (%.3f) should beat low stars (%.3f) in browse mode", scoreHigh, scoreLow)
+		}
+	})
+
+	t.Run("repository match boosts popular source repo", func(t *testing.T) {
+		officialRepoSkill := SearchResult{
+			Name:        "using-superpowers",
+			Description: "Use when starting any conversation",
+			Owner:       "obra",
+			Repo:        "superpowers",
+			Path:        "skills/using-superpowers",
+			Stars:       100000,
+		}
+		exactNameCopy := SearchResult{
+			Name:        "superpowers",
+			Description: "Core engineering workflow that activates on every task",
+			Owner:       "someone",
+			Repo:        "personal-skills",
+			Path:        "skills/superpowers",
+			Stars:       50,
+		}
+
+		officialScore := scoreResult(officialRepoSkill, "superpowers")
+		copyScore := scoreResult(exactNameCopy, "superpowers")
+
+		if officialScore <= copyScore {
+			t.Errorf("popular repo match (%.3f) should beat lower-signal exact skill copy (%.3f)", officialScore, copyScore)
 		}
 	})
 }
@@ -265,6 +315,15 @@ metadata:
 			wantName:  "claude-only",
 		},
 		{
+			desc: "valid skill with one-line frontmatter",
+			content: `--- name: using-superpowers description: Use when starting any conversation - establishes how to find and use skills ---
+# Using Superpowers
+`,
+			wantValid: true,
+			wantName:  "using-superpowers",
+			wantDesc:  "Use when starting any conversation - establishes how to find and use skills",
+		},
+		{
 			desc: "markdown only is not discoverable from broad GitHub search",
 			content: `# SKILL
 
@@ -300,11 +359,54 @@ description: Generic game skill notes
 	}
 }
 
+func TestParseFrontmatterField_OneLineFrontmatter(t *testing.T) {
+	content := `--- name: using-superpowers description: Use when starting any conversation - establishes how to find and use skills ---
+# Using Superpowers
+`
+
+	if got := parseFrontmatterField(content, "name"); got != "using-superpowers" {
+		t.Fatalf("name = %q, want using-superpowers", got)
+	}
+	if got := parseFrontmatterField(content, "description"); got != "Use when starting any conversation - establishes how to find and use skills" {
+		t.Fatalf("description = %q, want one-line description", got)
+	}
+}
+
 func TestBuildTrustedSkillRepoSearchQuery(t *testing.T) {
 	got := buildTrustedSkillRepoSearchQuery("frontend-design", "anthropics/skills")
 	want := `filename:SKILL.md repo:anthropics/skills "name:" "description:" frontend-design`
 	if got != want {
 		t.Fatalf("buildTrustedSkillRepoSearchQuery() = %q, want %q", got, want)
+	}
+}
+
+func TestRepositorySkillTreeItems(t *testing.T) {
+	repo := gitHubRepositorySearchItem{
+		FullName:        "owner/popular-tools",
+		StargazersCount: 1234,
+		Description:     "Popular tools with skills",
+	}
+	tree := []gitHubTreeItem{
+		{Path: "README.md", Type: "blob"},
+		{Path: "skills/alpha/SKILL.md", Type: "blob"},
+		{Path: "skills/beta/SKILL.md", Type: "blob"},
+		{Path: "skills/gamma/SKILL.md", Type: "tree"},
+	}
+
+	items := repositorySkillTreeItems(repo, tree, 10)
+	results := processSearchItems(items)
+
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+	if results[0].Source != "owner/popular-tools/skills/alpha" {
+		t.Fatalf("source[0] = %q, want owner/popular-tools/skills/alpha", results[0].Source)
+	}
+	if results[0].Stars != 1234 {
+		t.Fatalf("stars = %d, want 1234", results[0].Stars)
+	}
+	if results[1].Name != "beta" {
+		t.Fatalf("name[1] = %q, want beta", results[1].Name)
 	}
 }
 

@@ -64,6 +64,32 @@ type gitHubRepository struct {
 	Fork            bool   `json:"fork"`
 }
 
+type gitHubRepositorySearchResponse struct {
+	Items []gitHubRepositorySearchItem `json:"items"`
+}
+
+type gitHubRepositorySearchItem struct {
+	FullName        string `json:"full_name"`
+	StargazersCount int    `json:"stargazers_count"`
+	Description     string `json:"description"`
+	Fork            bool   `json:"fork"`
+	DefaultBranch   string `json:"default_branch"`
+}
+
+type gitHubTreeResponse struct {
+	Tree []gitHubTreeItem `json:"tree"`
+}
+
+type gitHubTreeItem struct {
+	Path string `json:"path"`
+	Type string `json:"type"`
+}
+
+type repoID struct {
+	owner string
+	repo  string
+}
+
 // gitHubContentResponse represents the GitHub contents API response
 type gitHubContentResponse struct {
 	Content  string `json:"content"`
@@ -94,6 +120,7 @@ func Search(query string, limit int) ([]SearchResult, error) {
 	}
 	if !repoScopedQuery {
 		appendPreferredSkillRepoResults(client, searchResp, query)
+		appendRepositorySearchSkillResults(client, searchResp, query)
 	}
 
 	results := processSearchItems(searchResp.Items)
@@ -266,6 +293,143 @@ func appendPreferredSkillRepoResults(client *http.Client, primary *gitHubSearchR
 	}
 }
 
+func appendRepositorySearchSkillResults(client *http.Client, primary *gitHubSearchResponse, query string) {
+	if primary == nil || strings.TrimSpace(query) == "" {
+		return
+	}
+
+	repos, err := fetchRepositorySearchResults(client, query)
+	if err != nil {
+		return
+	}
+
+	for _, repo := range repos {
+		items, err := fetchRepositorySkillTreeItems(client, repo)
+		if err != nil {
+			continue
+		}
+		primary.Items = append(primary.Items, items...)
+		primary.TotalCount += len(items)
+	}
+}
+
+func fetchRepositorySearchResults(client *http.Client, query string) ([]gitHubRepositorySearchItem, error) {
+	searchQuery := buildGitHubRepositorySearchQuery(query)
+	if searchQuery == "" {
+		return nil, nil
+	}
+
+	apiURL := fmt.Sprintf(
+		"https://api.github.com/search/repositories?q=%s&sort=stars&order=desc&per_page=%d",
+		url.QueryEscape(searchQuery),
+		8,
+	)
+
+	req, err := ghclient.NewRequest(apiURL)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if err := ghclient.CheckRateLimit(resp); err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitHub repository search returned %d", resp.StatusCode)
+	}
+
+	var searchResp gitHubRepositorySearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	return searchResp.Items, nil
+}
+
+func buildGitHubRepositorySearchQuery(query string) string {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return ""
+	}
+	return query + " in:name,description,readme"
+}
+
+func fetchRepositorySkillTreeItems(client *http.Client, repo gitHubRepositorySearchItem) ([]gitHubCodeItem, error) {
+	if repo.Fork || repo.FullName == "" {
+		return nil, nil
+	}
+
+	ref := repo.DefaultBranch
+	if ref == "" {
+		ref = "HEAD"
+	}
+	apiURL := fmt.Sprintf(
+		"https://api.github.com/repos/%s/git/trees/%s?recursive=1",
+		repo.FullName,
+		url.PathEscape(ref),
+	)
+
+	req, err := ghclient.NewRequest(apiURL)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if err := ghclient.CheckRateLimit(resp); err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitHub tree API returned %d", resp.StatusCode)
+	}
+
+	var tree gitHubTreeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tree); err != nil {
+		return nil, err
+	}
+
+	return repositorySkillTreeItems(repo, tree.Tree, 40), nil
+}
+
+func repositorySkillTreeItems(repo gitHubRepositorySearchItem, tree []gitHubTreeItem, max int) []gitHubCodeItem {
+	if repo.Fork || repo.FullName == "" || max <= 0 {
+		return nil
+	}
+
+	items := make([]gitHubCodeItem, 0)
+	for _, entry := range tree {
+		if entry.Type != "blob" || entry.Path == "" {
+			continue
+		}
+		if entry.Path != "SKILL.md" && !strings.HasSuffix(entry.Path, "/SKILL.md") {
+			continue
+		}
+		items = append(items, gitHubCodeItem{
+			Name: "SKILL.md",
+			Path: entry.Path,
+			Repository: gitHubRepository{
+				FullName:        repo.FullName,
+				StargazersCount: repo.StargazersCount,
+				Description:     repo.Description,
+				Fork:            repo.Fork,
+			},
+		})
+		if len(items) >= max {
+			break
+		}
+	}
+	return items
+}
+
 // processSearchItems converts raw GitHub items to SearchResults with deduplication
 func processSearchItems(items []gitHubCodeItem) []SearchResult {
 	seen := make(map[string]bool)
@@ -327,17 +491,7 @@ func enrichWithStars(client *http.Client, results []SearchResult) {
 	const maxRepoFetch = 30
 	const concurrency = 10
 
-	// Deduplicate repos
-	type repoID struct{ owner, repo string }
-	seen := make(map[repoID]bool)
-	var repos []repoID
-	for _, r := range results {
-		id := repoID{r.Owner, r.Repo}
-		if !seen[id] && len(repos) < maxRepoFetch {
-			seen[id] = true
-			repos = append(repos, id)
-		}
-	}
+	repos := reposForStarFetch(results, maxRepoFetch)
 
 	// Fetch stars concurrently
 	type starResult struct {
@@ -376,6 +530,34 @@ func enrichWithStars(client *http.Client, results []SearchResult) {
 			results[i].Stars = stars
 		}
 	}
+}
+
+func reposForStarFetch(results []SearchResult, max int) []repoID {
+	seen := make(map[repoID]bool)
+	repos := make([]repoID, 0, max)
+
+	add := func(r SearchResult) {
+		id := repoID{r.Owner, r.Repo}
+		if id.owner == "" || id.repo == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		repos = append(repos, id)
+	}
+
+	for _, r := range results {
+		if isPreferredSkillRepo(r.Owner, r.Repo) {
+			add(r)
+		}
+	}
+	for _, r := range results {
+		if len(repos) >= max {
+			break
+		}
+		add(r)
+	}
+
+	return repos
 }
 
 // sortByStars sorts results by star count descending
@@ -667,8 +849,8 @@ func parseSkillMetadata(content string) skillMetadata {
 		return skillMetadata{}
 	}
 
-	var fm map[string]any
-	if err := yaml.Unmarshal([]byte(raw), &fm); err != nil {
+	fm, ok := parseSkillFrontmatter(raw)
+	if !ok {
 		return skillMetadata{}
 	}
 
@@ -686,7 +868,19 @@ func parseSkillMetadata(content string) skillMetadata {
 
 func extractSkillFrontmatter(content string) (string, bool) {
 	lines := strings.Split(content, "\n")
-	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
+	if len(lines) == 0 {
+		return "", false
+	}
+
+	first := strings.TrimSpace(lines[0])
+	if strings.HasPrefix(first, "--- ") {
+		rest := strings.TrimSpace(strings.TrimPrefix(first, "---"))
+		if end := strings.Index(rest, " ---"); end >= 0 {
+			return strings.TrimSpace(rest[:end]), true
+		}
+	}
+
+	if len(lines) < 3 || first != "---" {
 		return "", false
 	}
 
@@ -696,6 +890,83 @@ func extractSkillFrontmatter(content string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func parseSkillFrontmatter(raw string) (map[string]any, bool) {
+	var fm map[string]any
+	if err := yaml.Unmarshal([]byte(raw), &fm); err == nil && len(fm) > 0 {
+		return fm, true
+	}
+	return parseInlineSkillFrontmatter(raw)
+}
+
+func parseInlineSkillFrontmatter(raw string) (map[string]any, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, "\n") {
+		return nil, false
+	}
+
+	positions := inlineFrontmatterFieldPositions(raw)
+	if len(positions) == 0 {
+		return nil, false
+	}
+
+	fm := make(map[string]any, len(positions))
+	for i, pos := range positions {
+		end := len(raw)
+		if i+1 < len(positions) {
+			end = positions[i+1].start
+		}
+		value := strings.TrimSpace(raw[pos.valueStart:end])
+		value = strings.Trim(value, `"'`)
+		if value != "" {
+			fm[pos.key] = value
+		}
+	}
+	return fm, len(fm) > 0
+}
+
+type inlineFrontmatterField struct {
+	key        string
+	start      int
+	valueStart int
+}
+
+func inlineFrontmatterFieldPositions(raw string) []inlineFrontmatterField {
+	keys := []string{"name", "description", "metadata", "targets", "allowed-tools", "tags", "pattern", "category"}
+	var positions []inlineFrontmatterField
+
+	for _, key := range keys {
+		prefix := key + ":"
+		if strings.HasPrefix(raw, prefix) {
+			positions = append(positions, inlineFrontmatterField{
+				key:        key,
+				start:      0,
+				valueStart: len(prefix),
+			})
+		}
+
+		marker := " " + prefix
+		offset := 0
+		for {
+			idx := strings.Index(raw[offset:], marker)
+			if idx < 0 {
+				break
+			}
+			start := offset + idx + 1
+			positions = append(positions, inlineFrontmatterField{
+				key:        key,
+				start:      start,
+				valueStart: start + len(prefix),
+			})
+			offset = start + len(prefix)
+		}
+	}
+
+	sort.Slice(positions, func(i, j int) bool {
+		return positions[i].start < positions[j].start
+	})
+	return positions
 }
 
 func isDiscoverableSkillFrontmatter(fm map[string]any, name, desc string) bool {
@@ -765,6 +1036,14 @@ func hasYAMLValue(v any) bool {
 
 // parseFrontmatterField extracts a field value from YAML frontmatter.
 func parseFrontmatterField(content, field string) string {
+	if raw, ok := extractSkillFrontmatter(content); ok {
+		if fm, ok := parseSkillFrontmatter(raw); ok {
+			if val := yamlScalarString(fm[field]); val != "" {
+				return val
+			}
+		}
+	}
+
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	inFrontmatter := false
 	prefix := field + ":"
