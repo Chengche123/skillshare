@@ -9,7 +9,7 @@ import (
 	"skillshare/internal/testutil"
 )
 
-func TestSkillTargets_OnlySyncsToMatchingTarget(t *testing.T) {
+func TestSkillTargets_DeclaredTargetsDoNotRestrictSync(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
@@ -34,12 +34,12 @@ targets:
 	result := sb.RunCLI("sync")
 	result.AssertSuccess(t)
 
-	// claude-skill should only be in claude target
+	// Declared targets are preserved as metadata only and should not restrict sync.
 	if !sb.IsSymlink(filepath.Join(claudePath, "claude-skill")) {
 		t.Error("claude-skill should be synced to claude target")
 	}
-	if sb.FileExists(filepath.Join(cursorPath, "claude-skill")) {
-		t.Error("claude-skill should NOT be synced to cursor target")
+	if !sb.IsSymlink(filepath.Join(cursorPath, "claude-skill")) {
+		t.Error("claude-skill should also be synced to cursor target")
 	}
 
 	// universal-skill (no targets field) should be in both
@@ -55,8 +55,7 @@ func TestSkillTargets_CrossModeMatching(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
-	// Skill declares "claude" (global name), target is configured as "claude"
-	// but skill should also match if target were "claude" (project name)
+	// Declared targets should not block project-mode sync either.
 	sb.CreateSkill("cross-skill", map[string]string{
 		"SKILL.md": "---\nname: cross-skill\ntargets: [claude]\n---\n# Cross",
 	})
@@ -72,11 +71,11 @@ func TestSkillTargets_CrossModeMatching(t *testing.T) {
 	// claude target path
 	targetPath := filepath.Join(projectRoot, ".claude", "skills")
 	if !sb.IsSymlink(filepath.Join(targetPath, "cross-skill")) {
-		t.Error("skill with targets: [claude] should match claude target")
+		t.Error("skill with declared targets should still sync in project mode")
 	}
 }
 
-func TestSkillTargets_MultipleTargetsListed(t *testing.T) {
+func TestSkillTargets_MultipleDeclaredTargetsDoNotRestrictSync(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
@@ -109,9 +108,9 @@ targets:
 		t.Error("multi-skill should be in cursor")
 	}
 
-	// single-skill should only be in cursor
-	if sb.FileExists(filepath.Join(claudePath, "single-skill")) {
-		t.Error("single-skill should NOT be in claude")
+	// single-skill should also be synced to all configured targets.
+	if !sb.IsSymlink(filepath.Join(claudePath, "single-skill")) {
+		t.Error("single-skill should also be in claude")
 	}
 	if !sb.IsSymlink(filepath.Join(cursorPath, "single-skill")) {
 		t.Error("single-skill should be in cursor")
@@ -142,7 +141,7 @@ targets:
 
 	sb.RunCLI("sync").AssertSuccess(t)
 
-	// Doctor should NOT warn about drift — cursor correctly has 1 skill (not 2)
+	// Doctor should NOT warn about drift when targets are metadata only.
 	result := sb.RunCLI("doctor")
 	result.AssertSuccess(t)
 	result.AssertOutputNotContains(t, "not synced")
@@ -172,13 +171,13 @@ targets:
 
 	sb.RunCLI("sync").AssertSuccess(t)
 
-	// Status should NOT warn about drift
+	// Status should NOT warn about drift when targets are metadata only.
 	result := sb.RunCLI("status")
 	result.AssertSuccess(t)
 	result.AssertOutputNotContains(t, "not synced")
 }
 
-func TestSkillTargets_PrunesWhenTargetRestricted(t *testing.T) {
+func TestSkillTargets_DoesNotPruneWhenDeclaredTargetsChange(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
@@ -202,7 +201,7 @@ targets:
 		t.Fatal("my-skill should be in cursor after first sync")
 	}
 
-	// Update SKILL.md to restrict to claude only
+	// Update SKILL.md to add declared targets; sync behavior should stay unchanged.
 	sb.CreateSkill("my-skill", map[string]string{
 		"SKILL.md": "---\nname: my-skill\ntargets: [claude]\n---\n# Claude only now",
 	})
@@ -211,14 +210,14 @@ targets:
 	if !sb.IsSymlink(filepath.Join(claudePath, "my-skill")) {
 		t.Error("my-skill should still be in claude")
 	}
-	if sb.FileExists(filepath.Join(cursorPath, "my-skill")) {
-		t.Error("my-skill should be pruned from cursor after adding targets restriction")
+	if !sb.IsSymlink(filepath.Join(cursorPath, "my-skill")) {
+		t.Error("my-skill should remain in cursor after adding declared targets")
 	}
 }
 
 // --- metadata.targets integration tests ---
 
-func TestSkillTargets_MetadataTargetsFiltersCorrectly(t *testing.T) {
+func TestSkillTargets_MetadataTargetsDoNotRestrictSync(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
@@ -244,12 +243,12 @@ targets:
 	result := sb.RunCLI("sync")
 	result.AssertSuccess(t)
 
-	// meta-skill should only be in claude (metadata.targets: [claude])
+	// metadata.targets is preserved as metadata only and should not restrict sync.
 	if !sb.IsSymlink(filepath.Join(claudePath, "meta-skill")) {
 		t.Error("meta-skill should be synced to claude target")
 	}
-	if sb.FileExists(filepath.Join(cursorPath, "meta-skill")) {
-		t.Error("meta-skill should NOT be synced to cursor target")
+	if !sb.IsSymlink(filepath.Join(cursorPath, "meta-skill")) {
+		t.Error("meta-skill should also be synced to cursor target")
 	}
 
 	// universal should be in both
@@ -261,7 +260,7 @@ targets:
 	}
 }
 
-func TestSkillTargets_MetadataAndLegacyMixed(t *testing.T) {
+func TestSkillTargets_MetadataAndLegacyTargetsDoNotRestrictSync(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
@@ -287,28 +286,27 @@ targets:
 	result := sb.RunCLI("sync")
 	result.AssertSuccess(t)
 
-	// new-format (metadata.targets: [claude]) → only claude
+	// Neither metadata.targets nor top-level targets should restrict sync.
 	if !sb.IsSymlink(filepath.Join(claudePath, "new-format")) {
 		t.Error("new-format should be in claude")
 	}
-	if sb.FileExists(filepath.Join(cursorPath, "new-format")) {
-		t.Error("new-format should NOT be in cursor")
+	if !sb.IsSymlink(filepath.Join(cursorPath, "new-format")) {
+		t.Error("new-format should also be in cursor")
 	}
 
-	// old-format (targets: [cursor]) → only cursor
-	if sb.FileExists(filepath.Join(claudePath, "old-format")) {
-		t.Error("old-format should NOT be in claude")
+	if !sb.IsSymlink(filepath.Join(claudePath, "old-format")) {
+		t.Error("old-format should also be in claude")
 	}
 	if !sb.IsSymlink(filepath.Join(cursorPath, "old-format")) {
 		t.Error("old-format should be in cursor")
 	}
 }
 
-func TestSkillTargets_MetadataOverridesTopLevelInSync(t *testing.T) {
+func TestSkillTargets_MetadataAndTopLevelTargetsDoNotRestrictSync(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
-	// Both top-level and metadata.targets present — metadata wins
+	// Both top-level and metadata.targets may be present, but neither restricts sync.
 	sb.CreateSkill("override-skill", map[string]string{
 		"SKILL.md": "---\nname: override-skill\ntargets: [claude, cursor]\nmetadata:\n  targets: [claude]\n---\n# Metadata overrides",
 	})
@@ -327,11 +325,11 @@ targets:
 	result := sb.RunCLI("sync")
 	result.AssertSuccess(t)
 
-	// metadata.targets: [claude] wins over top-level targets: [claude, cursor]
+	// Declared targets remain metadata only, so sync still reaches every configured target.
 	if !sb.IsSymlink(filepath.Join(claudePath, "override-skill")) {
-		t.Error("override-skill should be in claude (metadata wins)")
+		t.Error("override-skill should be in claude")
 	}
-	if sb.FileExists(filepath.Join(cursorPath, "override-skill")) {
-		t.Error("override-skill should NOT be in cursor (metadata.targets only has claude)")
+	if !sb.IsSymlink(filepath.Join(cursorPath, "override-skill")) {
+		t.Error("override-skill should also be in cursor")
 	}
 }
