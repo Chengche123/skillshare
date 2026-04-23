@@ -30,8 +30,6 @@ func syncMatrixReason(status, reason string) (string, map[string]string) {
 		return "sync_matrix.excluded", map[string]string{"pattern": reason}
 	case "not_included":
 		return "sync_matrix.not_included", nil
-	case "skill_target_mismatch":
-		return "sync_matrix.skill_target_mismatch", nil
 	default:
 		return "", nil
 	}
@@ -91,7 +89,7 @@ func (s *Server) handleSyncMatrix(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			for _, skill := range skills {
-				status, reason := ssync.ClassifySkillForTarget(skill.FlatName, skill.Targets, name, sc.Include, sc.Exclude)
+				status, reason := ssync.ClassifySkillForTarget(skill.FlatName, sc.Include, sc.Exclude)
 				entries = append(entries, newSyncMatrixEntry(skill.FlatName, name, status, reason, ""))
 			}
 		}
@@ -116,7 +114,7 @@ func (s *Server) handleSyncMatrix(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			for _, agent := range agents {
-				status, reason := ssync.ClassifySkillForTarget(agent.FlatName, agent.Targets, name, ac.Include, ac.Exclude)
+				status, reason := ssync.ClassifySkillForTarget(agent.FlatName, ac.Include, ac.Exclude)
 				entries = append(entries, newSyncMatrixEntry(agent.FlatName, name, status, reason, "agent"))
 			}
 		}
@@ -176,7 +174,7 @@ func (s *Server) handleSyncMatrixPreview(w http.ResponseWriter, r *http.Request)
 
 	var entries []syncMatrixEntry
 	for _, skill := range skills {
-		status, reason := ssync.ClassifySkillForTarget(skill.FlatName, skill.Targets, body.Target, body.Include, body.Exclude)
+		status, reason := ssync.ClassifySkillForTarget(skill.FlatName, body.Include, body.Exclude)
 		entries = append(entries, newSyncMatrixEntry(skill.FlatName, body.Target, status, reason, ""))
 	}
 
@@ -209,7 +207,7 @@ func (s *Server) handleSyncMatrixPreview(w http.ResponseWriter, r *http.Request)
 				}
 			} else {
 				for _, agent := range agents {
-					status, reason := ssync.ClassifySkillForTarget(agent.FlatName, agent.Targets, body.Target, body.AgentInclude, body.AgentExclude)
+					status, reason := ssync.ClassifySkillForTarget(agent.FlatName, body.AgentInclude, body.AgentExclude)
 					entries = append(entries, newSyncMatrixEntry(agent.FlatName, body.Target, status, reason, "agent"))
 				}
 			}

@@ -7,10 +7,7 @@ package sync
 //   - "synced": skill will be synced to this target
 //   - "excluded": skill matched an exclude pattern (reason = the pattern)
 //   - "not_included": include patterns exist but skill matched none
-func ClassifySkillForTarget(flatName string, skillTargets []string, targetName string, include, exclude []string) (status, reason string) {
-	_ = skillTargets
-	_ = targetName
-
+func ClassifySkillForTarget(flatName string, include, exclude []string) (status, reason string) {
 	// Normalize patterns (trim whitespace, validate syntax) — same path as shouldSyncFlatName
 	incNorm, excNorm, _ := normalizedFilterPatterns(include, exclude)
 
