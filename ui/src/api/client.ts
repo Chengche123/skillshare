@@ -262,6 +262,11 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ target: target ?? '' }),
     }),
+  setSkillGroups: (name: string, groups: string[]) =>
+    apiFetch<{ success: boolean }>(`/resources/${encodeURIComponent(name)}/groups`, {
+      method: 'PATCH',
+      body: JSON.stringify({ groups }),
+    }),
 
   // Targets
   listTargets: () => apiFetch<{ targets: Target[]; sourceSkillCount: number }>('/targets'),
@@ -672,6 +677,7 @@ export interface Skill {
   sourcePath: string;
   isInRepo: boolean;
   targets?: string[];
+  groups?: string[];
   installedAt?: string;
   source?: string;
   type?: string;
