@@ -36,6 +36,9 @@ type MetadataEntry struct {
 	Branch  string `json:"branch,omitempty"`
 	Into    string `json:"into,omitempty"`
 
+	// User-local UI metadata
+	CustomGroups []string `json:"custom_groups,omitempty"`
+
 	// Meta fields
 	InstalledAt time.Time         `json:"installed_at,omitzero"`
 	RepoURL     string            `json:"repo_url,omitempty"`
@@ -137,6 +140,27 @@ func (e *MetadataEntry) EffectiveKind() string {
 		return "skill"
 	}
 	return e.Kind
+}
+
+// HasMetadataBeyondCustomGroups reports whether an entry carries install,
+// tracking, path, integrity, or update metadata besides UI-only custom groups.
+func (e *MetadataEntry) HasMetadataBeyondCustomGroups() bool {
+	if e == nil {
+		return false
+	}
+	return e.Source != "" ||
+		e.Kind != "" ||
+		e.Type != "" ||
+		e.Tracked ||
+		e.Group != "" ||
+		e.Branch != "" ||
+		e.Into != "" ||
+		!e.InstalledAt.IsZero() ||
+		e.RepoURL != "" ||
+		e.Subdir != "" ||
+		e.Version != "" ||
+		e.TreeHash != "" ||
+		len(e.FileHashes) > 0
 }
 
 // RemoveByNames removes entries matching the given names, including group members.
