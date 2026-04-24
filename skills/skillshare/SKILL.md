@@ -118,6 +118,7 @@ skillshare target codex --mode copy && skillshare sync --force  # copy mode
 #   Root-level: <source>/.skillignore (affects all commands)
 #   Repo-level: <source>/_repo/.skillignore (scoped to that repo)
 #   .skillignore.local — local override (not committed), negation overrides base
+# UI: Resources → Skills → Edit groups creates dashboard-only custom groups in .metadata.json
 ```
 See [targets.md](references/targets.md) for details.
 ### Updates & Maintenance

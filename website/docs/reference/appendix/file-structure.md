@@ -124,7 +124,8 @@ Stores metadata about installed and tracked skills. Lives inside the source dire
   "skills": [
     {
       "name": "pdf",
-      "source": "anthropics/skills/skills/pdf"
+      "source": "anthropics/skills/skills/pdf",
+      "custom_groups": ["reference", "unused"]
     },
     {
       "name": "_team-skills",
@@ -136,6 +137,8 @@ Stores metadata about installed and tracked skills. Lives inside the source dire
 ```
 
 Each entry records the skill name and its install source. Tracked repos (prefixed with `_`) include the full repository URL for `update` and `check` operations.
+Dashboard custom groups are stored as `custom_groups` here so they stay out of `SKILL.md`.
+They are for browsing and filtering the web dashboard only; they do not affect sync behavior.
 
 ---
 

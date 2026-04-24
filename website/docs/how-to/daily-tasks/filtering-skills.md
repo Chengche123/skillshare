@@ -7,6 +7,12 @@ sidebar_position: 3
 Skillshare provides three filtering layers that control which skills reach which targets.
 Pick the scenario that matches your goal.
 
+:::note Dashboard groups are not sync filters
+Custom groups in `skillshare ui` help you filter the **Resources → Skills** page for browsing.
+They are stored in `.metadata.json`, not `SKILL.md`, and do not change what syncs to targets.
+Use the layers below when you need to include, exclude, or hide skills during sync.
+:::
+
 ## Sync a skill to specific targets only
 
 Add `metadata.targets` (preferred) to the skill's SKILL.md frontmatter.

@@ -181,6 +181,23 @@ After `skillshare sync`, targets show auto-flattened names:
 
 ---
 
+## Custom Dashboard Groups
+
+Folders are structural: they change where a skill lives in your source tree and how its name is flattened for targets.
+For lightweight browsing in the web dashboard, use custom groups instead.
+
+Open `skillshare ui`, go to **Resources → Skills**, right-click a skill, then choose **Edit groups**.
+You can type a new group name or pick an existing one. A skill can belong to multiple groups, such as `unused`, `reference`, and `team-review`, and the Skills page can filter by one group at a time.
+
+Custom groups are dashboard metadata only:
+
+- They are stored in the source `.metadata.json`, not in `SKILL.md`
+- They do not affect sync, target availability, `.skillignore`, or `metadata.targets`
+- Empty groups disappear automatically when no skill uses them
+- Tracked repo child skills are grouped individually
+
+Use folders when the source layout or synced target name should change. Use custom groups when you only need personal organization or a quick way to find skills in the dashboard.
+
 ## Suggested Folder Structures
 
 ### By domain
