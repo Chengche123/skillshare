@@ -11,7 +11,7 @@ import (
 )
 
 type setSkillGroupsRequest struct {
-	Groups []string `json:"groups"`
+	Groups *[]string `json:"groups"`
 }
 
 func (s *Server) handleSetSkillGroups(w http.ResponseWriter, r *http.Request) {
@@ -30,8 +30,12 @@ func (s *Server) handleSetSkillGroups(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
+	if req.Groups == nil {
+		writeError(w, http.StatusBadRequest, "groups is required")
+		return
+	}
 
-	groups, err := install.NormalizeCustomGroups(req.Groups)
+	groups, err := install.NormalizeCustomGroups(*req.Groups)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -77,7 +81,7 @@ func (s *Server) handleSetSkillGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry := resolveSkillGroupMetadataEntry(store, relPath)
+	entry := resolveSkillGroupMetadataEntry(store, relPath, discovered)
 
 	if len(groups) == 0 {
 		if entry != nil {
@@ -114,7 +118,7 @@ func (s *Server) handleSetSkillGroups(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"success": true})
 }
 
-func resolveSkillGroupMetadataEntry(store *install.MetadataStore, relPath string) *install.MetadataEntry {
+func resolveSkillGroupMetadataEntry(store *install.MetadataStore, relPath string, discovered []ssync.DiscoveredSkill) *install.MetadataEntry {
 	if entry := store.Get(relPath); entry != nil {
 		return entry
 	}
@@ -129,9 +133,31 @@ func resolveSkillGroupMetadataEntry(store *install.MetadataStore, relPath string
 
 	base := filepath.Base(relPath)
 	entry := store.Get(base)
-	if entry == nil || entry.Group != group {
+	if entry == nil {
 		return nil
 	}
-	store.MigrateLegacyKey(relPath, entry)
-	return store.Get(relPath)
+	if entry.Group == group {
+		store.MigrateLegacyKey(relPath, entry)
+		return store.Get(relPath)
+	}
+	if entry.Group == "" && basenameUniquelyIdentifiesSkill(discovered, relPath) {
+		store.MigrateLegacyKey(relPath, entry)
+		return store.Get(relPath)
+	}
+	return nil
+}
+
+func basenameUniquelyIdentifiesSkill(discovered []ssync.DiscoveredSkill, relPath string) bool {
+	base := filepath.Base(relPath)
+	matches := 0
+	for _, d := range discovered {
+		if filepath.Base(filepath.ToSlash(d.RelPath)) != base {
+			continue
+		}
+		matches++
+		if filepath.ToSlash(d.RelPath) != relPath {
+			return false
+		}
+	}
+	return matches == 1
 }

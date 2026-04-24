@@ -48,6 +48,37 @@ func TestHandleListSkills_IncludesCustomGroups(t *testing.T) {
 	}
 }
 
+func TestHandleGetSkill_IncludesCustomGroups(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "alpha")
+	store := install.NewMetadataStore()
+	store.Set("alpha", &install.MetadataEntry{CustomGroups: []string{"reference"}})
+	if err := store.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+	s.skillsStore = store
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources/alpha", nil)
+	req.SetPathValue("name", "alpha")
+	rr := httptest.NewRecorder()
+	s.handleGetSkill(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Resource struct {
+			Groups []string `json:"groups"`
+		} `json:"resource"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got := resp.Resource.Groups; len(got) != 1 || got[0] != "reference" {
+		t.Fatalf("groups = %v", got)
+	}
+}
+
 func TestHandleSetSkillGroups_CreatesLightweightEntry(t *testing.T) {
 	s, src := newTestServer(t)
 	addSkill(t, src, "alpha")
@@ -110,6 +141,47 @@ func TestHandleSetSkillGroups_UsesRelPathForTrackedRepoChild(t *testing.T) {
 	}
 }
 
+func TestHandleSetSkillGroups_SafelyMigratesUnambiguousBasenameMetadata(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkillNested(t, src, "_team-skills/frontend/ui")
+	store := install.NewMetadataStore()
+	store.Set("ui", &install.MetadataEntry{
+		Source:  "github.com/acme/team-skills",
+		Version: "abc123",
+	})
+	if err := store.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+	s.skillsStore = store
+
+	body := `{"groups":["team"]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/_team-skills__frontend__ui/groups", bytes.NewBufferString(body))
+	req.SetPathValue("name", "_team-skills__frontend__ui")
+	rr := httptest.NewRecorder()
+	s.handleSetSkillGroups(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	reloaded, err := install.LoadMetadata(src)
+	if err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	if old := reloaded.Get("ui"); old != nil {
+		t.Fatalf("expected legacy basename metadata to be migrated, got %+v", old)
+	}
+	entry := reloaded.Get("_team-skills/frontend/ui")
+	if entry == nil {
+		t.Fatal("expected relPath metadata entry")
+	}
+	if entry.Source != "github.com/acme/team-skills" || entry.Version != "abc123" {
+		t.Fatalf("expected source metadata to migrate, got %+v", entry)
+	}
+	if got := entry.CustomGroups; len(got) != 1 || got[0] != "team" {
+		t.Fatalf("groups = %v", got)
+	}
+}
+
 func TestHandleSetSkillGroups_DoesNotMigrateTopLevelBasenameMetadata(t *testing.T) {
 	s, src := newTestServer(t)
 	addSkill(t, src, "ui")
@@ -147,6 +219,77 @@ func TestHandleSetSkillGroups_DoesNotMigrateTopLevelBasenameMetadata(t *testing.
 	}
 	if got := nested.CustomGroups; len(got) != 1 || got[0] != "team" {
 		t.Fatalf("nested groups = %v", got)
+	}
+}
+
+func TestHandleSetSkillTargets_PreservesGroupsWithStaleStore(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "alpha")
+
+	stale := install.NewMetadataStore()
+	body := `{"groups":["unused"]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/alpha/groups", bytes.NewBufferString(body))
+	req.SetPathValue("name", "alpha")
+	rr := httptest.NewRecorder()
+	s.handleSetSkillGroups(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	s.skillsStore = stale
+	targetReq := httptest.NewRequest(http.MethodPatch, "/api/resources/alpha/targets", bytes.NewBufferString(`{"target":"claude"}`))
+	targetReq.SetPathValue("name", "alpha")
+	targetRR := httptest.NewRecorder()
+	s.handleSetSkillTargets(targetRR, targetReq)
+	if targetRR.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", targetRR.Code, targetRR.Body.String())
+	}
+
+	reloaded, err := install.LoadMetadata(src)
+	if err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	entry := reloaded.Get("alpha")
+	if entry == nil {
+		t.Fatal("expected metadata entry")
+	}
+	if got := entry.CustomGroups; len(got) != 1 || got[0] != "unused" {
+		t.Fatalf("groups = %v", got)
+	}
+}
+
+func TestHandleBatchSetTargets_PreservesGroupsWithStaleStore(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "alpha")
+
+	stale := install.NewMetadataStore()
+	body := `{"groups":["unused"]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/alpha/groups", bytes.NewBufferString(body))
+	req.SetPathValue("name", "alpha")
+	rr := httptest.NewRecorder()
+	s.handleSetSkillGroups(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	s.skillsStore = stale
+	batchReq := httptest.NewRequest(http.MethodPost, "/api/resources/batch/targets", bytes.NewBufferString(`{"folder":"*","target":"claude"}`))
+	batchRR := httptest.NewRecorder()
+	s.handleBatchSetTargets(batchRR, batchReq)
+	if batchRR.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", batchRR.Code, batchRR.Body.String())
+	}
+
+	reloaded, err := install.LoadMetadata(src)
+	if err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	entry := reloaded.Get("alpha")
+	if entry == nil {
+		t.Fatal("expected metadata entry")
+	}
+	if got := entry.CustomGroups; len(got) != 1 || got[0] != "unused" {
+		t.Fatalf("groups = %v", got)
 	}
 }
 
@@ -264,6 +407,64 @@ func TestHandleSetSkillGroups_ClearsButKeepsSourceMetadata(t *testing.T) {
 	}
 	if len(entry.CustomGroups) != 0 {
 		t.Fatalf("expected groups cleared, got %v", entry.CustomGroups)
+	}
+}
+
+func TestHandleSetSkillGroups_RejectsMissingGroups(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "missing field", body: `{}`},
+		{name: "null field", body: `{"groups":null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, src := newTestServer(t)
+			addSkill(t, src, "alpha")
+			store := install.NewMetadataStore()
+			store.Set("alpha", &install.MetadataEntry{CustomGroups: []string{"kept"}})
+			if err := store.Save(src); err != nil {
+				t.Fatalf("save metadata: %v", err)
+			}
+			s.skillsStore = store
+
+			req := httptest.NewRequest(http.MethodPatch, "/api/resources/alpha/groups", bytes.NewBufferString(tc.body))
+			req.SetPathValue("name", "alpha")
+			rr := httptest.NewRecorder()
+			s.handleSetSkillGroups(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+			}
+			if !strings.Contains(rr.Body.String(), "groups is required") {
+				t.Fatalf("expected groups required message, got %s", rr.Body.String())
+			}
+			reloaded, err := install.LoadMetadata(src)
+			if err != nil {
+				t.Fatalf("load metadata: %v", err)
+			}
+			entry := reloaded.Get("alpha")
+			if entry == nil || len(entry.CustomGroups) != 1 || entry.CustomGroups[0] != "kept" {
+				t.Fatalf("expected existing groups to remain, got %+v", entry)
+			}
+		})
+	}
+}
+
+func TestHandleSetSkillGroups_RejectsNonArrayGroups(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "alpha")
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/alpha/groups", bytes.NewBufferString(`{"groups":"unused"}`))
+	req.SetPathValue("name", "alpha")
+	rr := httptest.NewRecorder()
+	s.handleSetSkillGroups(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "invalid request body") {
+		t.Fatalf("expected invalid request body message, got %s", rr.Body.String())
 	}
 }
 

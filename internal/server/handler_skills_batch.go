@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"skillshare/internal/install"
 	"skillshare/internal/resource"
 	ssync "skillshare/internal/sync"
 	"skillshare/internal/utils"
@@ -36,6 +37,11 @@ type batchSetTargetsResponse struct {
 	Updated int      `json:"updated"`
 	Skipped int      `json:"skipped"`
 	Errors  []string `json:"errors"`
+}
+
+type skillHashRefresh struct {
+	relPath string
+	path    string
 }
 
 // handleBatchSetTargets handles POST /api/skills/batch/targets.
@@ -73,12 +79,8 @@ func (s *Server) handleBatchSetTargets(w http.ResponseWriter, r *http.Request) {
 	var updated, skipped int
 	var errors []string
 
-	// Collect skills that need meta hash refresh (outside the lock).
-	type updatedSkill struct {
-		name string
-		path string
-	}
-	var updatedSkills []updatedSkill
+	// Collect skills that need metadata hash refresh after SKILL.md writes.
+	var updatedSkills []skillHashRefresh
 
 	// Acquire write lock only for the file-write loop.
 	s.mu.Lock()
@@ -105,20 +107,17 @@ func (s *Server) handleBatchSetTargets(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		updatedSkills = append(updatedSkills, updatedSkill{
-			name: filepath.Base(d.SourcePath),
-			path: d.SourcePath,
+		updatedSkills = append(updatedSkills, skillHashRefresh{
+			relPath: relPath,
+			path:    d.SourcePath,
 		})
 		updated++
 	}
 	s.mu.Unlock()
 
-	// Recompute file hashes outside the lock so reads aren't blocked.
-	for _, sk := range updatedSkills {
-		s.skillsStore.RefreshHashes(sk.name, sk.path)
-	}
-	if len(updatedSkills) > 0 {
-		s.skillsStore.Save(s.cfg.Source) //nolint:errcheck
+	if err := s.refreshSkillMetadataHashes(source, updatedSkills); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to refresh metadata: "+err.Error())
+		return
 	}
 
 	s.writeOpsLog("batch-set-targets", "ok", start, map[string]any{
@@ -192,8 +191,10 @@ func (s *Server) handleSetSkillTargets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.skillsStore.RefreshHashes(d.RelPath, d.SourcePath)
-		s.skillsStore.Save(s.cfg.Source) //nolint:errcheck
+		if err := s.refreshSkillMetadataHashes(source, []skillHashRefresh{{relPath: d.RelPath, path: d.SourcePath}}); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to refresh metadata: "+err.Error())
+			return
+		}
 
 		s.writeOpsLog("set-skill-targets", "ok", start, map[string]any{
 			"name":   name,
@@ -243,4 +244,26 @@ func (s *Server) handleSetSkillTargets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeError(w, http.StatusNotFound, "resource not found: "+name)
+}
+
+func (s *Server) refreshSkillMetadataHashes(source string, skills []skillHashRefresh) error {
+	if len(skills) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	store, err := install.LoadMetadata(source)
+	if err != nil {
+		return err
+	}
+	for _, sk := range skills {
+		store.RefreshHashes(sk.relPath, sk.path)
+	}
+	if err := store.Save(source); err != nil {
+		return err
+	}
+	s.skillsStore = store
+	return nil
 }
