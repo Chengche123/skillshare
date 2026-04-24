@@ -203,6 +203,8 @@ skillshare extras collect rules       # collect local files back to source
 skillshare ui
 ```
 
+Browse skills and agents, edit target availability, and filter skills with dashboard-only custom groups.
+
 [All commands & guides →](https://skillshare.runkids.cc/docs/reference/commands)
 
 ## Contributing

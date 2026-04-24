@@ -32,6 +32,7 @@ type skillItem struct {
 	Version     string   `json:"version,omitempty"`
 	Branch      string   `json:"branch,omitempty"`
 	Content     string   `json:"content,omitempty"`
+	Groups      []string `json:"groups,omitempty"`
 	Disabled    bool     `json:"disabled"`
 }
 
@@ -52,6 +53,18 @@ func readResourceContent(path string) string {
 	return string(data)
 }
 
+func skillMetadataEntryForRead(store *install.MetadataStore, relPath string, discovered []sync.DiscoveredSkill) *install.MetadataEntry {
+	return store.GetByPathForCandidates(relPath, discoveredSkillRelPaths(discovered))
+}
+
+func discoveredSkillRelPaths(discovered []sync.DiscoveredSkill) []string {
+	relPaths := make([]string, 0, len(discovered))
+	for _, d := range discovered {
+		relPaths = append(relPaths, filepath.ToSlash(d.RelPath))
+	}
+	return relPaths
+}
+
 // enrichSkillBranch fills item.Branch from metadata, falling back to
 // git.GetCurrentBranch for tracked repos without branch in metadata.
 func enrichSkillBranch(item *skillItem) {
@@ -68,8 +81,10 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.skillsSource()
 	agentsSource := s.agentsSource()
+	skillsStore := s.skillsStore
+	agentsStore := s.agentsStore
 	s.mu.RUnlock()
 
 	var items []skillItem
@@ -97,7 +112,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 				item.Content = readResourceContent(filepath.Join(d.SourcePath, "SKILL.md"))
 			}
 
-			if entry := s.skillsStore.GetByPath(d.RelPath); entry != nil {
+			if entry := skillMetadataEntryForRead(skillsStore, d.RelPath, discovered); entry != nil {
 				if !entry.InstalledAt.IsZero() {
 					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}
@@ -106,6 +121,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 				item.RepoURL = entry.RepoURL
 				item.Version = entry.Version
 				item.Branch = entry.Branch
+				item.Groups = entry.CustomGroups
 			}
 			enrichSkillBranch(&item)
 
@@ -133,7 +149,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 
 			// Read from centralized agents metadata store
 			agentKey := strings.TrimSuffix(d.RelPath, ".md")
-			if entry := s.agentsStore.GetByPath(agentKey); entry != nil {
+			if entry := agentsStore.GetByPath(agentKey); entry != nil {
 				if !entry.InstalledAt.IsZero() {
 					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}
@@ -162,8 +178,10 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.skillsSource()
 	agentsSource := s.agentsSource()
+	skillsStore := s.skillsStore
+	agentsStore := s.agentsStore
 	s.mu.RUnlock()
 
 	name := r.PathValue("name")
@@ -212,7 +230,7 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 				Disabled:   d.Disabled,
 			}
 
-			if entry := s.skillsStore.GetByPath(d.RelPath); entry != nil {
+			if entry := skillMetadataEntryForRead(skillsStore, d.RelPath, discovered); entry != nil {
 				if !entry.InstalledAt.IsZero() {
 					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}
@@ -221,6 +239,7 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 				item.RepoURL = entry.RepoURL
 				item.Version = entry.Version
 				item.Branch = entry.Branch
+				item.Groups = entry.CustomGroups
 			}
 			enrichSkillBranch(&item)
 
@@ -283,7 +302,7 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 			}
 
 			agentKey := strings.TrimSuffix(d.RelPath, ".md")
-			if entry := s.agentsStore.GetByPath(agentKey); entry != nil {
+			if entry := agentsStore.GetByPath(agentKey); entry != nil {
 				if !entry.InstalledAt.IsZero() {
 					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}

@@ -59,7 +59,7 @@ skillshare ui --no-open &
 | Page | Description |
 |------|-------------|
 | **Dashboard** | Overview cards — skill count, target count, sync mode, version |
-| **Skills** | Searchable skill grid with metadata. Toggle between **Grid** and **Grouped** (by directory) views. Click to view SKILL.md content. **"+ New Skill"** button opens the creation wizard |
+| **Skills** | Searchable skill grid with metadata. Toggle between **Grid**, **Grouped** (by directory), and **Table** views. Filter skills by custom dashboard groups, right-click a skill to edit groups or target availability, and click to view SKILL.md content. **"+ New Skill"** opens the creation wizard |
 | **New Skill** | Step-by-step wizard to create a skill: Name → Pattern → Category → Scaffold → Confirm. Accessible via the **"+ New Skill"** button on the Skills page |
 | **Install** | Install from local path, git URL, or GitHub shorthand |
 | **Targets** | Target list with status badges. Add/remove targets |
@@ -115,11 +115,13 @@ The web dashboard exposes a REST API at `/api/`. All endpoints return JSON.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/overview` | Skill/target counts, mode, version |
-| GET | `/api/skills` | List all skills with metadata |
-| GET | `/api/skills/{name}` | Skill detail + SKILL.md content |
-| GET | `/api/skills/templates` | Get available patterns and categories for skill creation |
-| POST | `/api/skills` | Create a new skill (name, pattern, category, scaffoldDirs) |
-| DELETE | `/api/skills/{name}` | Uninstall a skill |
+| GET | `/api/resources` | List skills and agents with metadata (`kind`, `include=content`) |
+| GET | `/api/resources/{name}` | Resource detail + SKILL.md or agent content |
+| GET | `/api/resources/templates` | Get available patterns and categories for skill creation |
+| POST | `/api/resources` | Create a new skill (name, pattern, category, scaffoldDirs) |
+| DELETE | `/api/resources/{name}` | Uninstall a skill or agent |
+| PATCH | `/api/resources/{name}/groups` | Set dashboard-only custom groups for a skill |
+| PATCH | `/api/resources/{name}/targets` | Set dashboard-managed target availability for a skill |
 | GET | `/api/targets` | List targets with status, include/exclude filters, and per-target expected counts |
 | POST | `/api/targets` | Add a target |
 | DELETE | `/api/targets/{name}` | Remove a target |

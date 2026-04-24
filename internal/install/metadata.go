@@ -36,6 +36,9 @@ type MetadataEntry struct {
 	Branch  string `json:"branch,omitempty"`
 	Into    string `json:"into,omitempty"`
 
+	// User-local UI metadata
+	CustomGroups []string `json:"custom_groups,omitempty"`
+
 	// Meta fields
 	InstalledAt time.Time         `json:"installed_at,omitzero"`
 	RepoURL     string            `json:"repo_url,omitempty"`
@@ -100,6 +103,94 @@ func (s *MetadataStore) GetByPath(relPath string) *MetadataEntry {
 	return nil
 }
 
+// GetByPathForCandidates looks up metadata for relPath using only fallbacks
+// that are safe for the supplied set of discovered skill paths.
+//
+// Resolution order:
+//  1. exact full relative path
+//  2. legacy basename key whose Group matches relPath's parent directory
+//  3. legacy basename key with no Group, but only when basename uniquely
+//     identifies relPath among candidateRelPaths
+func (s *MetadataStore) GetByPathForCandidates(relPath string, candidateRelPaths []string) *MetadataEntry {
+	if s == nil {
+		return nil
+	}
+	relPath = filepath.ToSlash(relPath)
+	if e := s.Entries[relPath]; e != nil {
+		return e
+	}
+
+	group := ""
+	if dir := filepath.Dir(relPath); dir != "." {
+		group = filepath.ToSlash(dir)
+	}
+	if group == "" {
+		return nil
+	}
+
+	base := filepath.Base(relPath)
+	e := s.Entries[base]
+	if e == nil {
+		return nil
+	}
+	if e.Group == group {
+		return e
+	}
+	if e.Group == "" && BasenameUniquelyIdentifiesRelPath(candidateRelPaths, relPath) {
+		return e
+	}
+	return nil
+}
+
+// BasenameUniquelyIdentifiesRelPath reports whether relPath is the only
+// candidate with its basename.
+func BasenameUniquelyIdentifiesRelPath(candidateRelPaths []string, relPath string) bool {
+	relPath = filepath.ToSlash(relPath)
+	base := filepath.Base(relPath)
+	matches := 0
+	for _, candidate := range candidateRelPaths {
+		candidate = filepath.ToSlash(candidate)
+		if filepath.Base(candidate) != base {
+			continue
+		}
+		matches++
+		if candidate != relPath {
+			return false
+		}
+	}
+	return matches == 1
+}
+
+// SkillRelPathCandidates returns relative paths for directories under sourceDir
+// that contain SKILL.md. It follows install-time discovery rules: .git and
+// known target dotdirs are skipped, but non-target hidden directories such as
+// .system and .curated still count as skill locations.
+func SkillRelPathCandidates(sourceDir string) []string {
+	var candidates []string
+	root := filepath.Clean(sourceDir)
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if path != root && (d.Name() == ".git" || TargetDotDirs[d.Name()]) {
+			return filepath.SkipDir
+		}
+		if _, statErr := os.Stat(filepath.Join(path, "SKILL.md")); statErr != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil || rel == "." {
+			return nil
+		}
+		candidates = append(candidates, filepath.ToSlash(rel))
+		return nil
+	})
+	return candidates
+}
+
 // KeyToRelPath returns the effective relative path for a store entry.
 // For full-path keys it returns the key as-is; for legacy basename keys
 // it prepends the entry's Group.
@@ -137,6 +228,26 @@ func (e *MetadataEntry) EffectiveKind() string {
 		return "skill"
 	}
 	return e.Kind
+}
+
+// HasMetadataBeyondCustomGroups reports whether an entry carries install,
+// tracking, integrity, or update metadata besides UI-only custom groups.
+func (e *MetadataEntry) HasMetadataBeyondCustomGroups() bool {
+	if e == nil {
+		return false
+	}
+	return e.Source != "" ||
+		e.Kind != "" ||
+		e.Type != "" ||
+		e.Tracked ||
+		e.Branch != "" ||
+		e.Into != "" ||
+		!e.InstalledAt.IsZero() ||
+		e.RepoURL != "" ||
+		e.Subdir != "" ||
+		e.Version != "" ||
+		e.TreeHash != "" ||
+		len(e.FileHashes) > 0
 }
 
 // RemoveByNames removes entries matching the given names, including group members.
@@ -201,30 +312,61 @@ func WriteMetaToStore(sourceDir, destPath string, meta *SkillMeta) error {
 		store = NewMetadataStore()
 	}
 
+	candidates := SkillRelPathCandidates(sourceDir)
+	existing := metadataEntryForWrite(store, rel, group, candidates)
+	customGroups := []string(nil)
+	if existing != nil && len(existing.CustomGroups) > 0 {
+		customGroups = append([]string(nil), existing.CustomGroups...)
+	}
+
 	// Use full relative path as key to avoid collisions between grouped
 	// skills with the same basename (e.g. "frontend/foo" vs "backend/foo").
 	// Remove any legacy basename-only key for this group+basename pair.
+	base := filepath.Base(rel)
 	if group != "" {
-		basename := rel[strings.LastIndex(rel, "/")+1:]
-		if old := store.Get(basename); old != nil && old.Group == group {
-			store.Remove(basename)
+		if old := store.Get(base); old != nil && old.Group == group {
+			store.Remove(base)
 		}
+	}
+	if existing != nil && store.Get(rel) != existing {
+		store.Remove(base)
 	}
 
 	store.Set(rel, &MetadataEntry{
-		Source:      meta.Source,
-		Kind:        meta.Kind,
-		Type:        meta.Type,
-		Group:       group,
-		InstalledAt: meta.InstalledAt,
-		RepoURL:     meta.RepoURL,
-		Subdir:      meta.Subdir,
-		Version:     meta.Version,
-		TreeHash:    meta.TreeHash,
-		FileHashes:  meta.FileHashes,
-		Branch:      meta.Branch,
+		Source:       meta.Source,
+		Kind:         meta.Kind,
+		Type:         meta.Type,
+		Group:        group,
+		InstalledAt:  meta.InstalledAt,
+		RepoURL:      meta.RepoURL,
+		Subdir:       meta.Subdir,
+		Version:      meta.Version,
+		TreeHash:     meta.TreeHash,
+		FileHashes:   meta.FileHashes,
+		Branch:       meta.Branch,
+		CustomGroups: customGroups,
 	})
 	return store.Save(sourceDir)
+}
+
+func metadataEntryForWrite(store *MetadataStore, rel, group string, candidates []string) *MetadataEntry {
+	if store == nil {
+		return nil
+	}
+	if entry := store.Get(rel); entry != nil {
+		return entry
+	}
+	if group == "" {
+		return nil
+	}
+	base := filepath.Base(rel)
+	if entry := store.Get(base); entry != nil && entry.Group == group {
+		return entry
+	}
+	if entry := store.Get(base); entry != nil && entry.Group == "" && BasenameUniquelyIdentifiesRelPath(candidates, rel) {
+		return entry
+	}
+	return nil
 }
 
 // loadMetadataFile reads .metadata.json from the given directory (pure read, no migration).
