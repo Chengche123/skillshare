@@ -111,4 +111,27 @@ describe('ResourcesPage skill groups', () => {
       expect(setSkillGroups).toHaveBeenCalledWith('Alpha', ['Archive', 'Cold']);
     });
   });
+
+  it('keeps the groups editor open with draft values when saving fails', async () => {
+    const user = userEvent.setup();
+    const setSkillGroups = vi.spyOn(api, 'setSkillGroups').mockRejectedValue(new Error('save failed'));
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', groups: ['Archive'] }),
+    ]);
+
+    const alpha = (await screen.findAllByText('Alpha'))[0];
+    fireEvent.contextMenu(alpha);
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit groups' }));
+
+    await user.type(screen.getByLabelText('Group name'), 'Cold{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Save groups' }));
+
+    await waitFor(() => {
+      expect(setSkillGroups).toHaveBeenCalledWith('Alpha', ['Archive', 'Cold']);
+    });
+    await screen.findByText('save failed');
+
+    expect(screen.getByRole('button', { name: 'Save groups' })).toBeInTheDocument();
+    expect(screen.getByText('Cold')).toBeInTheDocument();
+  });
 });

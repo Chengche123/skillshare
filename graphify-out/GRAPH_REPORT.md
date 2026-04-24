@@ -1,7 +1,7 @@
 # Graph Report - /Users/chengx/develop/skillshare-dev  (2026-04-25)
 
 ## Corpus Check
-- 737 files · ~2,192,473 words
+- 737 files · ~2,192,550 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -1114,11 +1114,11 @@ Nodes (0):
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `contains()` connect `Community 8` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 13`, `Community 14`, `Community 15`, `Community 16`, `Community 18`, `Community 19`, `Community 23`?**
-  _High betweenness centrality (0.074) - this node is a cross-community bridge._
+  _High betweenness centrality (0.102) - this node is a cross-community bridge._
 - **Why does `run()` connect `Community 5` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 6`, `Community 7`, `Community 8`, `Community 9`, `Community 10`, `Community 12`, `Community 13`, `Community 14`, `Community 15`, `Community 16`?**
-  _High betweenness centrality (0.067) - this node is a cross-community bridge._
-- **Why does `Load()` connect `Community 0` to `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 6`, `Community 7`, `Community 8`, `Community 16`?**
-  _High betweenness centrality (0.026) - this node is a cross-community bridge._
+  _High betweenness centrality (0.075) - this node is a cross-community bridge._
+- **Why does `Warning()` connect `Community 0` to `Community 2`, `Community 3`, `Community 6`?**
+  _High betweenness centrality (0.031) - this node is a cross-community bridge._
 - **Are the 973 inferred relationships involving `NewSandbox()` (e.g. with `TestShowTargetInfo_ShowsAgentsSectionForBuiltinTarget()` and `TestShowTargetInfo_OmitsAgentsSectionWhenTargetHasNoAgentsPath()`) actually correct?**
   _`NewSandbox()` has 973 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 390 inferred relationships involving `contains()` (e.g. with `handler()` and `onDown()`) actually correct?**

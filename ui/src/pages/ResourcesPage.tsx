@@ -1232,8 +1232,10 @@ export default function SkillsPage() {
           knownGroups={groupNames}
           saving={gridGroupsMutation.isPending}
           onSave={(groups) => {
-            gridGroupsMutation.mutate({ name: gridGroupsEditorSkill.flatName, groups });
-            setGridGroupsEditorSkill(null);
+            void gridGroupsMutation
+              .mutateAsync({ name: gridGroupsEditorSkill.flatName, groups })
+              .then(() => setGridGroupsEditorSkill(null))
+              .catch(() => undefined);
           }}
           onClose={() => setGridGroupsEditorSkill(null)}
         />
@@ -1735,8 +1737,10 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
           knownGroups={allGroupNames}
           saving={setGroupsMutation.isPending}
           onSave={(groups) => {
-            setGroupsMutation.mutate({ name: groupsEditorSkill.flatName, groups });
-            setGroupsEditorSkill(null);
+            void setGroupsMutation
+              .mutateAsync({ name: groupsEditorSkill.flatName, groups })
+              .then(() => setGroupsEditorSkill(null))
+              .catch(() => undefined);
           }}
           onClose={() => setGroupsEditorSkill(null)}
         />
@@ -2020,8 +2024,10 @@ function SkillsTable({ skills, resourceKind, search, allGroupNames }: { skills: 
           knownGroups={allGroupNames}
           saving={setGroupsMutation.isPending}
           onSave={(groups) => {
-            setGroupsMutation.mutate({ name: groupsEditorSkill.flatName, groups });
-            setGroupsEditorSkill(null);
+            void setGroupsMutation
+              .mutateAsync({ name: groupsEditorSkill.flatName, groups })
+              .then(() => setGroupsEditorSkill(null))
+              .catch(() => undefined);
           }}
           onClose={() => setGroupsEditorSkill(null)}
         />
