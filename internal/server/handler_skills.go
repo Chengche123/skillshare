@@ -32,6 +32,7 @@ type skillItem struct {
 	Version     string   `json:"version,omitempty"`
 	Branch      string   `json:"branch,omitempty"`
 	Content     string   `json:"content,omitempty"`
+	Groups      []string `json:"groups,omitempty"`
 	Disabled    bool     `json:"disabled"`
 }
 
@@ -106,6 +107,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 				item.RepoURL = entry.RepoURL
 				item.Version = entry.Version
 				item.Branch = entry.Branch
+				item.Groups = entry.CustomGroups
 			}
 			enrichSkillBranch(&item)
 
@@ -221,6 +223,7 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 				item.RepoURL = entry.RepoURL
 				item.Version = entry.Version
 				item.Branch = entry.Branch
+				item.Groups = entry.CustomGroups
 			}
 			enrichSkillBranch(&item)
 
