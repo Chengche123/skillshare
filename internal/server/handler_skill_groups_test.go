@@ -79,6 +79,77 @@ func TestHandleGetSkill_IncludesCustomGroups(t *testing.T) {
 	}
 }
 
+func TestHandleListSkills_DoesNotLeakTopLevelGroupsToNestedBasename(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "ui")
+	addSkillNested(t, src, "_team-skills/frontend/ui")
+	store := install.NewMetadataStore()
+	store.Set("ui", &install.MetadataEntry{CustomGroups: []string{"top-level"}})
+	if err := store.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+	s.skillsStore = store
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
+	rr := httptest.NewRecorder()
+	s.handleListSkills(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Resources []struct {
+			FlatName string   `json:"flatName"`
+			Groups   []string `json:"groups"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	groupsByName := map[string][]string{}
+	for _, item := range resp.Resources {
+		groupsByName[item.FlatName] = item.Groups
+	}
+	if got := groupsByName["ui"]; len(got) != 1 || got[0] != "top-level" {
+		t.Fatalf("top-level groups = %v", got)
+	}
+	if got := groupsByName["_team-skills__frontend__ui"]; len(got) != 0 {
+		t.Fatalf("nested skill inherited top-level groups: %v", got)
+	}
+}
+
+func TestHandleGetSkill_DoesNotLeakTopLevelGroupsToNestedBasename(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "ui")
+	addSkillNested(t, src, "_team-skills/frontend/ui")
+	store := install.NewMetadataStore()
+	store.Set("ui", &install.MetadataEntry{CustomGroups: []string{"top-level"}})
+	if err := store.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+	s.skillsStore = store
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources/_team-skills__frontend__ui", nil)
+	req.SetPathValue("name", "_team-skills__frontend__ui")
+	rr := httptest.NewRecorder()
+	s.handleGetSkill(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Resource struct {
+			Groups []string `json:"groups"`
+		} `json:"resource"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Resource.Groups) != 0 {
+		t.Fatalf("nested skill inherited top-level groups: %v", resp.Resource.Groups)
+	}
+}
+
 func TestHandleSetSkillGroups_CreatesLightweightEntry(t *testing.T) {
 	s, src := newTestServer(t)
 	addSkill(t, src, "alpha")
@@ -375,6 +446,79 @@ func TestHandleSetSkillGroups_ClearsAndDeletesLightweightEntry(t *testing.T) {
 	}
 	if reloaded.Get("alpha") != nil {
 		t.Fatalf("expected custom-groups-only entry to be removed, got %+v", reloaded.Get("alpha"))
+	}
+}
+
+func TestHandleSetSkillGroups_ClearsAndDeletesLegacyGroupedLightweightEntry(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkillNested(t, src, "frontend/ui")
+	store := install.NewMetadataStore()
+	store.Set("ui", &install.MetadataEntry{Group: "frontend", CustomGroups: []string{"unused"}})
+	if err := store.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+	s.skillsStore = store
+
+	body := `{"groups":[]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/frontend__ui/groups", bytes.NewBufferString(body))
+	req.SetPathValue("name", "frontend__ui")
+	rr := httptest.NewRecorder()
+	s.handleSetSkillGroups(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	reloaded, err := install.LoadMetadata(src)
+	if err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	if reloaded.Get("ui") != nil || reloaded.Get("frontend/ui") != nil {
+		t.Fatalf("expected legacy grouped custom-groups-only entry to be removed, got ui=%+v rel=%+v", reloaded.Get("ui"), reloaded.Get("frontend/ui"))
+	}
+}
+
+func TestHandleSetSkillGroups_ConcurrentWithList(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "alpha")
+	store := install.NewMetadataStore()
+	if err := store.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+	s.skillsStore = store
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make(chan string, 100)
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			body := `{"groups":["group-` + string(rune('a'+(i%10))) + `"]}`
+			req := httptest.NewRequest(http.MethodPatch, "/api/resources/alpha/groups", bytes.NewBufferString(body))
+			req.SetPathValue("name", "alpha")
+			rr := httptest.NewRecorder()
+			s.handleSetSkillGroups(rr, req)
+			if rr.Code != http.StatusOK {
+				errs <- rr.Body.String()
+			}
+		}(i)
+		go func() {
+			defer wg.Done()
+			<-start
+			req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
+			rr := httptest.NewRecorder()
+			s.handleListSkills(rr, req)
+			if rr.Code != http.StatusOK {
+				errs <- rr.Body.String()
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
 	}
 }
 

@@ -8,7 +8,7 @@ import { I18nProvider, LOCALE_STORAGE_KEY } from '../i18n';
 function renderEditor(props?: Partial<ComponentProps<typeof SkillGroupsEditor>>) {
   const onSave = vi.fn();
   const onClose = vi.fn();
-  render(
+  const view = render(
     <I18nProvider>
       <SkillGroupsEditor
         open
@@ -22,7 +22,7 @@ function renderEditor(props?: Partial<ComponentProps<typeof SkillGroupsEditor>>)
       />
     </I18nProvider>,
   );
-  return { onSave, onClose };
+  return { onSave, onClose, ...view };
 }
 
 describe('SkillGroupsEditor', () => {
@@ -59,5 +59,29 @@ describe('SkillGroupsEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Save groups' }));
 
     expect(onSave).toHaveBeenCalledWith(['reference', 'unused']);
+  });
+
+  it('resets draft groups when props change without remounting', async () => {
+    const user = userEvent.setup();
+    const { onSave, onClose, rerender } = renderEditor();
+
+    await user.type(screen.getByLabelText('Group name'), 'scratch{Enter}');
+
+    rerender(
+      <I18nProvider>
+        <SkillGroupsEditor
+          open
+          skillName="beta"
+          groups={['reference']}
+          knownGroups={['reference', 'unused']}
+          saving={false}
+          onSave={onSave}
+          onClose={onClose}
+        />
+      </I18nProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Save groups' }));
+
+    expect(onSave).toHaveBeenCalledWith(['reference']);
   });
 });

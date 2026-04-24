@@ -53,6 +53,37 @@ func readResourceContent(path string) string {
 	return string(data)
 }
 
+func skillMetadataEntryForRead(store *install.MetadataStore, relPath string, discovered []sync.DiscoveredSkill) *install.MetadataEntry {
+	if store == nil {
+		return nil
+	}
+	relPath = filepath.ToSlash(relPath)
+	if entry := store.Get(relPath); entry != nil {
+		return entry
+	}
+
+	group := ""
+	if dir := filepath.Dir(relPath); dir != "." {
+		group = filepath.ToSlash(dir)
+	}
+	if group == "" {
+		return nil
+	}
+
+	base := filepath.Base(relPath)
+	entry := store.Get(base)
+	if entry == nil {
+		return nil
+	}
+	if entry.Group == group {
+		return entry
+	}
+	if entry.Group == "" && basenameUniquelyIdentifiesSkill(discovered, relPath) {
+		return entry
+	}
+	return nil
+}
+
 // enrichSkillBranch fills item.Branch from metadata, falling back to
 // git.GetCurrentBranch for tracked repos without branch in metadata.
 func enrichSkillBranch(item *skillItem) {
@@ -71,6 +102,8 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	source := s.cfg.Source
 	agentsSource := s.agentsSource()
+	skillsStore := s.skillsStore
+	agentsStore := s.agentsStore
 	s.mu.RUnlock()
 
 	var items []skillItem
@@ -98,7 +131,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 				item.Content = readResourceContent(filepath.Join(d.SourcePath, "SKILL.md"))
 			}
 
-			if entry := s.skillsStore.GetByPath(d.RelPath); entry != nil {
+			if entry := skillMetadataEntryForRead(skillsStore, d.RelPath, discovered); entry != nil {
 				if !entry.InstalledAt.IsZero() {
 					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}
@@ -135,7 +168,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 
 			// Read from centralized agents metadata store
 			agentKey := strings.TrimSuffix(d.RelPath, ".md")
-			if entry := s.agentsStore.GetByPath(agentKey); entry != nil {
+			if entry := agentsStore.GetByPath(agentKey); entry != nil {
 				if !entry.InstalledAt.IsZero() {
 					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}
@@ -166,6 +199,8 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	source := s.cfg.Source
 	agentsSource := s.agentsSource()
+	skillsStore := s.skillsStore
+	agentsStore := s.agentsStore
 	s.mu.RUnlock()
 
 	name := r.PathValue("name")
@@ -214,7 +249,7 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 				Disabled:   d.Disabled,
 			}
 
-			if entry := s.skillsStore.GetByPath(d.RelPath); entry != nil {
+			if entry := skillMetadataEntryForRead(skillsStore, d.RelPath, discovered); entry != nil {
 				if !entry.InstalledAt.IsZero() {
 					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}
@@ -286,7 +321,7 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 			}
 
 			agentKey := strings.TrimSuffix(d.RelPath, ".md")
-			if entry := s.agentsStore.GetByPath(agentKey); entry != nil {
+			if entry := agentsStore.GetByPath(agentKey); entry != nil {
 				if !entry.InstalledAt.IsZero() {
 					item.InstalledAt = entry.InstalledAt.Format(time.RFC3339)
 				}

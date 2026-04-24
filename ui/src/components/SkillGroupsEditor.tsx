@@ -20,6 +20,12 @@ interface SkillGroupsEditorProps {
   onClose: () => void;
 }
 
+interface DraftState {
+  key: string;
+  groups: string[];
+  input: string;
+}
+
 export default function SkillGroupsEditor({
   open,
   skillName,
@@ -30,8 +36,15 @@ export default function SkillGroupsEditor({
   onClose,
 }: SkillGroupsEditorProps) {
   const t = useT();
-  const [draftGroups, setDraftGroups] = useState<string[]>(() => normalizeGroups(groups));
-  const [input, setInput] = useState('');
+  const normalizedGroups = useMemo(() => normalizeGroups(groups), [groups]);
+  const draftKey = JSON.stringify([skillName, normalizedGroups]);
+  const [draftState, setDraftState] = useState<DraftState>(() => ({
+    key: draftKey,
+    groups: normalizedGroups,
+    input: '',
+  }));
+  const draftGroups = draftState.key === draftKey ? draftState.groups : normalizedGroups;
+  const input = draftState.key === draftKey ? draftState.input : '';
 
   const suggestions = useMemo(
     () => normalizeGroups(knownGroups).filter((group) => !draftGroups.includes(group)),
@@ -41,12 +54,19 @@ export default function SkillGroupsEditor({
   const addGroup = (value: string) => {
     const name = value.trim();
     if (!name) return;
-    setDraftGroups((current) => normalizeGroups([...current, name]));
-    setInput('');
+    setDraftState({
+      key: draftKey,
+      groups: normalizeGroups([...draftGroups, name]),
+      input: '',
+    });
   };
 
   const removeGroup = (name: string) => {
-    setDraftGroups((current) => current.filter((group) => group !== name));
+    setDraftState({
+      key: draftKey,
+      groups: draftGroups.filter((group) => group !== name),
+      input,
+    });
   };
 
   return (
@@ -66,7 +86,13 @@ export default function SkillGroupsEditor({
           <Input
             label={t('skillGroupsEditor.inputLabel')}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setDraftState({
+                key: draftKey,
+                groups: draftGroups,
+                input: e.target.value,
+              });
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();

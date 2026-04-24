@@ -143,7 +143,7 @@ func (e *MetadataEntry) EffectiveKind() string {
 }
 
 // HasMetadataBeyondCustomGroups reports whether an entry carries install,
-// tracking, path, integrity, or update metadata besides UI-only custom groups.
+// tracking, integrity, or update metadata besides UI-only custom groups.
 func (e *MetadataEntry) HasMetadataBeyondCustomGroups() bool {
 	if e == nil {
 		return false
@@ -152,7 +152,6 @@ func (e *MetadataEntry) HasMetadataBeyondCustomGroups() bool {
 		e.Kind != "" ||
 		e.Type != "" ||
 		e.Tracked ||
-		e.Group != "" ||
 		e.Branch != "" ||
 		e.Into != "" ||
 		!e.InstalledAt.IsZero() ||
@@ -225,6 +224,12 @@ func WriteMetaToStore(sourceDir, destPath string, meta *SkillMeta) error {
 		store = NewMetadataStore()
 	}
 
+	existing := metadataEntryForWrite(store, rel, group)
+	customGroups := []string(nil)
+	if existing != nil && len(existing.CustomGroups) > 0 {
+		customGroups = append([]string(nil), existing.CustomGroups...)
+	}
+
 	// Use full relative path as key to avoid collisions between grouped
 	// skills with the same basename (e.g. "frontend/foo" vs "backend/foo").
 	// Remove any legacy basename-only key for this group+basename pair.
@@ -236,19 +241,37 @@ func WriteMetaToStore(sourceDir, destPath string, meta *SkillMeta) error {
 	}
 
 	store.Set(rel, &MetadataEntry{
-		Source:      meta.Source,
-		Kind:        meta.Kind,
-		Type:        meta.Type,
-		Group:       group,
-		InstalledAt: meta.InstalledAt,
-		RepoURL:     meta.RepoURL,
-		Subdir:      meta.Subdir,
-		Version:     meta.Version,
-		TreeHash:    meta.TreeHash,
-		FileHashes:  meta.FileHashes,
-		Branch:      meta.Branch,
+		Source:       meta.Source,
+		Kind:         meta.Kind,
+		Type:         meta.Type,
+		Group:        group,
+		InstalledAt:  meta.InstalledAt,
+		RepoURL:      meta.RepoURL,
+		Subdir:       meta.Subdir,
+		Version:      meta.Version,
+		TreeHash:     meta.TreeHash,
+		FileHashes:   meta.FileHashes,
+		Branch:       meta.Branch,
+		CustomGroups: customGroups,
 	})
 	return store.Save(sourceDir)
+}
+
+func metadataEntryForWrite(store *MetadataStore, rel, group string) *MetadataEntry {
+	if store == nil {
+		return nil
+	}
+	if entry := store.Get(rel); entry != nil {
+		return entry
+	}
+	if group == "" {
+		return nil
+	}
+	base := filepath.Base(rel)
+	if entry := store.Get(base); entry != nil && entry.Group == group {
+		return entry
+	}
+	return nil
 }
 
 // loadMetadataFile reads .metadata.json from the given directory (pure read, no migration).
