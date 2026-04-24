@@ -62,6 +62,15 @@ func reconcileSkillsWalk(sourcePath string, store *install.MetadataStore, onFoun
 			source = gitRemoteOrigin(path)
 		}
 		if source == "" {
+			if existing != nil && len(existing.CustomGroups) > 0 && hasSkillFile(path) && metadataEntryMatchesPath(store, fullPath, existing) {
+				result.live[fullPath] = true
+				if store.MigrateLegacyKey(fullPath, existing) {
+					result.changed = true
+				}
+				if onFound != nil {
+					onFound(fullPath)
+				}
+			}
 			return nil
 		}
 
@@ -132,6 +141,26 @@ func pruneStaleEntries(store *install.MetadataStore, live map[string]bool) bool 
 		}
 	}
 	return changed
+}
+
+func metadataEntryMatchesPath(store *install.MetadataStore, fullPath string, entry *install.MetadataEntry) bool {
+	if store.Get(fullPath) == entry {
+		return true
+	}
+	group := ""
+	if dir := filepath.Dir(fullPath); dir != "." {
+		group = filepath.ToSlash(dir)
+	}
+	if group == "" {
+		return false
+	}
+	base := filepath.Base(fullPath)
+	return store.Get(base) == entry && entry.Group == group
+}
+
+func hasSkillFile(path string) bool {
+	_, err := os.Stat(filepath.Join(path, "SKILL.md"))
+	return err == nil
 }
 
 // isGitRepo checks if the given path is a git repository (has .git/ directory or file).
