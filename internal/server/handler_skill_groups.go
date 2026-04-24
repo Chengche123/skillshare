@@ -67,18 +67,17 @@ func (s *Server) handleSetSkillGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.ToSlash(match.RelPath)
+
+	s.mu.Lock()
 	store, err := install.LoadMetadata(source)
 	if err != nil {
+		s.mu.Unlock()
 		writeError(w, http.StatusInternalServerError, "failed to load metadata: "+err.Error())
 		return
 	}
 
-	relPath := filepath.ToSlash(match.RelPath)
-	entry := store.GetByPath(relPath)
-	if entry != nil {
-		store.MigrateLegacyKey(relPath, entry)
-		entry = store.Get(relPath)
-	}
+	entry := resolveSkillGroupMetadataEntry(store, relPath)
 
 	if len(groups) == 0 {
 		if entry != nil {
@@ -98,11 +97,11 @@ func (s *Server) handleSetSkillGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := store.Save(source); err != nil {
+		s.mu.Unlock()
 		writeError(w, http.StatusInternalServerError, "failed to save metadata: "+err.Error())
 		return
 	}
 
-	s.mu.Lock()
 	s.skillsStore = store
 	s.mu.Unlock()
 
@@ -113,4 +112,26 @@ func (s *Server) handleSetSkillGroups(w http.ResponseWriter, r *http.Request) {
 	}, "")
 
 	writeJSON(w, map[string]any{"success": true})
+}
+
+func resolveSkillGroupMetadataEntry(store *install.MetadataStore, relPath string) *install.MetadataEntry {
+	if entry := store.Get(relPath); entry != nil {
+		return entry
+	}
+
+	group := ""
+	if dir := filepath.Dir(relPath); dir != "." {
+		group = filepath.ToSlash(dir)
+	}
+	if group == "" {
+		return nil
+	}
+
+	base := filepath.Base(relPath)
+	entry := store.Get(base)
+	if entry == nil || entry.Group != group {
+		return nil
+	}
+	store.MigrateLegacyKey(relPath, entry)
+	return store.Get(relPath)
 }

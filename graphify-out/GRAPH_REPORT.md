@@ -1,12 +1,12 @@
 # Graph Report - /Users/chengx/develop/skillshare-dev  (2026-04-25)
 
 ## Corpus Check
-- 731 files · ~2,187,811 words
+- 731 files · ~2,188,299 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 6824 nodes · 26976 edges · 166 communities detected
-- Extraction: 34% EXTRACTED · 66% INFERRED · 0% AMBIGUOUS · INFERRED: 17696 edges (avg confidence: 0.8)
+- 6828 nodes · 27010 edges · 166 communities detected
+- Extraction: 34% EXTRACTED · 66% INFERRED · 0% AMBIGUOUS · INFERRED: 17725 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
@@ -179,137 +179,137 @@
 
 ## God Nodes (most connected - your core abstractions)
 1. `NewSandbox()` - 975 edges
-2. `contains()` - 390 edges
+2. `contains()` - 391 edges
 3. `createSkill()` - 324 edges
 4. `run()` - 257 edges
-5. `NewRequest()` - 185 edges
+5. `NewRequest()` - 188 edges
 6. `Info()` - 162 edges
 7. `Success()` - 153 edges
 8. `Warning()` - 143 edges
 9. `Server` - 141 edges
-10. `newTestServer()` - 136 edges
+10. `newTestServer()` - 139 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `openRestoreDialog()` --calls--> `ValidateRestore()`  [INFERRED]
-  /Users/chengx/develop/skillshare-dev/ui/src/pages/BackupPage.tsx → /Users/chengx/develop/skillshare-dev/internal/backup/restore.go
+- `groupAuditFindings()` --calls--> `Match()`  [INFERRED]
+  /Users/chengx/develop/skillshare-dev/ui/src/components/InstallForm.tsx → /Users/chengx/develop/skillshare-dev/internal/skillignore/skillignore.go
+- `handler()` --calls--> `main()`  [INFERRED]
+  /Users/chengx/develop/skillshare-dev/ui/src/pages/NewSkillPage.tsx → /Users/chengx/develop/skillshare-dev/cmd/skillshare/main.go
 - `handleClick()` --calls--> `contains()`  [INFERRED]
   /Users/chengx/develop/skillshare-dev/ui/src/pages/BackupPage.tsx → /Users/chengx/develop/skillshare-dev/internal/config/hub_test.go
 - `sortSkillEntries()` --calls--> `TestSortSkillEntries_TopGroupOrder()`  [INFERRED]
   /Users/chengx/develop/skillshare-dev/cmd/skillshare/list.go → /Users/chengx/develop/skillshare-dev/cmd/skillshare/list_tui_item_test.go
 - `cmdAudit()` --calls--> `pathExists()`  [INFERRED]
   /Users/chengx/develop/skillshare-dev/cmd/skillshare/audit.go → /Users/chengx/develop/skillshare-dev/cmd/skillshare/helpers.go
-- `formatRelativeTime()` --calls--> `TestFormatRelativeTime()`  [INFERRED]
-  /Users/chengx/develop/skillshare-dev/cmd/skillshare/log_stats.go → /Users/chengx/develop/skillshare-dev/cmd/skillshare/log_stats_test.go
 
 ## Communities
 
 ### Community 0 - "Community 0"
 Cohesion: 0.01
-Nodes (990): TestBackup_Agents_CreatesBackup(), TestBackup_Agents_DryRun(), TestBackup_Agents_ProjectMode_CreatesBackup(), TestBackup_Agents_ProjectMode_DryRun(), TestBackup_Agents_ProjectMode_RestoreRoundTrip(), TestBackup_Agents_RestoreRoundTrip(), TestBackup_Default_DoesNotBackupAgents(), TestRestore_Agents_SkillsProjectModeRejected() (+982 more)
+Nodes (942): EnrichAgentResultsWithRemote(), countHealthyAgentLinks(), countManagedAgents(), newBuilder(), NewGlobalBuilder(), NewProjectBuilder(), resolveProjectPath(), allTargetsIdentical() (+934 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.01
-Nodes (691): ActiveAgents(), EnrichAgentResultsWithRemote(), countHealthyAgentLinks(), countManagedAgents(), dirExists(), newBuilder(), NewGlobalBuilder(), NewProjectBuilder() (+683 more)
+Nodes (1005): TestBackup_Agents_CreatesBackup(), TestBackup_Agents_DryRun(), TestBackup_Agents_ProjectMode_CreatesBackup(), TestBackup_Agents_ProjectMode_DryRun(), TestBackup_Agents_ProjectMode_RestoreRoundTrip(), TestBackup_Agents_RestoreRoundTrip(), TestBackup_Default_DoesNotBackupAgents(), TestRestore_Agents_SkillsProjectModeRejected() (+997 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.01
-Nodes (310): groupAnalyzeTargets(), computeThresholds(), lintIcon(), renderTokenBar(), tokenColorCode(), newAnalyzeTUIModel(), runAnalyzeTUI(), sortAnalyzeItems() (+302 more)
+Nodes (301): groupAnalyzeTargets(), computeThresholds(), lintIcon(), renderTokenBar(), tokenColorCode(), newAnalyzeTUIModel(), runAnalyzeTUI(), sortAnalyzeItems() (+293 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.02
-Nodes (325): buildGroups(), List(), newTestServerWithBasePath(), TestBasePath_APIHealthWithoutPrefix_Returns404(), TestBasePath_APIHealthWithPrefix(), TestBasePath_BarePathRedirect(), TestBasePath_EmbeddedFallbackWithPrefix(), TestBasePath_Empty_NoStripPrefix() (+317 more)
+Cohesion: 0.01
+Nodes (422): ActiveAgents(), AgentFile(), AgentFlatName(), AgentName(), findTrackedRepoRelPath(), agentIgnorePayload(), discoverActiveAgents(), discoverAllAgents() (+414 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.01
-Nodes (228): AgentFile(), AgentFlatName(), AgentName(), agentNameFromFile(), findTrackedRepoRelPath(), agentIgnorePayload(), discoverActiveAgents(), discoverAllAgents() (+220 more)
+Nodes (432): buildGroups(), invalidateOneSkillMeta(), List(), newTestServerWithBasePath(), TestBasePath_APIHealthWithoutPrefix_Returns404(), TestBasePath_APIHealthWithPrefix(), TestBasePath_BarePathRedirect(), TestBasePath_EmbeddedFallbackWithPrefix() (+424 more)
 
 ### Community 5 - "Community 5"
 Cohesion: 0.01
-Nodes (300): createBackup(), collectCheckItems(), formatSourceShort(), parseCheckArgs(), printCheckHelp(), renderCheckResults(), resolveSkillStatuses(), runCheck() (+292 more)
+Nodes (340): TestScanContent_AdditionalInvisibleUnicode(), TestScanContent_BidiCharacters(), TestScanContent_Clean(), TestScanContent_ConfigManipulation(), TestScanContent_CredentialAccess(), TestScanContent_DataExfiltration(), TestScanContent_DataURI(), TestScanContent_DestructiveCommands() (+332 more)
 
 ### Community 6 - "Community 6"
 Cohesion: 0.01
-Nodes (302): TestScanContent_AdditionalInvisibleUnicode(), TestScanContent_BidiCharacters(), TestScanContent_Clean(), TestScanContent_ConfigManipulation(), TestScanContent_CredentialAccess(), TestScanContent_DataExfiltration(), TestScanContent_DataURI(), TestScanContent_DestructiveCommands() (+294 more)
+Nodes (333): CheckAgentCollisions(), FindLocalAgents(), PruneOrphanAgentLinks(), PullAgent(), PullAgents(), SyncAgents(), syncAgentsCopy(), syncAgentsMerge() (+325 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.01
-Nodes (323): CheckAgents(), checkOneAgent(), TestCheckAgents_Drifted(), TestCheckAgents_InvalidCentralizedMetadata(), TestCheckAgents_LocalAgent(), TestCheckAgents_Nested(), TestCheckAgents_NoAgents(), TestCheckAgents_NonExistentDir() (+315 more)
+Nodes (307): TestAnalyzability_EmptySkill(), TestAnalyzability_HighScoreNoWarning(), TestAnalyzability_LowScoreEmitsWarning(), TestAnalyzability_PureMarkdown(), TestAnalyzability_WithBinary(), DefaultRegistry(), TestDefaultRegistry_HasAllAnalyzers(), TestDefaultRegistry_ScopePartition() (+299 more)
 
 ### Community 8 - "Community 8"
-Cohesion: 0.01
-Nodes (286): syncAgentsMerge(), syncAgentsSymlink(), copyDir(), copyDirFollowTopSymlinks(), copyFile(), ListTargetsWithBackups(), assertFileContent(), TestBackupDir_RespectsXDGDataHome() (+278 more)
+Cohesion: 0.02
+Nodes (214): TestAuditConfig_EmptyOmitsNewFields(), TestAuditConfig_RoundTrip(), MarkdownOptions, IsValidSyncMode(), IsValidTargetNaming(), TestIsValidSyncMode(), TestValidateConfig_BuiltinTarget_NoPath_OK(), TestValidateConfig_CustomTarget_MissingPath() (+206 more)
 
 ### Community 9 - "Community 9"
-Cohesion: 0.01
-Nodes (260): DefaultRegistry(), TestDefaultRegistry_HasAllAnalyzers(), TestDefaultRegistry_ScopePartition(), TestRegistry_ForPolicy_EmptySliceEnablesAll(), TestRegistry_ForPolicy_FiltersByID(), TestRegistry_ForPolicy_NilEnablesAll(), auditFiltered(), auditHeaderSubtitle() (+252 more)
+Cohesion: 0.02
+Nodes (155): agentNameFromFile(), Check(), cleanupLegacyCache(), ClearCache(), compareVersions(), GetCachedVersion(), getCachePath(), legacyCachePath() (+147 more)
 
 ### Community 10 - "Community 10"
 Cohesion: 0.02
-Nodes (246): CompiledRule, TestAuditConfig_EmptyOmitsNewFields(), TestAuditConfig_RoundTrip(), MarkdownOptions, PatternGroup, rule, auditRulesPathForMode(), cmdAuditRules() (+238 more)
+Nodes (89): clearAuditCache(), getCachedAuditResult(), isAuditCacheFresh(), runAudit(), closeRestoreDialog(), handleCleanup(), handleClick(), handleCreate() (+81 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.01
-Nodes (153): clearAuditCache(), getCachedAuditResult(), isAuditCacheFresh(), runAudit(), extractExcludeNearby(), extractRegexFromLine(), handleCreate(), closeRestoreDialog() (+145 more)
+Cohesion: 0.04
+Nodes (120): checkTrackedAgentRepo(), AuthEnvForURL(), RepoCheckInput, RepoCheckOutput, URLCheckInput, URLCheckOutput, ApiError, apiFetch() (+112 more)
 
 ### Community 12 - "Community 12"
-Cohesion: 0.02
-Nodes (142): copyDirRecursive(), CleanupConfig, cleanEmptyDirs(), Cleanup(), CleanupByAge(), CleanupByCount(), dirSize(), Size() (+134 more)
+Cohesion: 0.04
+Nodes (122): CompiledRule, PatternGroup, rule, auditRulesPathForMode(), cmdAuditRules(), cmdAuditRulesDisable(), cmdAuditRulesEnable(), cmdAuditRulesInit() (+114 more)
 
 ### Community 13 - "Community 13"
-Cohesion: 0.03
-Nodes (127): checkTrackedAgentRepo(), AuthEnvForURL(), RepoCheckInput, RepoCheckOutput, URLCheckInput, URLCheckOutput, ApiError, apiFetch() (+119 more)
+Cohesion: 0.05
+Nodes (80): FilterEntries(), ParseSince(), TestFilterEntries_CmdCaseInsensitive(), TestFilterEntries_CmdOnly(), TestFilterEntries_Combined(), TestFilterEntries_Empty(), TestFilterEntries_NoMatch(), TestFilterEntries_SinceOnly() (+72 more)
 
 ### Community 14 - "Community 14"
-Cohesion: 0.03
-Nodes (103): CheckRateLimit(), NewClient(), buildGitHubContentsURL(), downloadDirRecursive(), downloadFile(), downloadGitHubDir(), downloadGitHubDirWithAPIBase(), escapeGitHubPath() (+95 more)
+Cohesion: 0.04
+Nodes (65): runChecklistTUI(), isGlobPattern(), matchGlob(), applyExclude(), filterAgentsByName(), filterSkillsByName(), groupSkillsByDirectory(), promptAgentInstallSelection() (+57 more)
 
 ### Community 15 - "Community 15"
 Cohesion: 0.06
-Nodes (74): TestCheck_Stale_DeletedSubdir(), TestCheck_Stale_SingleName(), TestCheck_Stale_WarningInTextOutput(), gitAddCommit(), gitClone(), gitInit(), gitPush(), gitRevParse() (+66 more)
+Nodes (42): Registry, SkillEntry, TestMetadataEntry_EffectiveKind(), TestRegistryMigration_OldFormatPreservesEntries(), TestProjectTargetEntryMarshal_WithFiltersUsesObjectForm(), migrateProjectSkillsToRegistry(), PruneStaleSkills(), TestProjectTarget_AgentsConfig_Accessor() (+34 more)
 
 ### Community 16 - "Community 16"
 Cohesion: 0.06
-Nodes (67): TestTruncate(), truncate(), FilterEntries(), ParseSince(), TestFilterEntries_CmdCaseInsensitive(), TestFilterEntries_CmdOnly(), TestFilterEntries_Combined(), TestFilterEntries_Empty() (+59 more)
+Nodes (36): CheckAgents(), checkOneAgent(), TestCheckAgents_Drifted(), TestCheckAgents_InvalidCentralizedMetadata(), TestCheckAgents_LocalAgent(), TestCheckAgents_Nested(), TestCheckAgents_NoAgents(), TestCheckAgents_NonExistentDir() (+28 more)
 
 ### Community 17 - "Community 17"
-Cohesion: 0.05
-Nodes (54): Check(), cleanupLegacyCache(), ClearCache(), compareVersions(), GetCachedVersion(), getCachePath(), legacyCachePath(), loadCache() (+46 more)
-
-### Community 18 - "Community 18"
-Cohesion: 0.07
-Nodes (53): searchBuiltinIndex(), SkillEntry, buildHubRequest(), BuildIndex(), gitLabWebToAPIRawURL(), hubHTTPError(), isRelativeSource(), loadIndex() (+45 more)
-
-### Community 19 - "Community 19"
 Cohesion: 0.07
 Nodes (19): getParticlePosition(), getTargetPosition(), detectBrowserLocale(), getInitialLocale(), interpolate(), isLocale(), normalizeLocale(), translate() (+11 more)
 
-### Community 20 - "Community 20"
-Cohesion: 0.09
-Nodes (23): checkAuthorityLanguage(), checkPublisherMismatch(), extractRepoOwner(), findMetaEntry(), isWellKnownOrg(), parseFrontmatterNameDesc(), readMetaFileHashes(), readMetaRepoURL() (+15 more)
-
-### Community 21 - "Community 21"
+### Community 18 - "Community 18"
 Cohesion: 0.12
 Nodes (28): cutTag(), matchSkillItem(), normalizeKindValue(), normalizeTypeValue(), parseFilterQuery(), skillGroup(), skillTypeCategory(), TestMatchSkillItem_ANDLogic() (+20 more)
 
-### Community 22 - "Community 22"
+### Community 19 - "Community 19"
+Cohesion: 0.17
+Nodes (24): evalLintRule(), LintSkill(), loadLintRules(), resolveField(), assertHasIssue(), assertNoIssue(), TestLintSkill_CategoryField(), TestLintSkill_CleanSkill() (+16 more)
+
+### Community 20 - "Community 20"
 Cohesion: 0.11
 Nodes (20): sarifArtifactLoc, sarifDefaultConf, sarifDriver, sarifLocation, sarifLog, sarifMessage, SARIFOptions, sarifPhysicalLoc (+12 more)
 
-### Community 23 - "Community 23"
+### Community 21 - "Community 21"
+Cohesion: 0.17
+Nodes (18): SkillEntry, BuildIndex(), readSkillDescription(), readSkillTags(), TestBuildIndex_BasicSkills(), TestBuildIndex_DescriptionPipeScalar(), TestBuildIndex_DescriptionVariants(), TestBuildIndex_DeterministicSort() (+10 more)
+
+### Community 22 - "Community 22"
 Cohesion: 0.22
 Nodes (16): literalConstraint, appendUniqueConstraint(), deriveRulePrefilter(), equivalentConstraint(), intersectConstraints(), isSelectiveLiteral(), mergeConstraintPair(), normalizeConstraint() (+8 more)
+
+### Community 23 - "Community 23"
+Cohesion: 0.33
+Nodes (8): calcContextFromContent(), CalcSkillContext(), TestCalcSkillContext_EmptyFile(), TestCalcSkillContext_MultilineDescription(), TestCalcSkillContext_NoDescription(), TestCalcSkillContext_NoFrontmatter(), TestCalcSkillContext_NoSkillMd(), TestCalcSkillContext_WithDescription()
 
 ### Community 24 - "Community 24"
 Cohesion: 0.5
 Nodes (8): Add-ToPath(), Get-Arch(), Get-InstallDir(), Get-LatestVersion(), Install-Skillshare(), Write-Err(), Write-Info(), Write-Warn()
 
 ### Community 25 - "Community 25"
-Cohesion: 0.25
-Nodes (7): checkoutRequest, checkoutResponse, gitBranchesResponse, gitStatusResponse, pullResponse, pushRequest, pushResponse
+Cohesion: 0.36
+Nodes (7): dirExists(), MigrateExtrasDir(), TestMigrateExtras_AlreadyMigrated(), TestMigrateExtras_BothExist_Warns(), TestMigrateExtras_MovesOldToNew(), TestMigrateExtras_NothingToMigrate(), TestMigrateExtras_OnlyConfiguredNames()
 
 ### Community 26 - "Community 26"
-Cohesion: 0.33
-Nodes (2): useAppContext(), TourProvider()
+Cohesion: 0.25
+Nodes (7): checkoutRequest, checkoutResponse, gitBranchesResponse, gitStatusResponse, pullResponse, pushRequest, pushResponse
 
 ### Community 27 - "Community 27"
 Cohesion: 0.33
@@ -317,31 +317,31 @@ Nodes (0):
 
 ### Community 28 - "Community 28"
 Cohesion: 0.33
-Nodes (1): formatSize()
+Nodes (2): useAppContext(), TourProvider()
 
 ### Community 29 - "Community 29"
 Cohesion: 0.33
-Nodes (3): ConfigInstallResult, InstallContext, SkillEntryDTO
+Nodes (1): formatSize()
 
 ### Community 30 - "Community 30"
+Cohesion: 0.33
+Nodes (3): ConfigInstallResult, InstallContext, SkillEntryDTO
+
+### Community 31 - "Community 31"
 Cohesion: 0.4
 Nodes (2): CopyButton(), useToast()
 
-### Community 31 - "Community 31"
+### Community 32 - "Community 32"
 Cohesion: 0.7
 Nodes (3): findKeyLine(), validateEnum(), validateYaml()
 
-### Community 32 - "Community 32"
+### Community 33 - "Community 33"
 Cohesion: 0.4
 Nodes (0):
 
-### Community 33 - "Community 33"
+### Community 34 - "Community 34"
 Cohesion: 0.6
 Nodes (4): buildLCS(), computeLineDiff(), computeSimpleChangeCount(), useLineDiff()
-
-### Community 34 - "Community 34"
-Cohesion: 0.5
-Nodes (2): DialogShell(), useFocusTrap()
 
 ### Community 35 - "Community 35"
 Cohesion: 0.5
@@ -353,39 +353,39 @@ Nodes (1): ErrorBoundary
 
 ### Community 37 - "Community 37"
 Cohesion: 0.5
-Nodes (0):
+Nodes (2): DialogShell(), useFocusTrap()
 
 ### Community 38 - "Community 38"
 Cohesion: 0.5
-Nodes (3): analyzeCharTokensResponse, analyzeSkillResponse, analyzeTargetResponse
+Nodes (0):
 
 ### Community 39 - "Community 39"
 Cohesion: 0.5
-Nodes (3): batchUninstallItemResult, batchUninstallRequest, batchUninstallSummary
+Nodes (3): analyzeCharTokensResponse, analyzeSkillResponse, analyzeTargetResponse
 
 ### Community 40 - "Community 40"
 Cohesion: 0.5
-Nodes (3): repoCheckResult, skillCheckResult, skillWithMetaEntry
+Nodes (3): batchUninstallItemResult, batchUninstallRequest, batchUninstallSummary
 
 ### Community 41 - "Community 41"
 Cohesion: 0.5
-Nodes (3): collectSkillRef, localSkillItem, scanTarget
+Nodes (3): repoCheckResult, skillCheckResult, skillWithMetaEntry
 
 ### Community 42 - "Community 42"
 Cohesion: 0.5
-Nodes (3): AnalyzeContext, Analyzer, AnalyzerScope
+Nodes (3): collectSkillRef, localSkillItem, scanTarget
 
 ### Community 43 - "Community 43"
-Cohesion: 0.67
-Nodes (0):
+Cohesion: 0.5
+Nodes (3): AnalyzeContext, Analyzer, AnalyzerScope
 
 ### Community 44 - "Community 44"
-Cohesion: 1.0
-Nodes (2): resolveSource(), SourceBadge()
-
-### Community 45 - "Community 45"
 Cohesion: 0.67
 Nodes (0):
+
+### Community 45 - "Community 45"
+Cohesion: 1.0
+Nodes (2): resolveSource(), SourceBadge()
 
 ### Community 46 - "Community 46"
 Cohesion: 0.67
@@ -405,23 +405,23 @@ Nodes (0):
 
 ### Community 50 - "Community 50"
 Cohesion: 0.67
-Nodes (2): agentignoreResponse, agentignoreStats
+Nodes (0):
 
 ### Community 51 - "Community 51"
 Cohesion: 0.67
-Nodes (2): hubConfigResponse, hubEntryJSON
+Nodes (2): agentignoreResponse, agentignoreStats
 
 ### Community 52 - "Community 52"
 Cohesion: 0.67
-Nodes (2): skillignoreResponse, skillignoreStats
+Nodes (2): hubConfigResponse, hubEntryJSON
 
 ### Community 53 - "Community 53"
 Cohesion: 0.67
-Nodes (2): DiscoveredResource, ResourceKind
+Nodes (2): skillignoreResponse, skillignoreStats
 
 ### Community 54 - "Community 54"
-Cohesion: 1.0
-Nodes (0):
+Cohesion: 0.67
+Nodes (2): DiscoveredResource, ResourceKind
 
 ### Community 55 - "Community 55"
 Cohesion: 1.0
@@ -553,7 +553,7 @@ Nodes (0):
 
 ### Community 87 - "Community 87"
 Cohesion: 1.0
-Nodes (1): setSkillGroupsRequest
+Nodes (0):
 
 ### Community 88 - "Community 88"
 Cohesion: 1.0
@@ -870,73 +870,71 @@ Nodes (0):
 ## Knowledge Gaps
 - **344 isolated node(s):** `sevTab`, `diffExpandMsg`, `updateResult`, `batchBlockedEntry`, `batchAuditEntry` (+339 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Community 54`** (2 nodes): `wrapper()`, `ThemeContext.test.tsx`
+- **Thin community `Community 55`** (2 nodes): `wrapper()`, `ThemeContext.test.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 55`** (2 nodes): `handler()`, `ScrollToTop.tsx`
+- **Thin community `Community 56`** (2 nodes): `handler()`, `ScrollToTop.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 56`** (2 nodes): `Card()`, `Card.tsx`
+- **Thin community `Community 57`** (2 nodes): `Card()`, `Card.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 57`** (2 nodes): `LanguagePopover()`, `LanguagePopover.tsx`
+- **Thin community `Community 58`** (2 nodes): `LanguagePopover()`, `LanguagePopover.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 58`** (2 nodes): `Tooltip()`, `Tooltip.tsx`
+- **Thin community `Community 59`** (2 nodes): `Tooltip()`, `Tooltip.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 59`** (2 nodes): `StatusBadge()`, `StatusBadge.tsx`
+- **Thin community `Community 60`** (2 nodes): `StatusBadge()`, `StatusBadge.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 60`** (2 nodes): `KindBadge()`, `KindBadge.tsx`
+- **Thin community `Community 61`** (2 nodes): `KindBadge()`, `KindBadge.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 61`** (2 nodes): `DropdownPortal()`, `SplitButton.tsx`
+- **Thin community `Community 62`** (2 nodes): `DropdownPortal()`, `SplitButton.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 62`** (2 nodes): `Badge()`, `Badge.tsx`
+- **Thin community `Community 63`** (2 nodes): `Badge()`, `Badge.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 63`** (2 nodes): `IconButton()`, `IconButton.tsx`
+- **Thin community `Community 64`** (2 nodes): `IconButton()`, `IconButton.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 64`** (2 nodes): `Button()`, `Button.tsx`
+- **Thin community `Community 65`** (2 nodes): `Button()`, `Button.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 65`** (2 nodes): `Spinner()`, `Spinner.tsx`
+- **Thin community `Community 66`** (2 nodes): `Spinner()`, `Spinner.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 66`** (2 nodes): `Skeleton()`, `Skeleton.tsx`
+- **Thin community `Community 67`** (2 nodes): `Skeleton()`, `Skeleton.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 67`** (2 nodes): `DiffPreview()`, `DiffPreview.tsx`
+- **Thin community `Community 68`** (2 nodes): `DiffPreview()`, `DiffPreview.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 68`** (2 nodes): `lookupFieldDoc()`, `FieldDocs.tsx`
+- **Thin community `Community 69`** (2 nodes): `lookupFieldDoc()`, `FieldDocs.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 69`** (2 nodes): `severityBadgeVariant()`, `AuditOverview.tsx`
+- **Thin community `Community 70`** (2 nodes): `severityBadgeVariant()`, `AuditOverview.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 70`** (2 nodes): `BlockStamp()`, `BlockStamp.tsx`
+- **Thin community `Community 71`** (2 nodes): `BlockStamp()`, `BlockStamp.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 71`** (2 nodes): `getMaxSeverity()`, `PatternSummary.tsx`
+- **Thin community `Community 72`** (2 nodes): `getMaxSeverity()`, `PatternSummary.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 72`** (2 nodes): `diffLines()`, `DiffView.tsx`
+- **Thin community `Community 73`** (2 nodes): `diffLines()`, `DiffView.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 73`** (2 nodes): `CharBudget()`, `CharBudget.tsx`
+- **Thin community `Community 74`** (2 nodes): `CharBudget()`, `CharBudget.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 74`** (2 nodes): `handleClick()`, `TourOverlay.tsx`
+- **Thin community `Community 75`** (2 nodes): `handleClick()`, `TourOverlay.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 75`** (2 nodes): `check()`, `TourTooltip.tsx`
+- **Thin community `Community 76`** (2 nodes): `check()`, `TourTooltip.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 76`** (2 nodes): `globToRegex()`, `glob.ts`
+- **Thin community `Community 77`** (2 nodes): `globToRegex()`, `glob.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 77`** (2 nodes): `shortenHome()`, `paths.ts`
+- **Thin community `Community 78`** (2 nodes): `shortenHome()`, `paths.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 78`** (2 nodes): `I18nProvider()`, `I18nContext.tsx`
+- **Thin community `Community 79`** (2 nodes): `I18nProvider()`, `I18nContext.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 79`** (2 nodes): `statusIcon()`, `DoctorPage.tsx`
+- **Thin community `Community 80`** (2 nodes): `statusIcon()`, `DoctorPage.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 80`** (2 nodes): `update()`, `AuditRulesPage.tsx`
+- **Thin community `Community 81`** (2 nodes): `update()`, `AuditRulesPage.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 81`** (2 nodes): `RemotionRoot()`, `Root.tsx`
+- **Thin community `Community 82`** (2 nodes): `RemotionRoot()`, `Root.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 82`** (2 nodes): `getIconCenter()`, `PainPoint.tsx`
+- **Thin community `Community 83`** (2 nodes): `getIconCenter()`, `PainPoint.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 83`** (2 nodes): `getParticleStyle()`, `ClosingLogo.tsx`
+- **Thin community `Community 84`** (2 nodes): `getParticleStyle()`, `ClosingLogo.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 84`** (2 nodes): `Cursor()`, `Cursor.tsx`
+- **Thin community `Community 85`** (2 nodes): `Cursor()`, `Cursor.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 85`** (2 nodes): `Typewriter()`, `Typewriter.tsx`
+- **Thin community `Community 86`** (2 nodes): `Typewriter()`, `Typewriter.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 86`** (2 nodes): `main()`, `capture-hero.mjs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 87`** (2 nodes): `setSkillGroupsRequest`, `handler_skill_groups.go`
+- **Thin community `Community 87`** (2 nodes): `main()`, `capture-hero.mjs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 88`** (2 nodes): `createSkillRequest`, `handler_create_skill.go`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -1098,16 +1096,16 @@ Nodes (0):
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `contains()` connect `Community 10` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 8`, `Community 9`, `Community 11`, `Community 12`, `Community 13`, `Community 14`, `Community 15`, `Community 16`, `Community 18`, `Community 20`, `Community 21`, `Community 23`?**
-  _High betweenness centrality (0.077) - this node is a cross-community bridge._
-- **Why does `run()` connect `Community 6` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 7`, `Community 8`, `Community 9`, `Community 10`, `Community 11`, `Community 13`, `Community 14`, `Community 15`, `Community 16`, `Community 18`, `Community 20`, `Community 22`?**
-  _High betweenness centrality (0.064) - this node is a cross-community bridge._
-- **Why does `Success()` connect `Community 1` to `Community 2`, `Community 4`, `Community 5`, `Community 6`, `Community 8`, `Community 9`, `Community 10`, `Community 12`, `Community 16`?**
-  _High betweenness centrality (0.042) - this node is a cross-community bridge._
+- **Why does `run()` connect `Community 5` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 6`, `Community 7`, `Community 8`, `Community 9`, `Community 11`, `Community 12`, `Community 13`, `Community 14`, `Community 15`, `Community 16`, `Community 20`, `Community 21`?**
+  _High betweenness centrality (0.103) - this node is a cross-community bridge._
+- **Why does `contains()` connect `Community 8` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 13`, `Community 14`, `Community 16`, `Community 18`, `Community 19`, `Community 22`?**
+  _High betweenness centrality (0.081) - this node is a cross-community bridge._
+- **Why does `Load()` connect `Community 0` to `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 6`, `Community 7`, `Community 15`?**
+  _High betweenness centrality (0.028) - this node is a cross-community bridge._
 - **Are the 973 inferred relationships involving `NewSandbox()` (e.g. with `TestShowTargetInfo_ShowsAgentsSectionForBuiltinTarget()` and `TestShowTargetInfo_OmitsAgentsSectionWhenTargetHasNoAgentsPath()`) actually correct?**
   _`NewSandbox()` has 973 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 387 inferred relationships involving `contains()` (e.g. with `handler()` and `onDown()`) actually correct?**
-  _`contains()` has 387 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 388 inferred relationships involving `contains()` (e.g. with `handler()` and `onDown()`) actually correct?**
+  _`contains()` has 388 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 315 inferred relationships involving `createSkill()` (e.g. with `handleCreate()` and `TestCheck_RegularSkill_ShowsMeta()`) actually correct?**
   _`createSkill()` has 315 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 255 inferred relationships involving `run()` (e.g. with `runAuditRulesTUI()` and `runDiffTUI()`) actually correct?**

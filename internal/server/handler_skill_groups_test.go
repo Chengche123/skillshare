@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"skillshare/internal/install"
@@ -109,6 +110,103 @@ func TestHandleSetSkillGroups_UsesRelPathForTrackedRepoChild(t *testing.T) {
 	}
 }
 
+func TestHandleSetSkillGroups_DoesNotMigrateTopLevelBasenameMetadata(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "ui")
+	addSkillNested(t, src, "_team-skills/frontend/ui")
+	store := install.NewMetadataStore()
+	store.Set("ui", &install.MetadataEntry{Source: "github.com/acme/ui"})
+	if err := store.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+	s.skillsStore = store
+
+	body := `{"groups":["team"]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/_team-skills__frontend__ui/groups", bytes.NewBufferString(body))
+	req.SetPathValue("name", "_team-skills__frontend__ui")
+	rr := httptest.NewRecorder()
+	s.handleSetSkillGroups(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	reloaded, err := install.LoadMetadata(src)
+	if err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	topLevel := reloaded.Get("ui")
+	if topLevel == nil || topLevel.Source != "github.com/acme/ui" {
+		t.Fatalf("expected top-level ui metadata to remain, got %+v", topLevel)
+	}
+	if len(topLevel.CustomGroups) != 0 {
+		t.Fatalf("expected top-level groups unchanged, got %v", topLevel.CustomGroups)
+	}
+	nested := reloaded.Get("_team-skills/frontend/ui")
+	if nested == nil {
+		t.Fatal("expected nested relPath metadata entry")
+	}
+	if got := nested.CustomGroups; len(got) != 1 || got[0] != "team" {
+		t.Fatalf("nested groups = %v", got)
+	}
+}
+
+func TestHandleSetSkillGroups_SerializesConcurrentMetadataWrites(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "alpha")
+	addSkill(t, src, "beta")
+
+	for i := 0; i < 25; i++ {
+		store := install.NewMetadataStore()
+		if err := store.Save(src); err != nil {
+			t.Fatalf("save metadata: %v", err)
+		}
+		s.skillsStore = store
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		errs := make(chan string, 2)
+		for _, tc := range []struct {
+			name  string
+			group string
+		}{
+			{name: "alpha", group: "one"},
+			{name: "beta", group: "two"},
+		} {
+			tc := tc
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				body := `{"groups":["` + tc.group + `"]}`
+				req := httptest.NewRequest(http.MethodPatch, "/api/resources/"+tc.name+"/groups", bytes.NewBufferString(body))
+				req.SetPathValue("name", tc.name)
+				rr := httptest.NewRecorder()
+				s.handleSetSkillGroups(rr, req)
+				if rr.Code != http.StatusOK {
+					errs <- tc.name + ": " + rr.Body.String()
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatal(err)
+		}
+
+		reloaded, err := install.LoadMetadata(src)
+		if err != nil {
+			t.Fatalf("load metadata: %v", err)
+		}
+		alpha := reloaded.Get("alpha")
+		beta := reloaded.Get("beta")
+		if alpha == nil || len(alpha.CustomGroups) != 1 || alpha.CustomGroups[0] != "one" ||
+			beta == nil || len(beta.CustomGroups) != 1 || beta.CustomGroups[0] != "two" {
+			t.Fatalf("iteration %d: expected both groups, alpha=%+v beta=%+v", i, alpha, beta)
+		}
+	}
+}
+
 func TestHandleSetSkillGroups_ClearsAndDeletesLightweightEntry(t *testing.T) {
 	s, src := newTestServer(t)
 	addSkill(t, src, "alpha")
@@ -184,6 +282,24 @@ func TestHandleSetSkillGroups_RejectsInvalidNames(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "may contain only") {
 		t.Fatalf("expected validation message, got %s", rr.Body.String())
+	}
+}
+
+func TestHandleSetSkillGroups_RejectsInvalidKind(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "alpha")
+
+	body := `{"groups":["unused"]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/alpha/groups?kind=unknown", bytes.NewBufferString(body))
+	req.SetPathValue("name", "alpha")
+	rr := httptest.NewRecorder()
+	s.handleSetSkillGroups(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "invalid kind") {
+		t.Fatalf("expected invalid kind message, got %s", rr.Body.String())
 	}
 }
 
