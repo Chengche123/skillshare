@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"skillshare/internal/config"
 	"skillshare/internal/install"
 )
 
@@ -184,6 +185,161 @@ func TestHandleSetSkillGroups_CreatesLightweightEntry(t *testing.T) {
 	}
 	if string(before) != string(after) {
 		t.Fatal("SKILL.md changed, but custom groups must stay in metadata")
+	}
+}
+
+func TestHandleSetSkillGroups_ProjectModeUsesProjectSkillsSource(t *testing.T) {
+	projectRoot := t.TempDir()
+	projectSkills := filepath.Join(projectRoot, ".skillshare", "skills")
+	globalSkills := filepath.Join(t.TempDir(), "global-skills")
+	if err := os.MkdirAll(projectSkills, 0o755); err != nil {
+		t.Fatalf("mkdir project skills: %v", err)
+	}
+	if err := os.MkdirAll(globalSkills, 0o755); err != nil {
+		t.Fatalf("mkdir global skills: %v", err)
+	}
+	addSkill(t, projectSkills, "alpha")
+	addSkill(t, globalSkills, "alpha")
+	if err := install.NewMetadataStore().Save(projectSkills); err != nil {
+		t.Fatalf("save project metadata: %v", err)
+	}
+	if err := install.NewMetadataStore().Save(globalSkills); err != nil {
+		t.Fatalf("save global metadata: %v", err)
+	}
+
+	s := NewProject(
+		&config.Config{Source: globalSkills, Targets: map[string]config.TargetConfig{}},
+		&config.ProjectConfig{},
+		projectRoot,
+		"127.0.0.1:0",
+		"",
+		"",
+	)
+
+	body := `{"groups":["project-only"]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/alpha/groups", bytes.NewBufferString(body))
+	req.SetPathValue("name", "alpha")
+	rr := httptest.NewRecorder()
+	s.handleSetSkillGroups(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	projectStore, err := install.LoadMetadata(projectSkills)
+	if err != nil {
+		t.Fatalf("load project metadata: %v", err)
+	}
+	projectEntry := projectStore.Get("alpha")
+	if projectEntry == nil || len(projectEntry.CustomGroups) != 1 || projectEntry.CustomGroups[0] != "project-only" {
+		t.Fatalf("expected project metadata to be updated, got %+v", projectEntry)
+	}
+	globalStore, err := install.LoadMetadata(globalSkills)
+	if err != nil {
+		t.Fatalf("load global metadata: %v", err)
+	}
+	if globalEntry := globalStore.Get("alpha"); globalEntry != nil && len(globalEntry.CustomGroups) != 0 {
+		t.Fatalf("global metadata was modified: %+v", globalEntry)
+	}
+}
+
+func newProjectModeSourceSelectionServer(t *testing.T) (*Server, string) {
+	t.Helper()
+	projectRoot := t.TempDir()
+	projectSkills := filepath.Join(projectRoot, ".skillshare", "skills")
+	globalSkills := filepath.Join(t.TempDir(), "global-skills")
+	if err := os.MkdirAll(projectSkills, 0o755); err != nil {
+		t.Fatalf("mkdir project skills: %v", err)
+	}
+	if err := os.MkdirAll(globalSkills, 0o755); err != nil {
+		t.Fatalf("mkdir global skills: %v", err)
+	}
+	addSkill(t, projectSkills, "alpha")
+	addSkill(t, globalSkills, "alpha")
+	addSkill(t, globalSkills, "beta")
+
+	projectStore := install.NewMetadataStore()
+	projectStore.Set("alpha", &install.MetadataEntry{CustomGroups: []string{"project-only"}})
+	if err := projectStore.Save(projectSkills); err != nil {
+		t.Fatalf("save project metadata: %v", err)
+	}
+	globalStore := install.NewMetadataStore()
+	globalStore.Set("alpha", &install.MetadataEntry{CustomGroups: []string{"global-only"}})
+	globalStore.Set("beta", &install.MetadataEntry{CustomGroups: []string{"global-only"}})
+	if err := globalStore.Save(globalSkills); err != nil {
+		t.Fatalf("save global metadata: %v", err)
+	}
+
+	s := NewProject(
+		&config.Config{Source: globalSkills, Targets: map[string]config.TargetConfig{}},
+		&config.ProjectConfig{},
+		projectRoot,
+		"127.0.0.1:0",
+		"",
+		"",
+	)
+	return s, projectSkills
+}
+
+func TestHandleListSkills_ProjectModeUsesProjectSkillsSource(t *testing.T) {
+	s, projectSkills := newProjectModeSourceSelectionServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
+	rr := httptest.NewRecorder()
+	s.handleListSkills(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Resources []struct {
+			FlatName   string   `json:"flatName"`
+			SourcePath string   `json:"sourcePath"`
+			Groups     []string `json:"groups"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Resources) != 1 {
+		t.Fatalf("expected only project skill, got %d resources: %+v", len(resp.Resources), resp.Resources)
+	}
+	item := resp.Resources[0]
+	if item.FlatName != "alpha" {
+		t.Fatalf("expected alpha, got %q", item.FlatName)
+	}
+	if filepath.Clean(item.SourcePath) != filepath.Join(projectSkills, "alpha") {
+		t.Fatalf("sourcePath = %q, want project source", item.SourcePath)
+	}
+	if got := item.Groups; len(got) != 1 || got[0] != "project-only" {
+		t.Fatalf("groups = %v", got)
+	}
+}
+
+func TestHandleGetSkill_ProjectModeUsesProjectSkillsSource(t *testing.T) {
+	s, projectSkills := newProjectModeSourceSelectionServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources/alpha", nil)
+	req.SetPathValue("name", "alpha")
+	rr := httptest.NewRecorder()
+	s.handleGetSkill(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Resource struct {
+			SourcePath string   `json:"sourcePath"`
+			Groups     []string `json:"groups"`
+		} `json:"resource"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if filepath.Clean(resp.Resource.SourcePath) != filepath.Join(projectSkills, "alpha") {
+		t.Fatalf("sourcePath = %q, want project source", resp.Resource.SourcePath)
+	}
+	if got := resp.Resource.Groups; len(got) != 1 || got[0] != "project-only" {
+		t.Fatalf("groups = %v", got)
 	}
 }
 

@@ -150,11 +150,89 @@ func TestWriteMetaToStorePreservesCustomGroups(t *testing.T) {
 	}
 }
 
-func TestWriteMetaToStoreDoesNotPreserveAmbiguousBasenameCustomGroups(t *testing.T) {
+func TestWriteMetaToStorePreservesUnambiguousLegacyBasenameCustomGroups(t *testing.T) {
 	dir := t.TempDir()
-	nestedDir := filepath.Join(dir, "_team-skills", "frontend", "ui")
+	nestedDir := filepath.Join(dir, "frontend", "ui")
 	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
 		t.Fatalf("mkdir nested skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "SKILL.md"), []byte("# ui"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	store := NewMetadataStore()
+	store.Set("ui", &MetadataEntry{CustomGroups: []string{"legacy"}})
+	if err := store.Save(dir); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+
+	if err := WriteMetaToStore(dir, nestedDir, &SkillMeta{Source: "github.com/acme/team-skills"}); err != nil {
+		t.Fatalf("WriteMetaToStore failed: %v", err)
+	}
+
+	loaded, err := LoadMetadata(dir)
+	if err != nil {
+		t.Fatalf("LoadMetadata failed: %v", err)
+	}
+	if old := loaded.Get("ui"); old != nil {
+		t.Fatalf("expected legacy basename metadata to be migrated, got %+v", old)
+	}
+	nested := loaded.Get("frontend/ui")
+	if nested == nil {
+		t.Fatal("expected nested metadata entry")
+	}
+	if got := nested.CustomGroups; len(got) != 1 || got[0] != "legacy" {
+		t.Fatalf("custom groups = %v", got)
+	}
+}
+
+func TestWriteMetaToStoreRemovesLegacyGroupKeyWhenDirectEntryExists(t *testing.T) {
+	dir := t.TempDir()
+	nestedDir := filepath.Join(dir, "frontend", "ui")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatalf("mkdir nested skill: %v", err)
+	}
+	store := NewMetadataStore()
+	store.Set("frontend/ui", &MetadataEntry{CustomGroups: []string{"direct"}})
+	store.Set("ui", &MetadataEntry{Group: "frontend", CustomGroups: []string{"legacy"}})
+	if err := store.Save(dir); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+
+	if err := WriteMetaToStore(dir, nestedDir, &SkillMeta{Source: "github.com/acme/team-skills"}); err != nil {
+		t.Fatalf("WriteMetaToStore failed: %v", err)
+	}
+
+	loaded, err := LoadMetadata(dir)
+	if err != nil {
+		t.Fatalf("LoadMetadata failed: %v", err)
+	}
+	if old := loaded.Get("ui"); old != nil {
+		t.Fatalf("expected legacy grouped metadata to be removed, got %+v", old)
+	}
+	entry := loaded.Get("frontend/ui")
+	if entry == nil {
+		t.Fatal("expected full-path metadata entry")
+	}
+	if got := entry.CustomGroups; len(got) != 1 || got[0] != "direct" {
+		t.Fatalf("custom groups = %v", got)
+	}
+}
+
+func TestWriteMetaToStoreDoesNotPreserveAmbiguousBasenameCustomGroups(t *testing.T) {
+	dir := t.TempDir()
+	topLevelDir := filepath.Join(dir, "ui")
+	nestedDir := filepath.Join(dir, "_team-skills", "frontend", "ui")
+	if err := os.MkdirAll(topLevelDir, 0o755); err != nil {
+		t.Fatalf("mkdir top-level skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(topLevelDir, "SKILL.md"), []byte("# ui"), 0o644); err != nil {
+		t.Fatalf("write top-level skill: %v", err)
+	}
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatalf("mkdir nested skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "SKILL.md"), []byte("# ui"), 0o644); err != nil {
+		t.Fatalf("write nested skill: %v", err)
 	}
 	store := NewMetadataStore()
 	store.Set("ui", &MetadataEntry{CustomGroups: []string{"top-level"}})
@@ -180,5 +258,44 @@ func TestWriteMetaToStoreDoesNotPreserveAmbiguousBasenameCustomGroups(t *testing
 	}
 	if len(nested.CustomGroups) != 0 {
 		t.Fatalf("nested entry inherited ambiguous top-level groups: %v", nested.CustomGroups)
+	}
+}
+
+func TestWriteMetaToStoreDoesNotPreserveHiddenDirBasenameCollision(t *testing.T) {
+	dir := t.TempDir()
+	hiddenDir := filepath.Join(dir, ".system", "ui")
+	nestedDir := filepath.Join(dir, "frontend", "ui")
+	if err := os.MkdirAll(hiddenDir, 0o755); err != nil {
+		t.Fatalf("mkdir hidden skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hiddenDir, "SKILL.md"), []byte("# ui"), 0o644); err != nil {
+		t.Fatalf("write hidden skill: %v", err)
+	}
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatalf("mkdir nested skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "SKILL.md"), []byte("# ui"), 0o644); err != nil {
+		t.Fatalf("write nested skill: %v", err)
+	}
+	store := NewMetadataStore()
+	store.Set("ui", &MetadataEntry{CustomGroups: []string{"legacy"}})
+	if err := store.Save(dir); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+
+	if err := WriteMetaToStore(dir, nestedDir, &SkillMeta{Source: "github.com/acme/team-skills"}); err != nil {
+		t.Fatalf("WriteMetaToStore failed: %v", err)
+	}
+
+	loaded, err := LoadMetadata(dir)
+	if err != nil {
+		t.Fatalf("LoadMetadata failed: %v", err)
+	}
+	nested := loaded.Get("frontend/ui")
+	if nested == nil {
+		t.Fatal("expected nested metadata entry")
+	}
+	if len(nested.CustomGroups) != 0 {
+		t.Fatalf("nested entry inherited hidden-dir basename groups: %v", nested.CustomGroups)
 	}
 }

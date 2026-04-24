@@ -23,6 +23,7 @@ func reconcileSkillsWalk(sourcePath string, store *install.MetadataStore, onFoun
 	result := reconcileResult{live: map[string]bool{}}
 
 	walkRoot := utils.ResolveSymlink(sourcePath)
+	candidates := install.SkillRelPathCandidates(walkRoot)
 	err := filepath.WalkDir(walkRoot, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -55,14 +56,14 @@ func reconcileSkillsWalk(sourcePath string, store *install.MetadataStore, onFoun
 		var source string
 		tracked := isGitRepo(path)
 
-		existing := store.GetByPath(fullPath)
+		existing := store.GetByPathForCandidates(fullPath, candidates)
 		if existing != nil && existing.Source != "" {
 			source = existing.Source
 		} else if tracked {
 			source = gitRemoteOrigin(path)
 		}
 		if source == "" {
-			if existing != nil && len(existing.CustomGroups) > 0 && hasSkillFile(path) && metadataEntryMatchesPath(store, fullPath, existing) {
+			if existing != nil && len(existing.CustomGroups) > 0 && hasSkillFile(path) && metadataEntryMatchesPath(store, fullPath, existing, candidates) {
 				result.live[fullPath] = true
 				if store.MigrateLegacyKey(fullPath, existing) {
 					result.changed = true
@@ -143,19 +144,11 @@ func pruneStaleEntries(store *install.MetadataStore, live map[string]bool) bool 
 	return changed
 }
 
-func metadataEntryMatchesPath(store *install.MetadataStore, fullPath string, entry *install.MetadataEntry) bool {
+func metadataEntryMatchesPath(store *install.MetadataStore, fullPath string, entry *install.MetadataEntry, candidates []string) bool {
 	if store.Get(fullPath) == entry {
 		return true
 	}
-	group := ""
-	if dir := filepath.Dir(fullPath); dir != "." {
-		group = filepath.ToSlash(dir)
-	}
-	if group == "" {
-		return false
-	}
-	base := filepath.Base(fullPath)
-	return store.Get(base) == entry && entry.Group == group
+	return store.GetByPathForCandidates(fullPath, candidates) == entry
 }
 
 func hasSkillFile(path string) bool {

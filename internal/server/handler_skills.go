@@ -54,34 +54,15 @@ func readResourceContent(path string) string {
 }
 
 func skillMetadataEntryForRead(store *install.MetadataStore, relPath string, discovered []sync.DiscoveredSkill) *install.MetadataEntry {
-	if store == nil {
-		return nil
-	}
-	relPath = filepath.ToSlash(relPath)
-	if entry := store.Get(relPath); entry != nil {
-		return entry
-	}
+	return store.GetByPathForCandidates(relPath, discoveredSkillRelPaths(discovered))
+}
 
-	group := ""
-	if dir := filepath.Dir(relPath); dir != "." {
-		group = filepath.ToSlash(dir)
+func discoveredSkillRelPaths(discovered []sync.DiscoveredSkill) []string {
+	relPaths := make([]string, 0, len(discovered))
+	for _, d := range discovered {
+		relPaths = append(relPaths, filepath.ToSlash(d.RelPath))
 	}
-	if group == "" {
-		return nil
-	}
-
-	base := filepath.Base(relPath)
-	entry := store.Get(base)
-	if entry == nil {
-		return nil
-	}
-	if entry.Group == group {
-		return entry
-	}
-	if entry.Group == "" && basenameUniquelyIdentifiesSkill(discovered, relPath) {
-		return entry
-	}
-	return nil
+	return relPaths
 }
 
 // enrichSkillBranch fills item.Branch from metadata, falling back to
@@ -100,7 +81,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.skillsSource()
 	agentsSource := s.agentsSource()
 	skillsStore := s.skillsStore
 	agentsStore := s.agentsStore
@@ -197,7 +178,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.skillsSource()
 	agentsSource := s.agentsSource()
 	skillsStore := s.skillsStore
 	agentsStore := s.agentsStore

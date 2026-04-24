@@ -42,7 +42,7 @@ func (s *Server) handleSetSkillGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.skillsSource()
 	s.mu.RUnlock()
 
 	discovered, err := ssync.DiscoverSourceSkillsAll(source)
@@ -119,45 +119,12 @@ func (s *Server) handleSetSkillGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func resolveSkillGroupMetadataEntry(store *install.MetadataStore, relPath string, discovered []ssync.DiscoveredSkill) *install.MetadataEntry {
-	if entry := store.Get(relPath); entry != nil {
-		return entry
-	}
-
-	group := ""
-	if dir := filepath.Dir(relPath); dir != "." {
-		group = filepath.ToSlash(dir)
-	}
-	if group == "" {
-		return nil
-	}
-
-	base := filepath.Base(relPath)
-	entry := store.Get(base)
+	entry := store.GetByPathForCandidates(relPath, discoveredSkillRelPaths(discovered))
 	if entry == nil {
 		return nil
 	}
-	if entry.Group == group {
-		store.MigrateLegacyKey(relPath, entry)
+	if store.MigrateLegacyKey(relPath, entry) {
 		return store.Get(relPath)
 	}
-	if entry.Group == "" && basenameUniquelyIdentifiesSkill(discovered, relPath) {
-		store.MigrateLegacyKey(relPath, entry)
-		return store.Get(relPath)
-	}
-	return nil
-}
-
-func basenameUniquelyIdentifiesSkill(discovered []ssync.DiscoveredSkill, relPath string) bool {
-	base := filepath.Base(relPath)
-	matches := 0
-	for _, d := range discovered {
-		if filepath.Base(filepath.ToSlash(d.RelPath)) != base {
-			continue
-		}
-		matches++
-		if filepath.ToSlash(d.RelPath) != relPath {
-			return false
-		}
-	}
-	return matches == 1
+	return entry
 }
