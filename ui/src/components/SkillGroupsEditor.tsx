@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, Tags, X } from 'lucide-react';
 import Button from './Button';
 import DialogShell from './DialogShell';
@@ -32,13 +32,6 @@ export default function SkillGroupsEditor({
   const t = useT();
   const [draftGroups, setDraftGroups] = useState<string[]>(() => normalizeGroups(groups));
   const [input, setInput] = useState('');
-
-  useEffect(() => {
-    if (open) {
-      setDraftGroups(normalizeGroups(groups));
-      setInput('');
-    }
-  }, [open, groups]);
 
   const suggestions = useMemo(
     () => normalizeGroups(knownGroups).filter((group) => !draftGroups.includes(group)),

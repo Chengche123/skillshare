@@ -27,6 +27,7 @@ import {
   Bot,
   Layers,
   FileText,
+  Tags,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { VirtuosoGrid, Virtuoso } from 'react-virtuoso';
@@ -57,6 +58,8 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import Spinner from '../components/Spinner';
 import { useSyncMatrix } from '../hooks/useSyncMatrix';
 import { useT } from '../i18n';
+import SkillGroupsEditor from '../components/SkillGroupsEditor';
+import { buildSkillGroupOptions, formatGroupBadgeText, matchesSelectedGroup } from '../lib/resourceGroups';
 
 /* -- Sticky-note pastel palette (8 colors) --------- */
 
@@ -75,6 +78,7 @@ const SKILL_PASTELS_DARK = [
 
 type SkillsData = { resources: Skill[] };
 const EMPTY_RESOURCES: Skill[] = [];
+type SkillGroupEditTarget = Pick<Skill, 'flatName' | 'name' | 'groups'>;
 
 function resourceDetailHref(resource: Pick<Skill, 'flatName' | 'kind'>): string {
   const kindQuery = resource.kind === 'agent' ? '?kind=agent' : '';
@@ -229,11 +233,31 @@ function useResourceActions() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
   });
 
+  const setGroupsMutation = useMutation({
+    mutationFn: ({ name, groups }: { name: string; groups: string[] }) =>
+      api.setSkillGroups(name, groups),
+    onMutate: async ({ name, groups }) => {
+      const previous = optimisticPatch(queryClient, (skills) =>
+        skills.map((s) => s.flatName === name && s.kind === 'skill' ? { ...s, groups } : s),
+      );
+      return { previous };
+    },
+    onSuccess: (_, { name }) => {
+      toast(t('resources.toast.groupsUpdated', { name: formatAgentDisplayName(name) }), 'success');
+    },
+    onError: (err: Error, _, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(queryKeys.skills.withContent, ctx.previous);
+      toast(err.message, 'error');
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
+  });
+
   /** Build extra context menu items for a single skill. */
   function buildResourceExtraItems(
-    skill: Pick<Skill, 'flatName' | 'name' | 'relPath' | 'disabled' | 'isInRepo' | 'kind'>,
+    skill: Pick<Skill, 'flatName' | 'name' | 'relPath' | 'disabled' | 'isInRepo' | 'kind' | 'groups'>,
     onUninstall: () => void,
     onUninstallRepo: (repoName: string) => void,
+    onEditGroups?: (skill: SkillGroupEditTarget) => void,
   ): ContextMenuItem[] {
     const items: ContextMenuItem[] = [
       {
@@ -251,6 +275,18 @@ function useResourceActions() {
         onSelect: () => toggleMutation.mutate({ name: skill.flatName, kind: skill.kind, disable: !skill.disabled }),
       },
     ];
+    if (skill.kind === 'skill' && onEditGroups) {
+      items.push({
+        key: 'edit-groups',
+        label: t('resources.contextMenu.editGroups'),
+        icon: <Tags size={13} strokeWidth={2.5} />,
+        onSelect: () => onEditGroups({
+          flatName: skill.flatName,
+          name: skill.name,
+          groups: skill.groups ?? [],
+        }),
+      });
+    }
     if (skill.kind === 'skill' && skill.isInRepo) {
       items.push({
         key: 'uninstall-repo',
@@ -269,13 +305,29 @@ function useResourceActions() {
     return items;
   }
 
-  return { uninstallMutation, uninstallRepoMutation, setTargetMutation, buildResourceExtraItems };
+  return { uninstallMutation, uninstallRepoMutation, setTargetMutation, setGroupsMutation, buildResourceExtraItems };
 }
 
 /** Normalize skill targets: ["*"] or empty/null → [] (meaning All). */
 function normalizeTargets(targets?: string[] | null): string[] {
   if (!targets || targets.length === 0 || targets.includes('*')) return [];
   return targets;
+}
+
+function SkillGroupBadges({ groups }: { groups?: string[] }) {
+  const { visible, overflow } = formatGroupBadgeText(groups);
+  if (visible.length === 0 && overflow === 0) return null;
+  return (
+    <>
+      {visible.map((group) => (
+        <Badge key={group} variant="default">
+          <Tags size={10} strokeWidth={2.5} className="inline -mt-px mr-0.5" />
+          {group}
+        </Badge>
+      ))}
+      {overflow > 0 && <Badge variant="default">+{overflow}</Badge>}
+    </>
+  );
 }
 
 /** Deterministic hash → palette index. Same string always maps to same color. */
@@ -709,6 +761,7 @@ const SkillPostit = memo(function SkillPostit({
                 {skill.targets.length > 2 ? `${skill.targets.length} targets` : skill.targets.join(', ')}
               </Badge>
             )}
+            {skill.kind === 'skill' && <SkillGroupBadges groups={skill.groups} />}
           </div>
         </div>
       </div>
@@ -808,30 +861,26 @@ export default function SkillsPage() {
     ro.observe(node);
     return () => ro.disconnect();
   }, []);
-  const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<ResourceTab>(() => {
-    const urlTab = searchParams.get('tab');
-    if (urlTab === 'agents') return 'agents';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [savedTab, setSavedTab] = useState<ResourceTab>(() => {
     const saved = localStorage.getItem('skillshare:resources-tab');
     return saved === 'agents' ? 'agents' : 'skills';
   });
-  // Sync tab from URL when navigating (e.g. Dashboard cards)
-  useEffect(() => {
-    const urlTab = searchParams.get('tab');
-    if (urlTab === 'agents' && activeTab !== 'agents') {
-      setActiveTab('agents');
-    } else if (urlTab === 'skills' && activeTab !== 'skills') {
-      setActiveTab('skills');
-    }
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  const urlTab = searchParams.get('tab');
+  const activeTab: ResourceTab = urlTab === 'agents' || urlTab === 'skills' ? urlTab : savedTab;
   const changeTab = (tab: ResourceTab) => {
-    setActiveTab(tab);
+    setSavedTab(tab);
     localStorage.setItem('skillshare:resources-tab', tab);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('tab', tab);
+    setSearchParams(nextParams, { replace: true });
     setFilterType('all');
+    setSelectedGroup('');
     setSearch('');
   };
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<FilterType>('all');
+  const [selectedGroup, setSelectedGroup] = useState('');
   const [sortType, setSortType] = useState<SortType>('name-asc');
   const [viewType, setViewType] = useState<ViewType>(() => {
     const saved = localStorage.getItem('skillshare:skills-view');
@@ -851,6 +900,7 @@ export default function SkillsPage() {
     relPath: string;
     disabled: boolean;
     isInRepo: boolean;
+    groups: string[];
     currentTargets: string[] | null;
   } | null>(null);
 
@@ -858,6 +908,7 @@ export default function SkillsPage() {
     uninstallMutation: gridUninstallMutation,
     uninstallRepoMutation: gridUninstallRepoMutation,
     setTargetMutation: gridSingleMutation,
+    setGroupsMutation: gridGroupsMutation,
     buildResourceExtraItems,
   } = useResourceActions();
 
@@ -867,8 +918,18 @@ export default function SkillsPage() {
     kind: Skill['kind'];
   } | null>(null);
   const [gridConfirmUninstallRepo, setGridConfirmUninstallRepo] = useState<string | null>(null);
+  const [gridGroupsEditorSkill, setGridGroupsEditorSkill] = useState<SkillGroupEditTarget | null>(null);
 
   const skills = data?.resources ?? EMPTY_RESOURCES;
+  const groupOptions = useMemo(() => buildSkillGroupOptions(skills), [skills]);
+  const groupNames = useMemo(() => groupOptions.map((group) => group.value), [groupOptions]);
+  const hasActiveFilters = filterType !== 'all' || search !== '' || selectedGroup !== '';
+
+  useEffect(() => {
+    if (selectedGroup && !groupOptions.some((group) => group.value === selectedGroup)) {
+      setSelectedGroup('');
+    }
+  }, [groupOptions, selectedGroup]);
 
   // Compute counts for each filter type — scoped to the active tab
   const filterCounts = useMemo(() => {
@@ -898,10 +959,11 @@ export default function SkillsPage() {
           s.flatName.toLowerCase().includes(q) ||
           (s.source ?? '').toLowerCase().includes(q) ||
           (s.content ?? '').toLowerCase().includes(q)) &&
-        matchFilter(s, filterType),
+        matchFilter(s, filterType) &&
+        (s.kind === 'agent' || matchesSelectedGroup(s, selectedGroup)),
     );
     return sortSkills(result, sortType);
-  }, [skills, search, filterType, sortType]);
+  }, [skills, search, filterType, selectedGroup, sortType]);
 
   const skillItems = useMemo(() => filtered.filter((s) => s.kind !== 'agent'), [filtered]);
   const agentItems = useMemo(() => filtered.filter((s) => s.kind === 'agent'), [filtered]);
@@ -1017,36 +1079,52 @@ export default function SkillsPage() {
         </div>
 
         {/* Filter tabs */}
-        <SegmentedControl
-          value={filterType}
-          onChange={setFilterType}
-          options={filterOptions.map((opt) => ({
-            value: opt.key,
-            label: <span className="inline-flex items-center gap-1.5">{opt.icon}{opt.label}</span>,
-            count: filterCounts[opt.key],
-          }))}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <SegmentedControl
+            value={filterType}
+            onChange={setFilterType}
+            options={filterOptions.map((opt) => ({
+              value: opt.key,
+              label: <span className="inline-flex items-center gap-1.5">{opt.icon}{opt.label}</span>,
+              count: filterCounts[opt.key],
+            }))}
+          />
+          {activeTab === 'skills' && (
+            <div className="flex items-center gap-2 sm:w-56">
+              <Tags size={16} strokeWidth={2.5} className="text-pencil-light shrink-0" />
+              <Select
+                value={selectedGroup}
+                onChange={setSelectedGroup}
+                size="sm"
+                options={[
+                  { value: '', label: t('resources.groupFilter.all') },
+                  ...groupOptions.map((group) => ({
+                    value: group.value,
+                    label: `${group.label} (${group.count})`,
+                  })),
+                ]}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Result count — hidden in folder view (merged into folder toolbar) */}
-      {(filterType !== 'all' || search) && viewType !== 'grouped' && (
+      {hasActiveFilters && viewType !== 'grouped' && (
         <p className="text-pencil-light text-sm mb-3">
           {t('resources.showing', { count: tabFiltered.length, total: skills.length })}
-          {filterType !== 'all' && (
-            <>
-              {' '}
-              &middot;{' '}
-              <Button
-                variant="link"
-                onClick={() => {
-                  setFilterType('all');
-                  setSearch('');
-                }}
-              >
-                {t('resources.clearFilters')}
-              </Button>
-            </>
-          )}
+          {' '}
+          &middot;{' '}
+          <Button
+            variant="link"
+            onClick={() => {
+              setFilterType('all');
+              setSelectedGroup('');
+              setSearch('');
+            }}
+          >
+            {t('resources.clearFilters')}
+          </Button>
         </p>
       )}
 
@@ -1081,6 +1159,7 @@ export default function SkillsPage() {
                       relPath: skill.relPath,
                       disabled: !!skill.disabled,
                       isInRepo: !!skill.isInRepo,
+                      groups: skill.groups ?? [],
                       currentTargets: skill.targets ?? null,
                     });
                   }}
@@ -1094,19 +1173,20 @@ export default function SkillsPage() {
             resourceKind={activeTab === 'agents' ? 'agent' : 'skill'}
             totalCount={skills.length}
             search={search}
-            isSearching={!!search || filterType !== 'all'}
+            isSearching={hasActiveFilters}
             stickyTop={toolbarH}
-            onClearFilters={(filterType !== 'all' || search) ? () => { setFilterType('all'); setSearch(''); } : undefined}
+            allGroupNames={groupNames}
+            onClearFilters={hasActiveFilters ? () => { setFilterType('all'); setSelectedGroup(''); setSearch(''); } : undefined}
           />
         ) : (
-          <SkillsTable skills={tabFiltered} resourceKind={activeTab === 'agents' ? 'agent' : 'skill'} search={search} />
+          <SkillsTable skills={tabFiltered} resourceKind={activeTab === 'agents' ? 'agent' : 'skill'} search={search} allGroupNames={groupNames} />
         )
       ) : (
         <EmptyState
           icon={activeTab === 'agents' ? Bot : Puzzle}
-          title={search || filterType !== 'all' ? t('resources.noMatches.title') : activeTab === 'agents' ? t('resources.agents.empty.title') : t('resources.skills.empty.title')}
+          title={hasActiveFilters ? t('resources.noMatches.title') : activeTab === 'agents' ? t('resources.agents.empty.title') : t('resources.skills.empty.title')}
           description={
-            search || filterType !== 'all'
+            hasActiveFilters
               ? t('resources.noMatches.description')
               : activeTab === 'agents'
                 ? t('resources.agents.empty.description')
@@ -1131,15 +1211,31 @@ export default function SkillsPage() {
               disabled: gridContextMenu.disabled,
               isInRepo: gridContextMenu.isInRepo,
               kind: gridContextMenu.kind,
+              groups: gridContextMenu.groups,
             },
             () => setGridConfirmUninstall({ flatName: gridContextMenu.skillFlatName, name: gridContextMenu.skillName, kind: gridContextMenu.kind }),
             (repoName) => { setGridConfirmUninstallRepo(repoName); setGridContextMenu(null); },
+            (skill) => { setGridGroupsEditorSkill(skill); setGridContextMenu(null); },
           )}
           onSelect={(target) => {
             gridSingleMutation.mutate({ name: gridContextMenu.skillFlatName, target });
             setGridContextMenu(null);
           }}
           onClose={() => setGridContextMenu(null)}
+        />
+      )}
+      {gridGroupsEditorSkill && (
+        <SkillGroupsEditor
+          open={true}
+          skillName={gridGroupsEditorSkill.name}
+          groups={gridGroupsEditorSkill.groups ?? []}
+          knownGroups={groupNames}
+          saving={gridGroupsMutation.isPending}
+          onSave={(groups) => {
+            gridGroupsMutation.mutate({ name: gridGroupsEditorSkill.flatName, groups });
+            setGridGroupsEditorSkill(null);
+          }}
+          onClose={() => setGridGroupsEditorSkill(null)}
         />
       )}
       <ConfirmDialog
@@ -1177,13 +1273,14 @@ export default function SkillsPage() {
 const INDENT_PX = 24;
 
 
-function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, onClearFilters }: {
+function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, allGroupNames, onClearFilters }: {
   skills: Skill[];
   resourceKind: Skill['kind'];
   totalCount: number;
   search: string;
   isSearching: boolean;
   stickyTop?: number;
+  allGroupNames: string[];
   onClearFilters?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
@@ -1198,6 +1295,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
     relPath?: string;
     disabled?: boolean;
     isInRepo?: boolean;
+    groups?: string[];
     currentTargets: string[] | null;
     isUniform: boolean;
   } | null>(null);
@@ -1210,9 +1308,11 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
     uninstallMutation,
     uninstallRepoMutation,
     setTargetMutation: singleMutation,
+    setGroupsMutation,
     buildResourceExtraItems: buildExtraItems,
   } = useResourceActions();
   const [confirmUninstallRepo, setConfirmUninstallRepo] = useState<string | null>(null);
+  const [groupsEditorSkill, setGroupsEditorSkill] = useState<SkillGroupEditTarget | null>(null);
 
   const batchMutation = useMutation({
     mutationFn: ({ folder, target }: { folder: string; target: string | null }) =>
@@ -1444,6 +1544,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
             relPath: skill.relPath,
             disabled: !!skill.disabled,
             isInRepo: !!skill.isInRepo,
+            groups: skill.groups ?? [],
             currentTargets: skill.targets ?? null,
             isUniform: true,
           });
@@ -1488,12 +1589,13 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
                   </Badge>
                 </Tooltip>
               )}
+              {resourceKind === 'skill' && <SkillGroupBadges groups={skill.groups} />}
             </span>
           </Link>
         </Tooltip>
       </div>
     );
-  }, [rows, collapsed, isSearching, toggleFolder, contextMenu, pendingFolder, resourceKind, batchMutation.isPending]);
+  }, [rows, collapsed, isSearching, toggleFolder, contextMenu, pendingFolder, resourceKind, batchMutation.isPending, search, t, treeGetSkillTargets]);
 
   return (
     <div>
@@ -1603,6 +1705,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
                 disabled: !!contextMenu.disabled,
                 isInRepo: !!contextMenu.isInRepo,
                 kind: contextMenu.kind ?? resourceKind,
+                groups: contextMenu.groups ?? [],
               },
               () => setConfirmUninstall({
                 flatName: contextMenu.skillFlatName!,
@@ -1610,6 +1713,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
                 kind: contextMenu.kind ?? resourceKind,
               }),
               (repoName) => { setConfirmUninstallRepo(repoName); setContextMenu(null); },
+              (skill) => { setGroupsEditorSkill(skill); setContextMenu(null); },
           ) : undefined}
           onSelect={(target) => {
             if (batchMutation.isPending) return;
@@ -1621,6 +1725,20 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
             setContextMenu(null);
           }}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+      {groupsEditorSkill && (
+        <SkillGroupsEditor
+          open={true}
+          skillName={groupsEditorSkill.name}
+          groups={groupsEditorSkill.groups ?? []}
+          knownGroups={allGroupNames}
+          saving={setGroupsMutation.isPending}
+          onSave={(groups) => {
+            setGroupsMutation.mutate({ name: groupsEditorSkill.flatName, groups });
+            setGroupsEditorSkill(null);
+          }}
+          onClose={() => setGroupsEditorSkill(null)}
         />
       )}
       <ConfirmDialog
@@ -1657,7 +1775,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
 
 const TABLE_PAGE_SIZES = [10, 25, 50] as const;
 
-function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resourceKind: Skill['kind']; search: string }) {
+function SkillsTable({ skills, resourceKind, search, allGroupNames }: { skills: Skill[]; resourceKind: Skill['kind']; search: string; allGroupNames: string[] }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(() => {
     const saved = localStorage.getItem('skillshare:table-page-size');
@@ -1678,6 +1796,7 @@ function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resour
     relPath: string;
     disabled: boolean;
     isInRepo: boolean;
+    groups: string[];
   } | null>(null);
   const [confirmUninstall, setConfirmUninstall] = useState<{
     flatName: string;
@@ -1690,9 +1809,11 @@ function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resour
     uninstallMutation,
     uninstallRepoMutation: tableUninstallRepoMutation,
     setTargetMutation: targetMutation,
+    setGroupsMutation,
     buildResourceExtraItems: buildTableExtraItems,
   } = useResourceActions();
   const [tableConfirmUninstallRepo, setTableConfirmUninstallRepo] = useState<string | null>(null);
+  const [groupsEditorSkill, setGroupsEditorSkill] = useState<SkillGroupEditTarget | null>(null);
   const { getSkillTargets } = useSyncMatrix();
 
   // Available targets for the inline Select
@@ -1707,7 +1828,7 @@ function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resour
       { value: '__all__', label: t('resources.targets.all') },
       ...installed.map((t) => ({ value: t.name, label: t.name })),
     ];
-  }, [availableData]);
+  }, [availableData, t]);
 
   // targetMutation from useSkillActions (optimistic)
 
@@ -1725,9 +1846,11 @@ function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resour
           disabled: actionMenu.disabled,
           isInRepo: actionMenu.isInRepo,
           kind: actionMenu.kind,
+          groups: actionMenu.groups,
         },
         () => setConfirmUninstall({ flatName: actionMenu.skillFlatName, name: actionMenu.skillName, kind: actionMenu.kind }),
         (repoName) => { setTableConfirmUninstallRepo(repoName); setActionMenu(null); },
+        (skill) => { setGroupsEditorSkill(skill); setActionMenu(null); },
       )
     : [];
 
@@ -1810,6 +1933,7 @@ function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resour
                           {skill.branch}
                         </Badge>
                       )}
+                      {skill.kind === 'skill' && <SkillGroupBadges groups={skill.groups} />}
                     </div>
                   </td>
                   {/* Available in — inline Select */}
@@ -1851,6 +1975,7 @@ function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resour
                           relPath: skill.relPath,
                           disabled: !!skill.disabled,
                           isInRepo: !!skill.isInRepo,
+                          groups: skill.groups ?? [],
                         });
                       }}
                       title={t('resources.table.actions')}
@@ -1885,6 +2010,20 @@ function SkillsTable({ skills, resourceKind, search }: { skills: Skill[]; resour
           items={actionItems}
           anchorPoint={actionMenu.point}
           onClose={() => setActionMenu(null)}
+        />
+      )}
+      {groupsEditorSkill && (
+        <SkillGroupsEditor
+          open={true}
+          skillName={groupsEditorSkill.name}
+          groups={groupsEditorSkill.groups ?? []}
+          knownGroups={allGroupNames}
+          saving={setGroupsMutation.isPending}
+          onSave={(groups) => {
+            setGroupsMutation.mutate({ name: groupsEditorSkill.flatName, groups });
+            setGroupsEditorSkill(null);
+          }}
+          onClose={() => setGroupsEditorSkill(null)}
         />
       )}
       <ConfirmDialog
