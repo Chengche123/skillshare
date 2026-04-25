@@ -103,7 +103,8 @@ describe('FilterStudioPage custom group preview filter', () => {
     expect(screen.getByText('beta')).toBeInTheDocument();
     expect(screen.queryByText('gamma')).not.toBeInTheDocument();
 
-    await user.type(screen.getByPlaceholderText('Type pattern + Enter'), 'alpha{enter}');
+    const [includeInput] = screen.getAllByPlaceholderText('Type pattern + Enter');
+    await user.type(includeInput, 'alpha{enter}');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
