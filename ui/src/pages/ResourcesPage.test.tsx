@@ -59,6 +59,35 @@ function renderResources(resources: Skill[]) {
   );
 }
 
+function renderResourcesWithMocks(options: {
+  listSkills: () => Promise<{ resources: Skill[] }>;
+  availableTargets?: () => Promise<{ targets: string[] }>;
+}) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  vi.spyOn(api, 'listSkills').mockImplementation(options.listSkills);
+  vi.spyOn(api, 'availableTargets').mockImplementation(
+    options.availableTargets ?? (() => Promise.resolve({ targets: [] })),
+  );
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/resources?tab=skills']}>
+            <ResourcesPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </I18nProvider>
+    </QueryClientProvider>,
+  );
+}
+
 describe('ResourcesPage skill groups', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -244,6 +273,42 @@ describe('ResourcesPage skill groups', () => {
     expect(screen.getByText('Cold')).toBeInTheDocument();
   });
 
+  it('keeps the bulk groups editor draft after a partial failure triggers refetch', async () => {
+    const user = userEvent.setup();
+    const initialResources = [
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', groups: ['Archive'] }),
+      makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Reference'] }),
+    ];
+    const refetchedResources = [
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', groups: ['Archive', 'Cold'] }),
+      makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Reference'] }),
+    ];
+    let listCallCount = 0;
+    const listSkills = vi.fn().mockImplementation(() => {
+      listCallCount += 1;
+      return Promise.resolve({ resources: listCallCount === 1 ? initialResources : refetchedResources });
+    });
+
+    vi.spyOn(api, 'setSkillGroups')
+      .mockResolvedValueOnce({ success: true })
+      .mockRejectedValueOnce(new Error('save failed'));
+
+    renderResourcesWithMocks({ listSkills });
+
+    await screen.findByRole('checkbox', { name: 'Select Alpha' });
+    await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.click(screen.getByRole('button', { name: 'Edit groups' }));
+    await user.type(screen.getByLabelText('Group name'), 'Cold{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+
+    await screen.findByText('save failed');
+    await waitFor(() => expect(listSkills).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByText('Bulk edit groups')).toBeInTheDocument();
+    expect(screen.getByText('Cold')).toBeInTheDocument();
+  });
+
   it('select all only targets currently visible filtered skills', async () => {
     const user = userEvent.setup();
     renderResources([
@@ -259,5 +324,21 @@ describe('ResourcesPage skill groups', () => {
 
     expect(screen.getByText('2 selected')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Select Gamma', checked: true })).not.toBeInTheDocument();
+  });
+
+  it('select all visible ignores skills hidden inside collapsed folders', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('skillshare:skills-view', 'grouped');
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', relPath: 'nested/Alpha' }),
+      makeSkill({ name: 'Beta', flatName: 'Beta', relPath: 'nested/Beta' }),
+      makeSkill({ name: 'Gamma', flatName: 'Gamma', relPath: 'Gamma' }),
+    ]);
+
+    await screen.findByText('nested');
+    await user.click(screen.getByText('nested'));
+    await user.click(screen.getByRole('button', { name: 'Select all visible' }));
+
+    expect(screen.getByText('1 selected')).toBeInTheDocument();
   });
 });

@@ -1001,9 +1001,9 @@ export default function SkillsPage() {
   const agentItems = useMemo(() => filtered.filter((s) => s.kind === 'agent'), [filtered]);
   const tabFiltered = activeTab === 'agents' ? agentItems : skillItems;
   const visibleSkillNames = useMemo(
-    () => viewType === 'table'
-      ? tableVisibleSkillNames
-      : tabFiltered.filter((skill) => skill.kind === 'skill').map((skill) => skill.flatName),
+    () => viewType === 'grid'
+      ? tabFiltered.filter((skill) => skill.kind === 'skill').map((skill) => skill.flatName)
+      : tableVisibleSkillNames,
     [tabFiltered, tableVisibleSkillNames, viewType],
   );
   const selectedVisibleSkills = useMemo<BulkSkillGroupTarget[]>(
@@ -1322,6 +1322,7 @@ export default function SkillsPage() {
             allGroupNames={groupNames}
             selectedSkillNames={selectedSkillNames}
             onToggleSkillSelection={toggleSkillSelection}
+            onVisibleSkillNamesChange={setTableVisibleSkillNames}
             onClearFilters={hasActiveFilters ? () => { setFilterType('all'); setSelectedGroup(''); setSearch(''); } : undefined}
           />
         ) : (
@@ -1394,22 +1395,24 @@ export default function SkillsPage() {
           onClose={() => setGridGroupsEditorSkill(null)}
         />
       )}
-      <BulkSkillGroupsEditor
-        open={bulkGroupsEditorOpen}
-        selectedSkills={selectedVisibleSkills}
-        knownGroups={groupNames}
-        saving={bulkGroupsMutation.isPending}
-        error={bulkGroupsError}
-        onSave={(operation, groups) => {
-          setBulkGroupsError(null);
-          bulkGroupsMutation.mutate({ operation, groups });
-        }}
-        onClose={() => {
-          if (bulkGroupsMutation.isPending) return;
-          setBulkGroupsError(null);
-          setBulkGroupsEditorOpen(false);
-        }}
-      />
+      {bulkGroupsEditorOpen && (
+        <BulkSkillGroupsEditor
+          open={bulkGroupsEditorOpen}
+          selectedSkills={selectedVisibleSkills}
+          knownGroups={groupNames}
+          saving={bulkGroupsMutation.isPending}
+          error={bulkGroupsError}
+          onSave={(operation, groups) => {
+            setBulkGroupsError(null);
+            bulkGroupsMutation.mutate({ operation, groups });
+          }}
+          onClose={() => {
+            if (bulkGroupsMutation.isPending) return;
+            setBulkGroupsError(null);
+            setBulkGroupsEditorOpen(false);
+          }}
+        />
+      )}
       <ConfirmDialog
         open={!!gridConfirmUninstall}
         title={t('resources.confirm.uninstallTitle', { kind: resourceLabel(gridConfirmUninstall?.kind ?? 'skill') })}
@@ -1445,7 +1448,7 @@ export default function SkillsPage() {
 const INDENT_PX = 24;
 
 
-function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, allGroupNames, selectedSkillNames, onToggleSkillSelection, onClearFilters }: {
+function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, allGroupNames, selectedSkillNames, onToggleSkillSelection, onVisibleSkillNamesChange, onClearFilters }: {
   skills: Skill[];
   resourceKind: Skill['kind'];
   totalCount: number;
@@ -1455,6 +1458,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
   allGroupNames: string[];
   selectedSkillNames: ReadonlySet<string>;
   onToggleSkillSelection: (name: string, checked: boolean) => void;
+  onVisibleSkillNamesChange?: (names: string[]) => void;
   onClearFilters?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
@@ -1539,6 +1543,14 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
     () => flattenTree(tree, collapsed, isSearching),
     [tree, collapsed, isSearching],
   );
+
+  useEffect(() => {
+    onVisibleSkillNamesChange?.(
+      rows
+        .filter((row): row is TreeNode & { type: 'skill'; skill: Skill } => row.type === 'skill' && !!row.skill)
+        .map((row) => row.skill.flatName),
+    );
+  }, [rows, onVisibleSkillNamesChange]);
 
   const folderCount = useMemo(() => {
     let count = 0;

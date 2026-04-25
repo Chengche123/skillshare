@@ -63,7 +63,7 @@ export default function BulkSkillGroupsEditor({
   const t = useT();
   const selectedCount = selectedSkills.length;
   const draftKey = JSON.stringify(
-    selectedSkills.map((skill) => [skill.flatName, normalizeGroups(skill.groups ?? [])]),
+    selectedSkills.map((skill) => skill.flatName),
   );
   const [draftState, setDraftState] = useState<DraftState>(() => ({
     key: draftKey,
