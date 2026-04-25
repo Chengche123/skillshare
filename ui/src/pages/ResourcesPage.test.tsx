@@ -134,4 +134,130 @@ describe('ResourcesPage skill groups', () => {
     expect(screen.getByRole('button', { name: 'Save groups' })).toBeInTheDocument();
     expect(screen.getByText('Cold')).toBeInTheDocument();
   });
+
+  it('selects visible skills and opens the bulk groups editor', async () => {
+    const user = userEvent.setup();
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', groups: ['Archive'] }),
+      makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Reference'] }),
+      makeSkill({ name: 'Gamma', flatName: 'Gamma', groups: ['Unused'] }),
+    ]);
+
+    await screen.findByText('Alpha');
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit groups' }));
+
+    expect(screen.getByText('Bulk edit groups')).toBeInTheDocument();
+    expect(screen.getByText('2 skills selected')).toBeInTheDocument();
+  });
+
+  it('applies add mode to each selected skill', async () => {
+    const user = userEvent.setup();
+    const setSkillGroups = vi.spyOn(api, 'setSkillGroups').mockResolvedValue({ success: true });
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', groups: ['Archive'] }),
+      makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Reference'] }),
+    ]);
+
+    await screen.findByText('Alpha');
+    await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.click(screen.getByRole('button', { name: 'Edit groups' }));
+
+    await user.type(screen.getByLabelText('Group name'), 'Cold{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+
+    await waitFor(() => {
+      expect(setSkillGroups).toHaveBeenCalledWith('Alpha', ['Archive', 'Cold']);
+      expect(setSkillGroups).toHaveBeenCalledWith('Beta', ['Cold', 'Reference']);
+    });
+  });
+
+  it('applies remove mode to each selected skill', async () => {
+    const user = userEvent.setup();
+    const setSkillGroups = vi.spyOn(api, 'setSkillGroups').mockResolvedValue({ success: true });
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', groups: ['Archive', 'Cold'] }),
+      makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Cold', 'Reference'] }),
+    ]);
+
+    await screen.findByText('Alpha');
+    await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.click(screen.getByRole('button', { name: 'Edit groups' }));
+    await user.click(screen.getByRole('radio', { name: 'Remove groups' }));
+    await user.type(screen.getByLabelText('Group name'), 'Cold{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+
+    await waitFor(() => {
+      expect(setSkillGroups).toHaveBeenCalledWith('Alpha', ['Archive']);
+      expect(setSkillGroups).toHaveBeenCalledWith('Beta', ['Reference']);
+    });
+  });
+
+  it('applies replace mode to each selected skill', async () => {
+    const user = userEvent.setup();
+    const setSkillGroups = vi.spyOn(api, 'setSkillGroups').mockResolvedValue({ success: true });
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', groups: ['Archive'] }),
+      makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Reference'] }),
+    ]);
+
+    await screen.findByText('Alpha');
+    await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.click(screen.getByRole('button', { name: 'Edit groups' }));
+    await user.click(screen.getByRole('radio', { name: 'Replace all groups' }));
+    await user.type(screen.getByLabelText('Group name'), 'Shared{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+
+    await waitFor(() => {
+      expect(setSkillGroups).toHaveBeenCalledWith('Alpha', ['Shared']);
+      expect(setSkillGroups).toHaveBeenCalledWith('Beta', ['Shared']);
+    });
+  });
+
+  it('keeps the bulk groups editor open with draft values when a save fails', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'setSkillGroups')
+      .mockResolvedValueOnce({ success: true })
+      .mockRejectedValueOnce(new Error('save failed'));
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', groups: ['Archive'] }),
+      makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Reference'] }),
+    ]);
+
+    await screen.findByText('Alpha');
+    await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.click(screen.getByRole('button', { name: 'Edit groups' }));
+    await user.type(screen.getByLabelText('Group name'), 'Cold{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+
+    await screen.findByText('save failed');
+
+    expect(screen.getByText('Bulk edit groups')).toBeInTheDocument();
+    expect(screen.getByText('Cold')).toBeInTheDocument();
+  });
+
+  it('select all only targets currently visible filtered skills', async () => {
+    const user = userEvent.setup();
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'Alpha', groups: ['Archive'] }),
+      makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Archive'] }),
+      makeSkill({ name: 'Gamma', flatName: 'Gamma', groups: ['Reference'] }),
+    ]);
+
+    await screen.findByText('Alpha');
+    await user.click(screen.getByText('All groups'));
+    await user.click(screen.getByRole('option', { name: /Archive \(2\)/ }));
+    await user.click(screen.getByRole('button', { name: 'Select all visible' }));
+
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Gamma', checked: true })).not.toBeInTheDocument();
+  });
 });
