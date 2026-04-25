@@ -67,8 +67,9 @@ export function Select({ label, value, onChange, options, className = '', size =
   useEffect(() => {
     if (!open || focusIdx < 0 || !listRef.current) return;
     const items = listRef.current.children;
-    if (items[focusIdx]) {
-      (items[focusIdx] as HTMLElement).scrollIntoView({ block: 'nearest' });
+    const focusedItem = items[focusIdx];
+    if (focusedItem instanceof HTMLElement) {
+      focusedItem.scrollIntoView?.({ block: 'nearest' });
     }
   }, [open, focusIdx]);
 
