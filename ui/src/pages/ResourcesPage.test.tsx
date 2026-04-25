@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ResourcesPage from './ResourcesPage';
-import { api, type Skill } from '../api/client';
+import { api, type AvailableTarget, type Skill } from '../api/client';
 import { ToastProvider } from '../components/Toast';
 import { I18nProvider, LOCALE_STORAGE_KEY } from '../i18n';
 
@@ -61,7 +61,7 @@ function renderResources(resources: Skill[]) {
 
 function renderResourcesWithMocks(options: {
   listSkills: () => Promise<{ resources: Skill[] }>;
-  availableTargets?: () => Promise<{ targets: string[] }>;
+  availableTargets?: () => Promise<{ targets: AvailableTarget[] }>;
 }) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -161,7 +161,7 @@ describe('ResourcesPage skill groups', () => {
     await screen.findByText('save failed');
 
     expect(screen.getByRole('button', { name: 'Save groups' })).toBeInTheDocument();
-    expect(screen.getByText('Cold')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove group Cold' })).toBeInTheDocument();
   });
 
   it('selects visible skills and opens the bulk groups editor', async () => {
@@ -270,7 +270,7 @@ describe('ResourcesPage skill groups', () => {
     await screen.findByText('save failed');
 
     expect(screen.getByText('Bulk edit groups')).toBeInTheDocument();
-    expect(screen.getByText('Cold')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove group Cold' })).toBeInTheDocument();
   });
 
   it('keeps the bulk groups editor draft after a partial failure triggers refetch', async () => {
@@ -306,7 +306,7 @@ describe('ResourcesPage skill groups', () => {
     await waitFor(() => expect(listSkills).toHaveBeenCalledTimes(2));
 
     expect(screen.getByText('Bulk edit groups')).toBeInTheDocument();
-    expect(screen.getByText('Cold')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove group Cold' })).toBeInTheDocument();
   });
 
   it('select all only targets currently visible filtered skills', async () => {
