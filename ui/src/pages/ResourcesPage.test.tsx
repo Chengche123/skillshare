@@ -161,7 +161,7 @@ describe('ResourcesPage skill groups', () => {
     await screen.findByText('save failed');
 
     expect(screen.getByRole('button', { name: 'Save groups' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Remove group Cold' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Cold' })).toBeInTheDocument();
   });
 
   it('selects visible skills and opens the bulk groups editor', async () => {
@@ -270,7 +270,7 @@ describe('ResourcesPage skill groups', () => {
     await screen.findByText('save failed');
 
     expect(screen.getByText('Bulk edit groups')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Remove group Cold' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Cold' })).toBeInTheDocument();
   });
 
   it('keeps the bulk groups editor draft after a partial failure triggers refetch', async () => {
@@ -306,7 +306,7 @@ describe('ResourcesPage skill groups', () => {
     await waitFor(() => expect(listSkills).toHaveBeenCalledTimes(2));
 
     expect(screen.getByText('Bulk edit groups')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Remove group Cold' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Cold' })).toBeInTheDocument();
   });
 
   it('select all only targets currently visible filtered skills', async () => {
