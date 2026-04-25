@@ -4,46 +4,76 @@ import Button from './Button';
 import DialogShell from './DialogShell';
 import { Input } from './Input';
 import { useT } from '../i18n';
+import { normalizeGroups } from './SkillGroupsEditor';
 
-export function normalizeGroups(groups: string[]): string[] {
-  return Array.from(new Set(groups.map((group) => group.trim()).filter(Boolean)))
-    .sort((a, b) => a.localeCompare(b));
+export type BulkGroupOperation = 'add' | 'remove' | 'replace';
+
+export interface BulkSkillGroupTarget {
+  flatName: string;
+  name: string;
+  groups: string[];
 }
 
-interface SkillGroupsEditorProps {
+export function buildBulkGroupUpdates(
+  selectedSkills: BulkSkillGroupTarget[],
+  operation: BulkGroupOperation,
+  enteredGroups: string[],
+): Array<{ name: string; groups: string[] }> {
+  const normalizedInput = normalizeGroups(enteredGroups);
+
+  return selectedSkills.map((skill) => {
+    const current = normalizeGroups(skill.groups ?? []);
+
+    if (operation === 'add') {
+      return { name: skill.flatName, groups: normalizeGroups([...current, ...normalizedInput]) };
+    }
+    if (operation === 'remove') {
+      return { name: skill.flatName, groups: current.filter((group) => !normalizedInput.includes(group)) };
+    }
+    return { name: skill.flatName, groups: normalizedInput };
+  });
+}
+
+interface BulkSkillGroupsEditorProps {
   open: boolean;
-  skillName: string;
-  groups: string[];
+  selectedSkills: BulkSkillGroupTarget[];
   knownGroups: string[];
   saving: boolean;
-  onSave: (groups: string[]) => void;
+  error: string | null;
+  onSave: (operation: BulkGroupOperation, groups: string[]) => void;
   onClose: () => void;
 }
 
 interface DraftState {
   key: string;
+  operation: BulkGroupOperation;
   groups: string[];
   input: string;
 }
 
-export default function SkillGroupsEditor({
+export default function BulkSkillGroupsEditor({
   open,
-  skillName,
-  groups,
+  selectedSkills,
   knownGroups,
   saving,
+  error,
   onSave,
   onClose,
-}: SkillGroupsEditorProps) {
+}: BulkSkillGroupsEditorProps) {
   const t = useT();
-  const normalizedGroups = useMemo(() => normalizeGroups(groups), [groups]);
-  const draftKey = JSON.stringify([skillName, normalizedGroups]);
+  const selectedCount = selectedSkills.length;
+  const draftKey = JSON.stringify(
+    selectedSkills.map((skill) => skill.flatName),
+  );
   const [draftState, setDraftState] = useState<DraftState>(() => ({
     key: draftKey,
-    groups: normalizedGroups,
+    operation: 'add',
+    groups: [],
     input: '',
   }));
-  const draftGroups = draftState.key === draftKey ? draftState.groups : normalizedGroups;
+
+  const operation = draftState.key === draftKey ? draftState.operation : 'add';
+  const draftGroups = draftState.key === draftKey ? draftState.groups : [];
   const input = draftState.key === draftKey ? draftState.input : '';
 
   const suggestions = useMemo(
@@ -51,11 +81,23 @@ export default function SkillGroupsEditor({
     [knownGroups, draftGroups],
   );
 
+  const canSubmit = !saving && (operation === 'replace' || draftGroups.length > 0);
+
+  const setOperation = (nextOperation: BulkGroupOperation) => {
+    setDraftState({
+      key: draftKey,
+      operation: nextOperation,
+      groups: draftGroups,
+      input,
+    });
+  };
+
   const addGroup = (value: string) => {
     const name = value.trim();
     if (!name) return;
     setDraftState({
       key: draftKey,
+      operation,
       groups: normalizeGroups([...draftGroups, name]),
       input: '',
     });
@@ -64,6 +106,7 @@ export default function SkillGroupsEditor({
   const removeGroup = (name: string) => {
     setDraftState({
       key: draftKey,
+      operation,
       groups: draftGroups.filter((group) => group !== name),
       input,
     });
@@ -76,10 +119,54 @@ export default function SkillGroupsEditor({
           <Tags size={18} strokeWidth={2.5} />
         </div>
         <div className="min-w-0">
-          <h3 className="text-lg font-bold text-pencil">{t('skillGroupsEditor.title')}</h3>
-          <p className="text-sm text-pencil-light truncate">{skillName}</p>
+          <h3 className="text-lg font-bold text-pencil">
+            {t('bulkSkillGroupsEditor.title', undefined, 'Bulk edit groups')}
+          </h3>
+          <p className="text-sm text-pencil-light truncate">
+            {t(
+              'bulkSkillGroupsEditor.selectedCount',
+              { count: selectedCount },
+              `${selectedCount} skills selected`,
+            )}
+          </p>
         </div>
       </div>
+
+      <fieldset className="space-y-2 mb-4">
+        <legend className="text-sm font-medium text-pencil-light mb-2">
+          {t('bulkSkillGroupsEditor.mode.label', undefined, 'Operation')}
+        </legend>
+        <label className="flex items-center gap-2 text-sm text-pencil cursor-pointer">
+          <input
+            type="radio"
+            name="bulk-group-operation"
+            checked={operation === 'add'}
+            onChange={() => setOperation('add')}
+            disabled={saving}
+          />
+          {t('bulkSkillGroupsEditor.mode.add', undefined, 'Add groups')}
+        </label>
+        <label className="flex items-center gap-2 text-sm text-pencil cursor-pointer">
+          <input
+            type="radio"
+            name="bulk-group-operation"
+            checked={operation === 'remove'}
+            onChange={() => setOperation('remove')}
+            disabled={saving}
+          />
+          {t('bulkSkillGroupsEditor.mode.remove', undefined, 'Remove groups')}
+        </label>
+        <label className="flex items-center gap-2 text-sm text-pencil cursor-pointer">
+          <input
+            type="radio"
+            name="bulk-group-operation"
+            checked={operation === 'replace'}
+            onChange={() => setOperation('replace')}
+            disabled={saving}
+          />
+          {t('bulkSkillGroupsEditor.mode.replace', undefined, 'Replace all groups')}
+        </label>
+      </fieldset>
 
       <div className="space-y-4">
         <div className="flex gap-2">
@@ -89,6 +176,7 @@ export default function SkillGroupsEditor({
             onChange={(e) => {
               setDraftState({
                 key: draftKey,
+                operation,
                 groups: draftGroups,
                 input: e.target.value,
               });
@@ -159,14 +247,26 @@ export default function SkillGroupsEditor({
             </div>
           </div>
         )}
+
+        {error && (
+          <p className="text-sm text-danger">
+            {t('bulkSkillGroupsEditor.errorSummary', undefined, 'Some skills could not be updated')}: {error}
+          </p>
+        )}
       </div>
 
       <div className="flex justify-end gap-3 mt-6">
         <Button variant="secondary" size="md" onClick={onClose} disabled={saving}>
           {t('common.cancel')}
         </Button>
-        <Button variant="primary" size="md" onClick={() => onSave(draftGroups)} loading={saving}>
-          {t('skillGroupsEditor.save')}
+        <Button
+          variant="primary"
+          size="md"
+          onClick={() => onSave(operation, draftGroups)}
+          loading={saving}
+          disabled={!canSubmit}
+        >
+          {t('bulkSkillGroupsEditor.save', undefined, 'Apply changes')}
         </Button>
       </div>
     </DialogShell>

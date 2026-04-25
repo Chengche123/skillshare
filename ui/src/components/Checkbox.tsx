@@ -10,6 +10,8 @@ interface CheckboxProps {
   indeterminate?: boolean;
   disabled?: boolean;
   size?: 'sm' | 'md';
+  hideLabel?: boolean;
+  ariaLabel?: string;
 }
 
 const sizeMap = {
@@ -25,6 +27,8 @@ export function Checkbox({
   indeterminate = false,
   disabled = false,
   size = 'md',
+  hideLabel = false,
+  ariaLabel,
 }: CheckboxProps) {
   const id = useId();
   const s = sizeMap[size];
@@ -44,6 +48,7 @@ export function Checkbox({
         checked={checked}
         onChange={(e) => !disabled && onChange(e.target.checked)}
         disabled={disabled}
+        aria-label={ariaLabel}
         className="sr-only"
       />
       <span
@@ -65,7 +70,7 @@ export function Checkbox({
           <Check size={s.icon} strokeWidth={3} className="text-white" />
         ) : null}
       </span>
-      <span className={`${s.text} text-pencil`}>{label}</span>
+      <span className={`${hideLabel ? 'sr-only' : s.text} text-pencil`}>{label}</span>
     </label>
   );
 }

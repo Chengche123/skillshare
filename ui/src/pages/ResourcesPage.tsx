@@ -56,9 +56,11 @@ import { useToast } from '../components/Toast';
 import TargetMenu, { SkillContextMenu, type ContextMenuItem } from '../components/TargetMenu';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Spinner from '../components/Spinner';
+import { Checkbox } from '../components/Checkbox';
 import { useSyncMatrix } from '../hooks/useSyncMatrix';
 import { useT } from '../i18n';
 import SkillGroupsEditor from '../components/SkillGroupsEditor';
+import BulkSkillGroupsEditor, { buildBulkGroupUpdates, type BulkGroupOperation, type BulkSkillGroupTarget } from '../components/BulkSkillGroupsEditor';
 import { buildSkillGroupOptions, formatGroupBadgeText, matchesSelectedGroup } from '../lib/resourceGroups';
 
 /* -- Sticky-note pastel palette (8 colors) --------- */
@@ -681,10 +683,18 @@ const SkillPostit = memo(function SkillPostit({
   skill,
   onContextMenu,
   highlighted = false,
+  selectable = false,
+  selected = false,
+  selectLabel,
+  onSelectChange,
 }: {
   skill: Skill;
   onContextMenu?: (e: React.MouseEvent) => void;
   highlighted?: boolean;
+  selectable?: boolean;
+  selected?: boolean;
+  selectLabel?: string;
+  onSelectChange?: (checked: boolean) => void;
 }) {
   // Extract repo name from relPath (e.g., "_awesome-skillshare-skills/frontend-dugong" -> "awesome-skillshare-skills")
   const repoName = skill.isInRepo && skill.relPath.startsWith('_')
@@ -696,18 +706,33 @@ const SkillPostit = memo(function SkillPostit({
   const colorIdx = hashToIndex(colorKey, SKILL_PASTELS.length);
 
   return (
-    <Link
-      to={resourceDetailHref(skill)}
-      className={`w-full h-full${skill.disabled ? ' opacity-50' : ''}`}
+    <div
+      className={`relative w-full h-full${skill.disabled ? ' opacity-50' : ''}`}
       onContextMenu={onContextMenu}
     >
-      <div
-        className={`ss-card ss-skill-card relative p-5 pb-4 bg-surface cursor-pointer border shadow-sm rounded-[var(--radius-md)] transition-all duration-150 hover:shadow-hover hover:border-muted-dark h-full flex flex-col ${highlighted ? 'border-muted-dark shadow-hover' : 'border-muted'}`}
-        style={{
-          '--skill-pastel': SKILL_PASTELS[colorIdx],
-          '--skill-pastel-dark': SKILL_PASTELS_DARK[colorIdx],
-        } as React.CSSProperties}
+      {selectable && selectLabel && onSelectChange && (
+        <div className="absolute top-3 right-3 z-10" onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            label={selectLabel}
+            ariaLabel={selectLabel}
+            hideLabel
+            checked={selected}
+            onChange={onSelectChange}
+            size="sm"
+          />
+        </div>
+      )}
+      <Link
+        to={resourceDetailHref(skill)}
+        className="block w-full h-full"
       >
+        <div
+          className={`ss-card ss-skill-card relative p-5 pb-4 bg-surface cursor-pointer border shadow-sm rounded-[var(--radius-md)] transition-all duration-150 hover:shadow-hover hover:border-muted-dark h-full flex flex-col ${highlighted ? 'border-muted-dark shadow-hover' : 'border-muted'}`}
+          style={{
+            '--skill-pastel': SKILL_PASTELS[colorIdx],
+            '--skill-pastel-dark': SKILL_PASTELS_DARK[colorIdx],
+          } as React.CSSProperties}
+        >
         {/* Skill name row */}
         <div className="flex items-center gap-2 mb-2">
           <div className="shrink-0">
@@ -764,8 +789,9 @@ const SkillPostit = memo(function SkillPostit({
             {skill.kind === 'skill' && <SkillGroupBadges groups={skill.groups} />}
           </div>
         </div>
-      </div>
-    </Link>
+        </div>
+      </Link>
+    </div>
   );
 });
 
@@ -848,6 +874,8 @@ const SearchSnippet = memo(function SearchSnippet({ content, query }: { content?
 
 export default function SkillsPage() {
   const t = useT();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { data, isPending, error } = useQuery({
     queryKey: queryKeys.skills.withContent,
     queryFn: () => api.listSkills(undefined, { includeContent: true }),
@@ -919,6 +947,10 @@ export default function SkillsPage() {
   } | null>(null);
   const [gridConfirmUninstallRepo, setGridConfirmUninstallRepo] = useState<string | null>(null);
   const [gridGroupsEditorSkill, setGridGroupsEditorSkill] = useState<SkillGroupEditTarget | null>(null);
+  const [selectedSkillNames, setSelectedSkillNames] = useState<Set<string>>(new Set());
+  const [tableVisibleSkillNames, setTableVisibleSkillNames] = useState<string[]>([]);
+  const [bulkGroupsEditorOpen, setBulkGroupsEditorOpen] = useState(false);
+  const [bulkGroupsError, setBulkGroupsError] = useState<string | null>(null);
 
   const skills = data?.resources ?? EMPTY_RESOURCES;
   const groupOptions = useMemo(() => buildSkillGroupOptions(skills), [skills]);
@@ -968,6 +1000,90 @@ export default function SkillsPage() {
   const skillItems = useMemo(() => filtered.filter((s) => s.kind !== 'agent'), [filtered]);
   const agentItems = useMemo(() => filtered.filter((s) => s.kind === 'agent'), [filtered]);
   const tabFiltered = activeTab === 'agents' ? agentItems : skillItems;
+  const visibleSkillNames = useMemo(
+    () => viewType === 'grid'
+      ? tabFiltered.filter((skill) => skill.kind === 'skill').map((skill) => skill.flatName)
+      : tableVisibleSkillNames,
+    [tabFiltered, tableVisibleSkillNames, viewType],
+  );
+  const selectedVisibleSkills = useMemo<BulkSkillGroupTarget[]>(
+    () => tabFiltered
+      .filter((skill) => skill.kind === 'skill' && selectedSkillNames.has(skill.flatName))
+      .map((skill) => ({
+        flatName: skill.flatName,
+        name: skill.name,
+        groups: skill.groups ?? [],
+      })),
+    [tabFiltered, selectedSkillNames],
+  );
+
+  useEffect(() => {
+    const visible = new Set(visibleSkillNames);
+    setSelectedSkillNames((prev) => {
+      const next = new Set([...prev].filter((name) => visible.has(name)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleSkillNames]);
+
+  useEffect(() => {
+    if (bulkGroupsEditorOpen && selectedVisibleSkills.length === 0) {
+      setBulkGroupsEditorOpen(false);
+      setBulkGroupsError(null);
+    }
+  }, [bulkGroupsEditorOpen, selectedVisibleSkills]);
+
+  const toggleSkillSelection = useCallback((name: string, checked: boolean) => {
+    setSelectedSkillNames((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(name);
+      else next.delete(name);
+      return next;
+    });
+  }, []);
+
+  const clearSelectedSkills = useCallback(() => {
+    setSelectedSkillNames(new Set());
+    setBulkGroupsError(null);
+  }, []);
+
+  const selectAllVisibleSkills = useCallback(() => {
+    setSelectedSkillNames(new Set(visibleSkillNames));
+    setBulkGroupsError(null);
+  }, [visibleSkillNames]);
+
+  const bulkGroupsMutation = useMutation({
+    mutationFn: async ({ operation, groups }: { operation: BulkGroupOperation; groups: string[] }) => {
+      const updates = buildBulkGroupUpdates(selectedVisibleSkills, operation, groups);
+      const results = await Promise.allSettled(
+        updates.map((update) => api.setSkillGroups(update.name, update.groups)),
+      );
+      const failures = results
+        .map((result, index) => ({ result, update: updates[index] }))
+        .filter((entry): entry is { result: PromiseRejectedResult; update: { name: string; groups: string[] } } => entry.result.status === 'rejected');
+
+      if (failures.length > 0) {
+        const firstFailure = failures[0].result.reason;
+        const message = firstFailure instanceof Error ? firstFailure.message : String(firstFailure ?? 'Failed to update groups');
+        throw new Error(message);
+      }
+
+      return updates;
+    },
+    onSuccess: (updates) => {
+      setBulkGroupsError(null);
+      setBulkGroupsEditorOpen(false);
+      clearSelectedSkills();
+      toast(
+        t('resources.toast.bulkGroupsUpdated', { count: updates.length }, `Updated groups for ${updates.length} skills`),
+        'success',
+      );
+    },
+    onError: (err: Error) => {
+      setBulkGroupsError(err.message);
+      toast(err.message, 'error');
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
+  });
 
   if (isPending) return <PageSkeleton />;
   if (error) {
@@ -1109,6 +1225,30 @@ export default function SkillsPage() {
         </div>
       </div>
 
+      {activeTab === 'skills' && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <Badge variant="default">{t('resources.bulk.selectedCount', { count: selectedSkillNames.size }, `${selectedSkillNames.size} selected`)}</Badge>
+          <Button variant="ghost" size="sm" onClick={selectAllVisibleSkills}>
+            {t('resources.bulk.selectAllVisible', undefined, 'Select all visible')}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={clearSelectedSkills}>
+            {t('resources.bulk.clearSelection', undefined, 'Clear selection')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={selectedSkillNames.size === 0}
+            onClick={() => {
+              setBulkGroupsError(null);
+              setBulkGroupsEditorOpen(true);
+            }}
+          >
+            <Tags size={16} strokeWidth={2.5} />
+            {t('resources.bulk.editGroups', undefined, 'Edit groups')}
+          </Button>
+        </div>
+      )}
+
       {/* Result count — hidden in folder view (merged into folder toolbar) */}
       {hasActiveFilters && viewType !== 'grouped' && (
         <p className="text-pencil-light text-sm mb-3">
@@ -1149,6 +1289,10 @@ export default function SkillsPage() {
                 <SkillPostit
                   skill={skill}
                   highlighted={gridContextMenu?.skillFlatName === skill.flatName}
+                  selectable={activeTab === 'skills'}
+                  selected={selectedSkillNames.has(skill.flatName)}
+                  selectLabel={t('resources.bulk.selectSkill', { name: skill.name }, `Select ${skill.name}`)}
+                  onSelectChange={(checked) => toggleSkillSelection(skill.flatName, checked)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setGridContextMenu({
@@ -1176,10 +1320,21 @@ export default function SkillsPage() {
             isSearching={hasActiveFilters}
             stickyTop={toolbarH}
             allGroupNames={groupNames}
+            selectedSkillNames={selectedSkillNames}
+            onToggleSkillSelection={toggleSkillSelection}
+            onVisibleSkillNamesChange={setTableVisibleSkillNames}
             onClearFilters={hasActiveFilters ? () => { setFilterType('all'); setSelectedGroup(''); setSearch(''); } : undefined}
           />
         ) : (
-          <SkillsTable skills={tabFiltered} resourceKind={activeTab === 'agents' ? 'agent' : 'skill'} search={search} allGroupNames={groupNames} />
+          <SkillsTable
+            skills={tabFiltered}
+            resourceKind={activeTab === 'agents' ? 'agent' : 'skill'}
+            search={search}
+            allGroupNames={groupNames}
+            selectedSkillNames={selectedSkillNames}
+            onToggleSkillSelection={toggleSkillSelection}
+            onVisibleSkillNamesChange={setTableVisibleSkillNames}
+          />
         )
       ) : (
         <EmptyState
@@ -1240,6 +1395,24 @@ export default function SkillsPage() {
           onClose={() => setGridGroupsEditorSkill(null)}
         />
       )}
+      {bulkGroupsEditorOpen && (
+        <BulkSkillGroupsEditor
+          open={bulkGroupsEditorOpen}
+          selectedSkills={selectedVisibleSkills}
+          knownGroups={groupNames}
+          saving={bulkGroupsMutation.isPending}
+          error={bulkGroupsError}
+          onSave={(operation, groups) => {
+            setBulkGroupsError(null);
+            bulkGroupsMutation.mutate({ operation, groups });
+          }}
+          onClose={() => {
+            if (bulkGroupsMutation.isPending) return;
+            setBulkGroupsError(null);
+            setBulkGroupsEditorOpen(false);
+          }}
+        />
+      )}
       <ConfirmDialog
         open={!!gridConfirmUninstall}
         title={t('resources.confirm.uninstallTitle', { kind: resourceLabel(gridConfirmUninstall?.kind ?? 'skill') })}
@@ -1275,7 +1448,7 @@ export default function SkillsPage() {
 const INDENT_PX = 24;
 
 
-function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, allGroupNames, onClearFilters }: {
+function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, allGroupNames, selectedSkillNames, onToggleSkillSelection, onVisibleSkillNamesChange, onClearFilters }: {
   skills: Skill[];
   resourceKind: Skill['kind'];
   totalCount: number;
@@ -1283,6 +1456,9 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
   isSearching: boolean;
   stickyTop?: number;
   allGroupNames: string[];
+  selectedSkillNames: ReadonlySet<string>;
+  onToggleSkillSelection: (name: string, checked: boolean) => void;
+  onVisibleSkillNamesChange?: (names: string[]) => void;
   onClearFilters?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
@@ -1367,6 +1543,14 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
     () => flattenTree(tree, collapsed, isSearching),
     [tree, collapsed, isSearching],
   );
+
+  useEffect(() => {
+    onVisibleSkillNamesChange?.(
+      rows
+        .filter((row): row is TreeNode & { type: 'skill'; skill: Skill } => row.type === 'skill' && !!row.skill)
+        .map((row) => row.skill.flatName),
+    );
+  }, [rows, onVisibleSkillNamesChange]);
 
   const folderCount = useMemo(() => {
     let count = 0;
@@ -1534,6 +1718,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
     return (
       <div
         data-tree-idx={index}
+        className="relative"
         onContextMenu={(e) => {
           e.preventDefault();
           if (batchMutation.isPending) return;
@@ -1552,11 +1737,27 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
           });
         }}
       >
+        {resourceKind === 'skill' && (
+          <div
+            className="absolute top-1 left-1 z-10"
+            style={{ left: node.depth * INDENT_PX + 4 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Checkbox
+              label={t('resources.bulk.selectSkill', { name: skill.name }, `Select ${skill.name}`)}
+              ariaLabel={t('resources.bulk.selectSkill', { name: skill.name }, `Select ${skill.name}`)}
+              hideLabel
+              checked={selectedSkillNames.has(skill.flatName)}
+              onChange={(checked) => onToggleSkillSelection(skill.flatName, checked)}
+              size="sm"
+            />
+          </div>
+        )}
         <Tooltip content={tooltipContent} followCursor delay={1000}>
           <Link
             to={resourceDetailHref(skill)}
             className={`relative flex items-center gap-1.5 py-1 px-1 hover:bg-muted/50 transition-colors no-underline${skill.disabled ? ' opacity-40' : ''}${contextMenu?.mode === 'skill' && contextMenu.skillFlatName === skill.flatName ? ' bg-muted/50' : ''}`}
-            style={{ paddingLeft: node.depth * INDENT_PX + 4 }}
+            style={{ paddingLeft: node.depth * INDENT_PX + (resourceKind === 'skill' ? 28 : 4) }}
           >
             {indentGuides}
             <span style={{ width: 14 }} className="shrink-0" />
@@ -1597,7 +1798,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
         </Tooltip>
       </div>
     );
-  }, [rows, collapsed, isSearching, toggleFolder, contextMenu, pendingFolder, resourceKind, batchMutation.isPending, search, t, treeGetSkillTargets]);
+  }, [rows, collapsed, isSearching, toggleFolder, contextMenu, pendingFolder, resourceKind, batchMutation.isPending, search, t, treeGetSkillTargets, selectedSkillNames, onToggleSkillSelection]);
 
   return (
     <div>
@@ -1779,7 +1980,15 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
 
 const TABLE_PAGE_SIZES = [10, 25, 50] as const;
 
-function SkillsTable({ skills, resourceKind, search, allGroupNames }: { skills: Skill[]; resourceKind: Skill['kind']; search: string; allGroupNames: string[] }) {
+function SkillsTable({ skills, resourceKind, search, allGroupNames, selectedSkillNames, onToggleSkillSelection, onVisibleSkillNamesChange }: {
+  skills: Skill[];
+  resourceKind: Skill['kind'];
+  search: string;
+  allGroupNames: string[];
+  selectedSkillNames: ReadonlySet<string>;
+  onToggleSkillSelection: (name: string, checked: boolean) => void;
+  onVisibleSkillNamesChange: (names: string[]) => void;
+}) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(() => {
     const saved = localStorage.getItem('skillshare:table-page-size');
@@ -1840,6 +2049,14 @@ function SkillsTable({ skills, resourceKind, search, allGroupNames }: { skills: 
   const start = page * pageSize;
   const visible = skills.slice(start, start + pageSize);
 
+  useEffect(() => {
+    if (resourceKind !== 'skill') {
+      onVisibleSkillNamesChange([]);
+      return;
+    }
+    onVisibleSkillNamesChange(visible.map((skill) => skill.flatName));
+  }, [resourceKind, visible, onVisibleSkillNamesChange]);
+
   // Build action menu items
   const actionItems: ContextMenuItem[] = actionMenu
     ? buildTableExtraItems(
@@ -1865,6 +2082,7 @@ function SkillsTable({ skills, resourceKind, search, allGroupNames }: { skills: 
           <thead className="sticky top-0 z-10 bg-surface">
             <tr className="border-b-2 border-dashed border-muted-dark">
               <th className="pb-3 pr-4 text-pencil-light text-sm font-medium w-0" />
+              {resourceKind === 'skill' && <th className="pb-3 pr-4 text-pencil-light text-sm font-medium w-0" />}
               <th className="pb-3 pr-4 text-pencil-light text-sm font-medium">{t('resources.table.name')}</th>
               <th className="pb-3 pr-4 text-pencil-light text-sm font-medium">{t('resources.table.type')}</th>
               <th className="pb-3 pr-4 text-pencil-light text-sm font-medium">
@@ -1895,6 +2113,18 @@ function SkillsTable({ skills, resourceKind, search, allGroupNames }: { skills: 
                       title={skill.isInRepo ? 'Tracked' : 'Local'}
                     />
                   </td>
+                  {resourceKind === 'skill' && (
+                    <td className="py-3.5 pr-2 w-0">
+                      <Checkbox
+                        label={t('resources.bulk.selectSkill', { name: skill.name }, `Select ${skill.name}`)}
+                        ariaLabel={t('resources.bulk.selectSkill', { name: skill.name }, `Select ${skill.name}`)}
+                        hideLabel
+                        checked={selectedSkillNames.has(skill.flatName)}
+                        onChange={(checked) => onToggleSkillSelection(skill.flatName, checked)}
+                        size="sm"
+                      />
+                    </td>
+                  )}
                   {/* Name + path subtitle + source */}
                   <td className="py-3.5 pr-4">
                     <div className="flex items-center gap-2">
