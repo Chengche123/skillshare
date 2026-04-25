@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Virtuoso } from 'react-virtuoso';
-import { Filter, Check, X, Info, PackageOpen, Search } from 'lucide-react';
+import { Filter, Check, X, Info, PackageOpen, Search, Tags } from 'lucide-react';
 import { api } from '../api/client';
 import type { SyncMatrixEntry } from '../api/client';
 import { queryKeys, staleTimes } from '../lib/queryKeys';
@@ -13,9 +13,11 @@ import Spinner from '../components/Spinner';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 import FilterTagInput from '../components/FilterTagInput';
+import { Select } from '../components/Input';
 import KindBadge from '../components/KindBadge';
 import { radius } from '../design';
 import { formatPreviewResourceName } from '../lib/resourceNames';
+import { buildSkillGroupOptions, matchesSelectedGroup } from '../lib/resourceGroups';
 import { syncMatrixReasonText } from '../lib/syncMatrixText';
 import { useT } from '../i18n';
 
@@ -44,9 +46,17 @@ export default function FilterStudioPage() {
     [targetsQuery.data, name],
   );
 
+  const skillsQuery = useQuery({
+    queryKey: queryKeys.skills.all,
+    queryFn: () => api.listSkills('skill'),
+    staleTime: staleTimes.skills,
+    enabled: kind === 'skill',
+  });
+
   // Draft filter state for active kind
   const [include, setInclude] = useState<string[]>([]);
   const [exclude, setExclude] = useState<string[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState('');
   const [initialized, setInitialized] = useState(false);
 
   // Initialize draft from target config once loaded
@@ -102,6 +112,34 @@ export default function FilterStudioPage() {
     return preview.filter((e) => e.kind !== 'agent');
   }, [preview, kind]);
 
+  const skillResources = skillsQuery.data?.resources ?? [];
+  const groupOptions = useMemo(
+    () => buildSkillGroupOptions(skillResources),
+    [skillResources],
+  );
+  const skillByFlatName = useMemo(
+    () => new Map(skillResources.map((resource) => [resource.flatName, resource])),
+    [skillResources],
+  );
+
+  useEffect(() => {
+    if (kind !== 'skill') {
+      setSelectedGroup('');
+      return;
+    }
+    if (selectedGroup && !groupOptions.some((group) => group.value === selectedGroup)) {
+      setSelectedGroup('');
+    }
+  }, [groupOptions, kind, selectedGroup]);
+
+  const groupedPreview = useMemo(() => {
+    if (kind !== 'skill' || selectedGroup === '') return kindPreview;
+    return kindPreview.filter((entry) => {
+      const skill = skillByFlatName.get(entry.skill);
+      return skill ? matchesSelectedGroup(skill, selectedGroup) : false;
+    });
+  }, [kind, kindPreview, selectedGroup, skillByFlatName]);
+
   // Unsaved changes detection
   const hasChanges = useMemo(() => {
     if (!target) return false;
@@ -151,19 +189,19 @@ export default function FilterStudioPage() {
   // Preview search filter
   const [previewSearch, setPreviewSearch] = useState('');
   const filteredPreview = useMemo(() => {
-    if (!previewSearch) return kindPreview;
+    if (!previewSearch) return groupedPreview;
     const q = previewSearch.toLowerCase();
-    return kindPreview.filter((e) => {
+    return groupedPreview.filter((e) => {
       const displayName = formatPreviewResourceName(e.skill, kind);
       return e.skill.toLowerCase().includes(q) || displayName.toLowerCase().includes(q);
     });
-  }, [kindPreview, previewSearch, kind]);
+  }, [groupedPreview, previewSearch, kind]);
 
-  // Summary counts (from kind-filtered preview, not search-filtered)
+  // Summary counts (from group-filtered preview, not search-filtered)
   const { syncedCount, totalCount } = useMemo(() => ({
-    syncedCount: kindPreview.filter((e) => e.status === 'synced').length,
-    totalCount: kindPreview.length,
-  }), [kindPreview]);
+    syncedCount: groupedPreview.filter((e) => e.status === 'synced').length,
+    totalCount: groupedPreview.length,
+  }), [groupedPreview]);
 
   if (targetsQuery.isPending) {
     return (
@@ -273,6 +311,26 @@ export default function FilterStudioPage() {
             />
           ) : (
             <>
+              {kind === 'skill' && groupOptions.length > 0 && (
+                <div className="flex items-center gap-2 mb-3">
+                  <Tags size={14} strokeWidth={2.5} className="text-pencil-light shrink-0" />
+                  <div className="flex-1">
+                    <Select
+                      value={selectedGroup}
+                      onChange={setSelectedGroup}
+                      size="sm"
+                      options={[
+                        { value: '', label: t('resources.groupFilter.all') },
+                        ...groupOptions.map((group) => ({
+                          value: group.value,
+                          label: `${group.label} (${group.count})`,
+                        })),
+                      ]}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Search filter */}
               <div className="relative mb-3">
                 <Search size={14} strokeWidth={2.5} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-pencil-light" />
