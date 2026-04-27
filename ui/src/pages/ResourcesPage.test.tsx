@@ -22,6 +22,8 @@ class ResizeObserverMock {
   disconnect() {}
 }
 
+const writeText = vi.fn();
+
 function makeSkill(overrides: Partial<Skill>): Skill {
   const name = overrides.name ?? overrides.flatName ?? 'skill';
   return {
@@ -91,6 +93,12 @@ function renderResourcesWithMocks(options: {
 describe('ResourcesPage skill groups', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    writeText.mockReset();
+    writeText.mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
     localStorage.clear();
     localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
     Object.defineProperty(globalThis, 'ResizeObserver', {
@@ -182,6 +190,25 @@ describe('ResourcesPage skill groups', () => {
 
     expect(screen.getByText('Bulk edit groups')).toBeInTheDocument();
     expect(screen.getByText('2 skills selected')).toBeInTheDocument();
+  });
+
+  it('copies selected skill names with the chosen separator', async () => {
+    const user = userEvent.setup();
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'Alpha' }),
+      makeSkill({ name: 'Beta', flatName: 'Beta' }),
+    ]);
+
+    await screen.findByRole('checkbox', { name: 'Select Alpha' });
+    await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.clear(screen.getByLabelText('Separator'));
+    await user.type(screen.getByLabelText('Separator'), ',');
+    await user.click(screen.getByRole('button', { name: 'Copy names' }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('Alpha,Beta');
+    });
   });
 
   it('applies add mode to each selected skill', async () => {

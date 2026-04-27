@@ -28,6 +28,7 @@ import {
   Layers,
   FileText,
   Tags,
+  Copy,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { VirtuosoGrid, Virtuoso } from 'react-virtuoso';
@@ -951,6 +952,7 @@ export default function SkillsPage() {
   const [tableVisibleSkillNames, setTableVisibleSkillNames] = useState<string[]>([]);
   const [bulkGroupsEditorOpen, setBulkGroupsEditorOpen] = useState(false);
   const [bulkGroupsError, setBulkGroupsError] = useState<string | null>(null);
+  const [copySeparator, setCopySeparator] = useState(',');
 
   const skills = data?.resources ?? EMPTY_RESOURCES;
   const groupOptions = useMemo(() => buildSkillGroupOptions(skills), [skills]);
@@ -1084,6 +1086,25 @@ export default function SkillsPage() {
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.skills.all }),
   });
+
+  const copySelectedSkillNames = useCallback(async () => {
+    try {
+      const names = selectedVisibleSkills.map((skill) => skill.name).join(copySeparator);
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard unavailable');
+      }
+      await navigator.clipboard.writeText(names);
+      toast(
+        t('resources.toast.namesCopied', { count: selectedVisibleSkills.length }, `Copied ${selectedVisibleSkills.length} skill names`),
+        'success',
+      );
+    } catch {
+      toast(
+        t('resources.toast.copyFailed', undefined, 'Failed to copy skill names'),
+        'error',
+      );
+    }
+  }, [copySeparator, selectedVisibleSkills, t, toast]);
 
   if (isPending) return <PageSkeleton />;
   if (error) {
@@ -1233,6 +1254,28 @@ export default function SkillsPage() {
           </Button>
           <Button variant="ghost" size="sm" onClick={clearSelectedSkills}>
             {t('resources.bulk.clearSelection', undefined, 'Clear selection')}
+          </Button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-pencil-light">
+              {t('resources.bulk.separatorLabel', undefined, 'Separator')}
+            </span>
+            <Input
+              aria-label={t('resources.bulk.separatorLabel', undefined, 'Separator')}
+              value={copySeparator}
+              onChange={(event) => setCopySeparator(event.target.value)}
+              placeholder={t('resources.bulk.separatorPlaceholder', undefined, ',')}
+              size="sm"
+              className="w-20"
+            />
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={selectedSkillNames.size === 0}
+            onClick={() => void copySelectedSkillNames()}
+          >
+            <Copy size={16} strokeWidth={2.5} />
+            {t('resources.bulk.copyNames', undefined, 'Copy names')}
           </Button>
           <Button
             variant="secondary"
