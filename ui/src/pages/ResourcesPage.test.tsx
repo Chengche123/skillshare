@@ -228,6 +228,35 @@ describe('ResourcesPage skill groups', () => {
     });
   });
 
+  it('copies selected skill names using the entered delimiter', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    renderResources([
+      makeSkill({ name: 'Alpha', flatName: 'alpha' }),
+      makeSkill({ name: 'Beta', flatName: 'beta' }),
+      makeSkill({ name: 'Gamma', flatName: 'gamma' }),
+    ]);
+
+    await screen.findByRole('checkbox', { name: 'Select Alpha' });
+    await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.click(screen.getByRole('button', { name: 'Copy names' }));
+
+    await user.clear(screen.getByLabelText('Delimiter'));
+    await user.type(screen.getByLabelText('Delimiter'), ', ');
+    await user.click(screen.getByRole('button', { name: 'Copy' }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('Alpha, Beta');
+    });
+    expect(await screen.findByText('Copied 2 skill names')).toBeInTheDocument();
+  });
+
   it('applies replace mode to each selected skill', async () => {
     const user = userEvent.setup();
     const setSkillGroups = vi.spyOn(api, 'setSkillGroups').mockResolvedValue({ success: true });

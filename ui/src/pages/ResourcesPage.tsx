@@ -28,6 +28,7 @@ import {
   Layers,
   FileText,
   Tags,
+  Copy,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { VirtuosoGrid, Virtuoso } from 'react-virtuoso';
@@ -61,6 +62,7 @@ import { useSyncMatrix } from '../hooks/useSyncMatrix';
 import { useT } from '../i18n';
 import SkillGroupsEditor from '../components/SkillGroupsEditor';
 import BulkSkillGroupsEditor, { buildBulkGroupUpdates, type BulkGroupOperation, type BulkSkillGroupTarget } from '../components/BulkSkillGroupsEditor';
+import BulkCopySkillNamesDialog from '../components/BulkCopySkillNamesDialog';
 import { buildSkillGroupOptions, formatGroupBadgeText, matchesSelectedGroup } from '../lib/resourceGroups';
 
 /* -- Sticky-note pastel palette (8 colors) --------- */
@@ -951,6 +953,7 @@ export default function SkillsPage() {
   const [tableVisibleSkillNames, setTableVisibleSkillNames] = useState<string[]>([]);
   const [bulkGroupsEditorOpen, setBulkGroupsEditorOpen] = useState(false);
   const [bulkGroupsError, setBulkGroupsError] = useState<string | null>(null);
+  const [bulkCopyDialogOpen, setBulkCopyDialogOpen] = useState(false);
 
   const skills = data?.resources ?? EMPTY_RESOURCES;
   const groupOptions = useMemo(() => buildSkillGroupOptions(skills), [skills]);
@@ -1030,7 +1033,10 @@ export default function SkillsPage() {
       setBulkGroupsEditorOpen(false);
       setBulkGroupsError(null);
     }
-  }, [bulkGroupsEditorOpen, selectedVisibleSkills]);
+    if (bulkCopyDialogOpen && selectedVisibleSkills.length === 0) {
+      setBulkCopyDialogOpen(false);
+    }
+  }, [bulkCopyDialogOpen, bulkGroupsEditorOpen, selectedVisibleSkills]);
 
   const toggleSkillSelection = useCallback((name: string, checked: boolean) => {
     setSelectedSkillNames((prev) => {
@@ -1050,6 +1056,29 @@ export default function SkillsPage() {
     setSelectedSkillNames(new Set(visibleSkillNames));
     setBulkGroupsError(null);
   }, [visibleSkillNames]);
+
+  const copySelectedSkillNames = useCallback(async (delimiter: string) => {
+    const text = selectedVisibleSkills.map((skill) => skill.name).join(delimiter);
+
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error(t('resources.bulk.copyUnavailable', undefined, 'Clipboard access is not available'));
+      }
+      await navigator.clipboard.writeText(text);
+      setBulkCopyDialogOpen(false);
+      toast(
+        t(
+          'resources.toast.copiedSkillNames',
+          { count: selectedVisibleSkills.length },
+          `Copied ${selectedVisibleSkills.length} skill names`,
+        ),
+        'success',
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err ?? 'Failed to copy names');
+      toast(message, 'error');
+    }
+  }, [selectedVisibleSkills, t, toast]);
 
   const bulkGroupsMutation = useMutation({
     mutationFn: async ({ operation, groups }: { operation: BulkGroupOperation; groups: string[] }) => {
@@ -1238,6 +1267,15 @@ export default function SkillsPage() {
             variant="secondary"
             size="sm"
             disabled={selectedSkillNames.size === 0}
+            onClick={() => setBulkCopyDialogOpen(true)}
+          >
+            <Copy size={16} strokeWidth={2.5} />
+            {t('resources.bulk.copyNames', undefined, 'Copy names')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={selectedSkillNames.size === 0}
             onClick={() => {
               setBulkGroupsError(null);
               setBulkGroupsEditorOpen(true);
@@ -1411,6 +1449,14 @@ export default function SkillsPage() {
             setBulkGroupsError(null);
             setBulkGroupsEditorOpen(false);
           }}
+        />
+      )}
+      {bulkCopyDialogOpen && (
+        <BulkCopySkillNamesDialog
+          open={bulkCopyDialogOpen}
+          selectedCount={selectedVisibleSkills.length}
+          onCopy={(delimiter) => void copySelectedSkillNames(delimiter)}
+          onClose={() => setBulkCopyDialogOpen(false)}
         />
       )}
       <ConfirmDialog
