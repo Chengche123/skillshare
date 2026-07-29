@@ -131,6 +131,10 @@ def "nu-complete skillshare list-sort" [] {
     ["name" "newest" "oldest"]
 }
 
+def "nu-complete skillshare list-status" [] {
+    ["all" "enabled" "disabled"]
+}
+
 # Main command
 export extern "skillshare" [
     command?: string@"nu-complete skillshare commands"
@@ -209,6 +213,7 @@ export extern "skillshare list" [
     --json(-j)               # JSON output
     --no-tui                 # Skip interactive TUI
     --type(-t): string@"nu-complete skillshare list-type"
+    --status: string@"nu-complete skillshare list-status"
     --sort(-s): string@"nu-complete skillshare list-sort"
     --all                    # List skills + agents
     --project(-p)            # Use project-level config
