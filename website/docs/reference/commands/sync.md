@@ -443,6 +443,8 @@ Backups are created **automatically** before `sync` and `target remove`.
 
 Location: `~/.local/share/skillshare/backups/<timestamp>/`
 
+A snapshot captures only **local** target content. Merge-mode symlinks are skipped — they point into your source and `sync` recreates them — so snapshots stay small no matter how large your skills are. Retention is applied automatically after each sync. See [What Gets Backed Up](/docs/reference/commands/backup#what-gets-backed-up) and [Backups & Disk Space](/docs/reference/commands/backup#backups--disk-space).
+
 ### Manual Backup
 
 ```bash
