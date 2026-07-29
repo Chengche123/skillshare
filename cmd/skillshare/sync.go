@@ -447,6 +447,10 @@ func syncOutputJSON(results []syncTargetResult, dryRun bool, start time.Time, iS
 }
 
 func backupTargetsBeforeSync(cfg *config.Config) {
+	// Pre-sync backups are automatic, so retention must be too — otherwise
+	// every sync adds a snapshot that nothing ever removes.
+	defer backup.Cleanup(backup.DefaultCleanupConfig())
+
 	backedUp := false
 	for name, target := range cfg.Targets {
 		backupPath, err := backup.Create(name, target.SkillsConfig().Path)

@@ -22,10 +22,16 @@ func DefaultCleanupConfig() CleanupConfig {
 	}
 }
 
-// Cleanup removes old backups based on the configuration.
+// Cleanup removes old backups from the global backup dir.
 // Returns the number of backups removed and any error encountered.
 func Cleanup(cfg CleanupConfig) (int, error) {
-	backups, err := List()
+	return CleanupInDir(BackupDir(), cfg)
+}
+
+// CleanupInDir removes old backups from the specified directory based on the
+// configuration. Returns the number of backups removed.
+func CleanupInDir(backupDir string, cfg CleanupConfig) (int, error) {
+	backups, err := ListInDir(backupDir)
 	if err != nil {
 		return 0, err
 	}
@@ -52,10 +58,12 @@ func Cleanup(cfg CleanupConfig) (int, error) {
 			shouldRemove = true
 		}
 
-		// Check size - remove if total exceeds limit (skip if MaxSizeMB is 0)
+		// Check size - remove if total exceeds limit (skip if MaxSizeMB is 0).
+		// i > 0 always keeps the newest backup: a single snapshot larger than
+		// the cap must not leave the user with no restore point at all.
 		size := dirSize(backup.Path)
 		totalSize += size
-		if cfg.MaxSizeMB > 0 && totalSize > cfg.MaxSizeMB*1024*1024 {
+		if cfg.MaxSizeMB > 0 && i > 0 && totalSize > cfg.MaxSizeMB*1024*1024 {
 			shouldRemove = true
 		}
 
@@ -69,7 +77,7 @@ func Cleanup(cfg CleanupConfig) (int, error) {
 	}
 
 	// Clean up empty timestamp directories
-	cleanEmptyDirs(BackupDir())
+	cleanEmptyDirs(backupDir)
 
 	return removed, nil
 }
