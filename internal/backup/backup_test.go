@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -168,6 +169,47 @@ func TestCopyDir_MergeMode_BacksUpOnlyLocalSkills(t *testing.T) {
 	}
 }
 
+func TestCreateInDir_CopyFailureRemovesIncompleteSnapshot(t *testing.T) {
+	backupDir := t.TempDir()
+	targetDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(targetDir, "local-skill"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(targetDir, "local-skill", "SKILL.md"), "# Local")
+	copyErr := errors.New("copy failed")
+	listedDuringCopy := false
+
+	backupPath, err := createInDir(backupDir, "claude", targetDir, func(_, dst string) error {
+		if err := os.MkdirAll(filepath.Join(dst, "local-skill"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		writeTestFile(t, filepath.Join(dst, "local-skill", "partial.txt"), "partial")
+		backups, err := ListInDir(backupDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		listedDuringCopy = len(backups) != 0
+		return copyErr
+	})
+	if !errors.Is(err, copyErr) {
+		t.Fatalf("createInDir error = %v, want %v", err, copyErr)
+	}
+	if backupPath != "" {
+		t.Errorf("backupPath = %q, want empty", backupPath)
+	}
+	if listedDuringCopy {
+		t.Error("staging snapshot was listed as a completed backup")
+	}
+
+	backups, err := ListInDir(backupDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 0 {
+		t.Fatalf("incomplete snapshot was retained: %+v", backups)
+	}
+}
+
 func TestCleanupInDir_OverSizeCap_KeepsNewestBackup(t *testing.T) {
 	backupDir := t.TempDir()
 	payload := make([]byte, 2<<20) // 2 MB — each snapshot alone exceeds the 1 MB cap
@@ -200,6 +242,69 @@ func TestCleanupInDir_OverSizeCap_KeepsNewestBackup(t *testing.T) {
 	// otherwise an over-cap backup dir leaves the user with no restore point.
 	if _, err := os.Stat(filepath.Join(backupDir, "2026-01-03_00-00-00", "claude", "big.bin")); err != nil {
 		t.Errorf("newest backup must be kept: %v", err)
+	}
+}
+
+func TestCleanupInDir_SizeCapCountsOnlyRetainedBackups(t *testing.T) {
+	backupDir := t.TempDir()
+	base := time.Now().Add(-3 * time.Hour)
+	snapshots := []struct {
+		name string
+		size int
+	}{
+		{"2026-01-01_00-00-00", 400 << 10},
+		{"2026-01-02_00-00-00", 700 << 10},
+		{"2026-01-03_00-00-00", 400 << 10},
+	}
+
+	for i, snapshot := range snapshots {
+		dir := filepath.Join(backupDir, snapshot.name, "claude")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "payload.bin"), make([]byte, snapshot.size), 0644); err != nil {
+			t.Fatal(err)
+		}
+		stamp := base.Add(time.Duration(i) * time.Hour)
+		if err := os.Chtimes(filepath.Join(backupDir, snapshot.name), stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	removed, err := CleanupInDir(backupDir, CleanupConfig{MaxSizeMB: 1})
+	if err != nil {
+		t.Fatalf("CleanupInDir failed: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed = %d, want 1", removed)
+	}
+
+	for _, name := range []string{"2026-01-01_00-00-00", "2026-01-03_00-00-00"} {
+		if _, err := os.Stat(filepath.Join(backupDir, name, "claude", "payload.bin")); err != nil {
+			t.Errorf("retained backup %s is missing: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(backupDir, "2026-01-02_00-00-00")); !os.IsNotExist(err) {
+		t.Errorf("over-cap backup should be removed, stat error = %v", err)
+	}
+}
+
+func TestCleanupInDir_IgnoresActiveStagingDirectory(t *testing.T) {
+	backupDir := t.TempDir()
+	stagingPath, err := os.MkdirTemp(backupDir, stagingDirPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := CleanupInDir(backupDir, DefaultCleanupConfig())
+	if err != nil {
+		t.Fatalf("CleanupInDir failed: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("removed = %d, want 0", removed)
+	}
+	if _, err := os.Stat(stagingPath); err != nil {
+		t.Errorf("active staging directory was removed: %v", err)
 	}
 }
 

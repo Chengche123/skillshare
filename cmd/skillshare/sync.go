@@ -449,7 +449,11 @@ func syncOutputJSON(results []syncTargetResult, dryRun bool, start time.Time, iS
 func backupTargetsBeforeSync(cfg *config.Config) {
 	// Pre-sync backups are automatic, so retention must be too — otherwise
 	// every sync adds a snapshot that nothing ever removes.
-	defer backup.Cleanup(backup.DefaultCleanupConfig())
+	defer func() {
+		if _, err := backup.Cleanup(backup.DefaultCleanupConfig()); err != nil {
+			ui.Warning("Failed to clean up old backups: %v", err)
+		}
+	}()
 
 	backedUp := false
 	for name, target := range cfg.Targets {
@@ -467,7 +471,11 @@ func backupTargetsBeforeSync(cfg *config.Config) {
 
 	// Also backup agent targets if any exist.
 	backupDir, agentTargets, err := resolveGlobalAgentBackupContextFromCfg(cfg)
-	if err != nil || len(agentTargets) == 0 {
+	if err != nil {
+		ui.Warning("Failed to resolve agent backup targets: %v", err)
+		return
+	}
+	if len(agentTargets) == 0 {
 		return
 	}
 	for _, at := range agentTargets {

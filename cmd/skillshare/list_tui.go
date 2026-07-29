@@ -43,16 +43,15 @@ const (
 	statusFilterDisabled                         // show only disabled
 )
 
-// statusFilterFrom maps a --status option value to the TUI's initial filter.
-// An empty value (or "all") starts on statusFilterAll.
-func statusFilterFrom(status string) listStatusFilter {
-	switch status {
-	case "enabled":
-		return statusFilterEnabled
-	case "disabled":
-		return statusFilterDisabled
+// String returns the CLI representation of the status filter.
+func (s listStatusFilter) String() string {
+	switch s {
+	case statusFilterEnabled:
+		return "enabled"
+	case statusFilterDisabled:
+		return "disabled"
 	default:
-		return statusFilterAll
+		return "all"
 	}
 }
 

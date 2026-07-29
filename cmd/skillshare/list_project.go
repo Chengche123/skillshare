@@ -54,11 +54,11 @@ func cmdListProject(root string, opts listOptions, kind resourceKindFilter) erro
 			total := len(allEntries)
 			// Status is NOT filtered here — the TUI needs both enabled and
 			// disabled entries loaded so the `s` key can restore them.
-			allEntries = filterSkillEntries(allEntries, opts.Pattern, opts.TypeFilter, "")
+			allEntries = filterSkillEntries(allEntries, opts.Pattern, opts.TypeFilter, statusFilterAll)
 			sortSkillEntries(allEntries, sortBy)
 			return listLoadResult{skills: toSkillItems(allEntries), totalCount: total}
 		}
-		action, skillName, skillKind, err := runListTUI(loadFn, "project", skillsSource, agentsSource, targets, kind, statusFilterFrom(opts.Status))
+		action, skillName, skillKind, err := runListTUI(loadFn, "project", skillsSource, agentsSource, targets, kind, opts.Status)
 		if err != nil {
 			return err
 		}
@@ -124,7 +124,7 @@ func cmdListProject(root string, opts listOptions, kind resourceKindFilter) erro
 		sp.Success(fmt.Sprintf("Loaded %d %s", len(allEntries), resourceLabel))
 	}
 	totalCount := len(allEntries)
-	hasFilter := opts.Pattern != "" || opts.TypeFilter != "" || opts.Status != ""
+	hasFilter := opts.Pattern != "" || opts.TypeFilter != "" || opts.Status != statusFilterAll
 
 	// Apply filter and sort
 	allEntries = filterSkillEntries(allEntries, opts.Pattern, opts.TypeFilter, opts.Status)

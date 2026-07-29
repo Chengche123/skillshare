@@ -83,7 +83,7 @@ targets:
 	// protects. Synced agents are symlinks into the source and are recreated
 	// by `sync`, so they are deliberately not backed up (issue #252).
 	localPath := filepath.Join(claudeAgents, "local-helper.md")
-	os.WriteFile(localPath, []byte("# Local helper"), 0644)
+	sb.WriteFile(localPath, "# Local helper")
 
 	// Sync then backup
 	sb.RunCLI("sync", "agents")
@@ -96,7 +96,9 @@ targets:
 	}
 
 	// Delete the local agent from target
-	os.Remove(localPath)
+	if err := os.Remove(localPath); err != nil {
+		t.Fatalf("remove local agent: %v", err)
+	}
 
 	// Restore
 	result := sb.RunCLI("restore", "agents", "claude", "--force")
@@ -138,8 +140,10 @@ func TestBackup_Agents_ProjectMode_CreatesBackup(t *testing.T) {
 
 	// Local agent — synced agents are symlinks and are not backed up (#252),
 	// so without local content there is nothing to snapshot.
-	os.WriteFile(filepath.Join(projectDir, ".claude", "agents", "local-helper.md"),
-		[]byte("# Local helper"), 0644)
+	sb.WriteFile(
+		filepath.Join(projectDir, ".claude", "agents", "local-helper.md"),
+		"# Local helper",
+	)
 
 	// Sync agents first
 	result := sb.RunCLIInDir(projectDir, "sync", "-p", "agents")
@@ -190,7 +194,7 @@ func TestBackup_Agents_ProjectMode_RestoreRoundTrip(t *testing.T) {
 	// by `sync`, so they are deliberately not backed up (issue #252).
 	claudeAgents := filepath.Join(projectDir, ".claude", "agents")
 	localPath := filepath.Join(claudeAgents, "local-helper.md")
-	os.WriteFile(localPath, []byte("# Local helper"), 0644)
+	sb.WriteFile(localPath, "# Local helper")
 
 	// Sync → backup
 	sb.RunCLIInDir(projectDir, "sync", "-p", "agents")
@@ -203,7 +207,9 @@ func TestBackup_Agents_ProjectMode_RestoreRoundTrip(t *testing.T) {
 	}
 
 	// Delete the local agent from target
-	os.Remove(localPath)
+	if err := os.Remove(localPath); err != nil {
+		t.Fatalf("remove local agent: %v", err)
+	}
 
 	// Restore
 	result := sb.RunCLIInDir(projectDir, "restore", "-p", "agents", "claude", "--force")

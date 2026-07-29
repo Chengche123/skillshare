@@ -115,7 +115,7 @@ func TestListProject_FilterByStatus(t *testing.T) {
 	sb.CreateProjectSkill(projectRoot, "on-skill", map[string]string{"SKILL.md": "# On"})
 	sb.CreateProjectSkill(projectRoot, "off-skill", map[string]string{"SKILL.md": "# Off"})
 	skillsDir := filepath.Join(projectRoot, ".skillshare", "skills")
-	os.WriteFile(filepath.Join(skillsDir, ".skillignore"), []byte("off-skill\n"), 0644)
+	sb.WriteFile(filepath.Join(skillsDir, ".skillignore"), "off-skill\n")
 
 	enabled := sb.RunCLIInDir(projectRoot, "list", "-p", "--no-tui", "--status", "enabled")
 	enabled.AssertSuccess(t)

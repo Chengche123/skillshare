@@ -6,14 +6,14 @@ func TestParseListArgs_Status(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
-		want string
+		want listStatusFilter
 	}{
-		{"space form", []string{"--status", "enabled"}, "enabled"},
-		{"equals form", []string{"--status=disabled"}, "disabled"},
-		{"case insensitive", []string{"--status", "DISABLED"}, "disabled"},
-		{"all normalizes to empty", []string{"--status", "all"}, ""},
-		{"all equals form", []string{"--status=ALL"}, ""},
-		{"absent", []string{}, ""},
+		{"space form", []string{"--status", "enabled"}, statusFilterEnabled},
+		{"equals form", []string{"--status=disabled"}, statusFilterDisabled},
+		{"case insensitive", []string{"--status", "DISABLED"}, statusFilterDisabled},
+		{"all", []string{"--status", "all"}, statusFilterAll},
+		{"all equals form", []string{"--status=ALL"}, statusFilterAll},
+		{"absent", []string{}, statusFilterAll},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -46,7 +46,7 @@ func TestParseListArgs_StatusCombinesWithOtherFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseListArgs error = %v", err)
 	}
-	if opts.Pattern != "react" || opts.TypeFilter != "local" || opts.Status != "disabled" || opts.SortBy != "newest" {
+	if opts.Pattern != "react" || opts.TypeFilter != "local" || opts.Status != statusFilterDisabled || opts.SortBy != "newest" {
 		t.Errorf("got %+v, want pattern=react type=local status=disabled sort=newest", opts)
 	}
 }
@@ -59,12 +59,12 @@ func TestFilterSkillEntries_Status(t *testing.T) {
 	}
 
 	tests := []struct {
-		status string
+		status listStatusFilter
 		want   []string
 	}{
-		{"", []string{"on-a", "off-a", "on-b"}},
-		{"enabled", []string{"on-a", "on-b"}},
-		{"disabled", []string{"off-a"}},
+		{statusFilterAll, []string{"on-a", "off-a", "on-b"}},
+		{statusFilterEnabled, []string{"on-a", "on-b"}},
+		{statusFilterDisabled, []string{"off-a"}},
 	}
 	for _, tc := range tests {
 		got := filterSkillEntries(entries, "", "", tc.status)
@@ -86,14 +86,14 @@ func TestFilterSkillEntries_StatusAndPatternAreAND(t *testing.T) {
 		{Name: "vue-off", RelPath: "vue-off", Disabled: true},
 	}
 
-	got := filterSkillEntries(entries, "react", "", "disabled")
+	got := filterSkillEntries(entries, "react", "", statusFilterDisabled)
 	if len(got) != 1 || got[0].Name != "react-off" {
 		t.Fatalf("got %+v, want only react-off", got)
 	}
 }
 
 func TestNoMatchMessage_StatusOnly(t *testing.T) {
-	got := noMatchMessage("skills", listOptions{Status: "disabled"})
+	got := noMatchMessage("skills", listOptions{Status: statusFilterDisabled})
 	want := `No skills matching status "disabled"`
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -101,25 +101,25 @@ func TestNoMatchMessage_StatusOnly(t *testing.T) {
 }
 
 func TestNoMatchMessage_StatusWithOtherFilters(t *testing.T) {
-	got := noMatchMessage("agents", listOptions{Pattern: "react", Status: "enabled"})
+	got := noMatchMessage("agents", listOptions{Pattern: "react", Status: statusFilterEnabled})
 	want := `No agents matching "react" (status: enabled)`
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-func TestStatusFilterFrom(t *testing.T) {
+func TestListStatusFilterString(t *testing.T) {
 	tests := []struct {
-		status string
-		want   listStatusFilter
+		status listStatusFilter
+		want   string
 	}{
-		{"", statusFilterAll},
-		{"enabled", statusFilterEnabled},
-		{"disabled", statusFilterDisabled},
+		{statusFilterAll, "all"},
+		{statusFilterEnabled, "enabled"},
+		{statusFilterDisabled, "disabled"},
 	}
 	for _, tc := range tests {
-		if got := statusFilterFrom(tc.status); got != tc.want {
-			t.Errorf("statusFilterFrom(%q) = %v, want %v", tc.status, got, tc.want)
+		if got := tc.status.String(); got != tc.want {
+			t.Errorf("%v.String() = %q, want %q", tc.status, got, tc.want)
 		}
 	}
 }
@@ -127,7 +127,7 @@ func TestStatusFilterFrom(t *testing.T) {
 // The `s` key cycles All → Enabled → Disabled → All from whatever --status
 // seeded, so an initial filter never traps the user.
 func TestStatusFilterCyclesBackToAll(t *testing.T) {
-	s := statusFilterFrom("disabled")
+	s := statusFilterDisabled
 	if next := (s + 1) % 3; next != statusFilterAll {
 		t.Errorf("cycling from Disabled = %v, want All", next)
 	}

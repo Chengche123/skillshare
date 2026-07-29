@@ -1,15 +1,19 @@
 package backup
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"skillshare/internal/config"
 )
+
+const stagingDirPrefix = ".snapshot-"
 
 // BackupDir returns the global backup directory path.
 func BackupDir() string {
@@ -29,6 +33,10 @@ func Create(targetName, targetPath string) (string, error) {
 // CreateInDir creates a backup of the target directory in the specified backup dir.
 // Returns the backup path, or ("", nil) when there is nothing to back up.
 func CreateInDir(backupDir, targetName, targetPath string) (string, error) {
+	return createInDir(backupDir, targetName, targetPath, copyDir)
+}
+
+func createInDir(backupDir, targetName, targetPath string, copyDirectory func(string, string) error) (backupPath string, retErr error) {
 	if backupDir == "" {
 		return "", fmt.Errorf("cannot determine backup directory: home directory not found")
 	}
@@ -49,16 +57,46 @@ func CreateInDir(backupDir, targetName, targetPath string) (string, error) {
 
 	// Check if directory has any content
 	entries, err := os.ReadDir(targetPath)
-	if err != nil || len(entries) == 0 {
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect backup target: %w", err)
+	}
+	if len(entries) == 0 {
 		return "", nil // Empty, nothing to backup
 	}
 
-	// Create backup directory with timestamp
+	// Copy into a hidden staging directory so a failed copy can never be
+	// discovered or restored as a valid snapshot.
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	backupPath := filepath.Join(backupDir, timestamp, targetName)
-
-	if err := os.MkdirAll(backupPath, 0755); err != nil {
+	timestampDir := filepath.Join(backupDir, timestamp)
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create backup directory: %w", err)
+	}
+	stagingPath := ""
+	cleanupStaging := false
+	defer func() {
+		var cleanupErrs []error
+		if cleanupStaging {
+			if err := os.RemoveAll(stagingPath); err != nil {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("remove incomplete backup: %w", err))
+			}
+		}
+		if backupPath == "" {
+			if err := removeDirIfEmpty(timestampDir); err != nil {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("remove empty backup timestamp: %w", err))
+			}
+		}
+		if cleanupErr := errors.Join(cleanupErrs...); cleanupErr != nil {
+			retErr = errors.Join(retErr, cleanupErr)
+		}
+	}()
+
+	stagingPath, err = os.MkdirTemp(backupDir, stagingDirPrefix)
+	if err != nil {
+		return "", fmt.Errorf("failed to create backup staging directory: %w", err)
+	}
+	cleanupStaging = true
+	if err := os.Chmod(stagingPath, 0755); err != nil {
+		return "", fmt.Errorf("failed to set backup staging permissions: %w", err)
 	}
 
 	// Copy target contents to backup. copyDir skips symlinks: a merge-mode
@@ -67,20 +105,55 @@ func CreateInDir(backupDir, targetName, targetPath string) (string, error) {
 	// content (weights, .venv, browser profiles) into every snapshot.
 	// Only local, non-symlinked content is at risk from sync, so only that
 	// is worth backing up. Symlinks are recreated by `skillshare sync`.
-	if err := copyDir(targetPath, backupPath); err != nil {
+	if err := copyDirectory(targetPath, stagingPath); err != nil {
 		return "", fmt.Errorf("failed to backup: %w", err)
 	}
 
 	// A target holding nothing but symlinks yields an empty backup. Discard it:
 	// an empty restore point is useless and would consume a MaxCount slot,
 	// evicting older snapshots that do have content.
-	if copied, _ := os.ReadDir(backupPath); len(copied) == 0 {
-		os.Remove(backupPath)
-		os.Remove(filepath.Dir(backupPath)) // only succeeds if no other target wrote here
+	copied, err := os.ReadDir(stagingPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect staged backup: %w", err)
+	}
+	if len(copied) == 0 {
 		return "", nil
 	}
 
+	if err := os.MkdirAll(timestampDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create backup timestamp directory: %w", err)
+	}
+	backupPath = filepath.Join(timestampDir, targetName)
+	if _, err := os.Lstat(backupPath); err == nil {
+		// Timestamp precision is one second. If the same target is backed up
+		// twice within that window, preserve the already completed snapshot.
+		return backupPath, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to inspect backup path: %w", err)
+	}
+	if err := os.Rename(stagingPath, backupPath); err != nil {
+		backupPath = ""
+		return "", fmt.Errorf("failed to finalize backup: %w", err)
+	}
+	cleanupStaging = false
 	return backupPath, nil
+}
+
+func removeDirIfEmpty(path string) error {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if len(entries) != 0 {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // List returns all backups from the global backup dir, sorted by date (newest first).
@@ -104,7 +177,7 @@ func ListInDir(backupDir string) ([]BackupInfo, error) {
 
 	var backups []BackupInfo
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), stagingDirPrefix) {
 			continue
 		}
 
