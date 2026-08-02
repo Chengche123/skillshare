@@ -156,6 +156,25 @@ targets:
 	result.AssertOutputNotContains(t, "Symlink compatibility")
 }
 
+func TestDoctor_NoSymlinkCompatHint_WhenNoKnownIncompatTarget(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	claudePath := sb.CreateTarget("claude")
+
+	sb.WriteConfig(`source: ` + sb.SourcePath + `
+mode: merge
+targets:
+  claude:
+    path: ` + claudePath + `
+`)
+
+	result := sb.RunCLI("doctor")
+
+	result.AssertSuccess(t)
+	result.AssertOutputNotContains(t, "Symlink compatibility")
+}
+
 func TestDoctor_TargetIssues_ShowsProblems(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()

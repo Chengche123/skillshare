@@ -283,7 +283,7 @@ skillshare target <name> --mode copy
 skillshare sync
 ```
 
-When `sync` prints a compatibility hint, the example target is chosen in this priority:
+The compatibility hint is printed by [`doctor`](./doctor.md), not by `sync`. Its example target is chosen in this priority:
 `cursor` → `antigravity` → `copilot` → `opencode`.
 If none of these targets exist (or they already run `copy`), no compatibility hint is shown.
 
