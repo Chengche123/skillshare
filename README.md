@@ -289,6 +289,26 @@ Thanks to everyone who helped shape skillshare.
 <a href="https://github.com/rhysmcneill"><img src="https://github.com/rhysmcneill.png" width="50" style="border-radius:50%" alt="rhysmcneill"></a>
 <a href="https://github.com/druellan"><img src="https://github.com/druellan.png" width="50" style="border-radius:50%" alt="druellan"></a>
 <a href="https://github.com/12britz"><img src="https://github.com/12britz.png" width="50" style="border-radius:50%" alt="12britz"></a>
+<a href="https://github.com/askpatrickw"><img src="https://github.com/askpatrickw.png" width="50" style="border-radius:50%" alt="askpatrickw"></a>
+<a href="https://github.com/Almost42"><img src="https://github.com/Almost42.png" width="50" style="border-radius:50%" alt="Almost42"></a>
+<a href="https://github.com/Brett-Best"><img src="https://github.com/Brett-Best.png" width="50" style="border-radius:50%" alt="Brett-Best"></a>
+<a href="https://github.com/isCopyman"><img src="https://github.com/isCopyman.png" width="50" style="border-radius:50%" alt="isCopyman"></a>
+<a href="https://github.com/svob"><img src="https://github.com/svob.png" width="50" style="border-radius:50%" alt="svob"></a>
+<a href="https://github.com/michal-grzelak"><img src="https://github.com/michal-grzelak.png" width="50" style="border-radius:50%" alt="michal-grzelak"></a>
+<a href="https://github.com/shikbupt"><img src="https://github.com/shikbupt.png" width="50" style="border-radius:50%" alt="shikbupt"></a>
+<a href="https://github.com/LeoYeAI"><img src="https://github.com/LeoYeAI.png" width="50" style="border-radius:50%" alt="LeoYeAI"></a>
+<a href="https://github.com/TIR44"><img src="https://github.com/TIR44.png" width="50" style="border-radius:50%" alt="TIR44"></a>
+<a href="https://github.com/Ajaymamtora"><img src="https://github.com/Ajaymamtora.png" width="50" style="border-radius:50%" alt="Ajaymamtora"></a>
+<a href="https://github.com/vishaldialpad"><img src="https://github.com/vishaldialpad.png" width="50" style="border-radius:50%" alt="vishaldialpad"></a>
+<a href="https://github.com/kankan0829"><img src="https://github.com/kankan0829.png" width="50" style="border-radius:50%" alt="kankan0829"></a>
+<a href="https://github.com/dnabb"><img src="https://github.com/dnabb.png" width="50" style="border-radius:50%" alt="dnabb"></a>
+<a href="https://github.com/thinhngotony"><img src="https://github.com/thinhngotony.png" width="50" style="border-radius:50%" alt="thinhngotony"></a>
+<a href="https://github.com/skaurus"><img src="https://github.com/skaurus.png" width="50" style="border-radius:50%" alt="skaurus"></a>
+<a href="https://github.com/jamesbraza"><img src="https://github.com/jamesbraza.png" width="50" style="border-radius:50%" alt="jamesbraza"></a>
+<a href="https://github.com/2BAB"><img src="https://github.com/2BAB.png" width="50" style="border-radius:50%" alt="2BAB"></a>
+<a href="https://github.com/zdlldz"><img src="https://github.com/zdlldz.png" width="50" style="border-radius:50%" alt="zdlldz"></a>
+<a href="https://github.com/elstiaan"><img src="https://github.com/elstiaan.png" width="50" style="border-radius:50%" alt="elstiaan"></a>
+<a href="https://github.com/EriaWalker"><img src="https://github.com/EriaWalker.png" width="50" style="border-radius:50%" alt="EriaWalker"></a>
 
 ---
 
