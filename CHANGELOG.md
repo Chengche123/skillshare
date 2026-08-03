@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.20.24] - 2026-08-03
+
+### Bug Fixes
+
+- **Gemini CLI and Antigravity are separate targets again** — `gemini` had been folded into `antigravity` as an alias, but the two runtimes read different global skill directories, so one of them was always pointed at the wrong path. Antigravity now resolves to `~/.gemini/config/skills` (global) and `.agents/skills` (project); `gemini` is a target of its own resolving to `~/.gemini/skills` and `.gemini/skills`, with `~/.agents/skills` and `.agents/skills` still scanned as fallbacks. Aliases: `gemini-cli` for Gemini CLI, `antigravity-cli` for Antigravity. Refs: #255.
+
+  ```bash
+  skillshare target add gemini        # Gemini CLI
+  skillshare target add antigravity   # Antigravity
+  skillshare sync
+  ```
+
+  Antigravity's skill scanner also skips symlinked skill directories entirely — silently on macOS and Linux, and as `Incorrect function` on Windows. The troubleshooting docs now cover this along with its two workarounds (`--mode copy`, or symlinking the whole skills directory).
+
+- **`doctor`'s symlink compatibility hint is deterministic** — the hint chose its example target by iterating a map, so the same config produced a different suggestion on each run, and it could name a target whose runtime handles symlinks fine — telling users to switch something that was not broken. The example is now drawn only from the targets known to skip symlinked skill directories, in a fixed order. The sync docs are also corrected: the hint is printed by `doctor`, not `sync`.
+
+### Breaking Changes
+
+- **`gemini` no longer resolves to the Antigravity target** — configs that used `gemini` (or `gemini-cli`) to reach Antigravity now sync to Gemini CLI's own directory instead. Use `antigravity` for Antigravity. Existing `antigravity` targets change global path from `~/.gemini/skills` to `~/.gemini/config/skills`; run `skillshare sync` after upgrading.
+
 ## [0.20.23] - 2026-07-30
 
 ### New Features
@@ -33,7 +53,8 @@
 - **Grok CLI target** — added xAI's Grok CLI as a built-in target, syncing skills to `~/.grok/skills` (global) and `.grok/skills` (project), with legacy fallback to `~/.agents/skills`. Aliases: `xai`, `grok-cli`.
 
   ```bash
-  skillshare sync --targets grok
+  skillshare target add grok
+  skillshare sync
   ```
 
 ### Bug Fixes
