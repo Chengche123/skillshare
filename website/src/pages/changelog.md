@@ -21,7 +21,7 @@ All notable changes to skillshare are documented here. For the full commit histo
   skillshare sync
   ```
 
-  Antigravity's skill scanner also skips symlinked skill directories entirely — silently on macOS and Linux, and as `Incorrect function` on Windows. The troubleshooting docs now cover this along with its two workarounds (`--mode copy`, or symlinking the whole skills directory).
+  Antigravity's skill scanner also skips symlinked skill directories entirely — silently on macOS and Linux, and as `Incorrect function` on Windows. The troubleshooting docs now cover this along with its two workarounds: switch the target to `copy` mode, or point Antigravity at your skillshare source directory via its Skill Custom Paths setting.
 
 - **`doctor`'s symlink compatibility hint is deterministic** — the hint chose its example target by iterating a map, so the same config produced a different suggestion on each run, and it could name a target whose runtime handles symlinks fine — telling users to switch something that was not broken. The example is now drawn only from the targets known to skip symlinked skill directories, in a fixed order. The sync docs are also corrected: the hint is printed by `doctor`, not `sync`.
 
