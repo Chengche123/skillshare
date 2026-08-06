@@ -26,3 +26,12 @@
 
 ## Security & Configuration Tips
 优先使用 devcontainer，或与 `mise.toml` 中固定版本保持一致（`go 1.25.5`、`pnpm 10.28.0`）。如果改动了 `install`、`audit` 或 sandbox 相关逻辑，务必运行 `make test-redteam`，并避免引入不必要的网络依赖测试。
+
+## Deployment & Operations
+根目录 `DEPLOYMENT.md` 是本项目构建、发布、生产部署和运行维护的唯一事实来源。执行任何正式构建、发布、部署、回滚或服务变更前必须完整阅读并遵循该文档。
+
+- 构建命令、版本注入方式、二进制路径、systemd 单元、监听地址、端口、公开域名、健康检查、日志或回滚方式发生变化时，必须在同一任务和同一提交中更新 `DEPLOYMENT.md`。
+- 正式发布必须按 `DEPLOYMENT.md` 的顺序完成 Go 与 UI 验证，再构建带内嵌 UI 和 `git describe` 版本信息的二进制；不得部署 `dev` 版本。
+- 应用部署只替换程序二进制并重启 systemd 服务。不得把 `skillshare sync`、`update` 或 `install` 混入部署流程，也不得覆盖全局配置、skills 源仓库、registry、备份或其他用户数据。
+- Cloudflare Tunnel、DNS 和访问策略由宿主机外部配置管理。不得在仓库、命令输出或部署文档中记录 Tunnel Token、Cloudflare 凭据或其他秘密。
+- 每次经过验证的代码或部署文档变更都应创建聚焦的本地 Git 提交；GitHub 可用时推送到 `origin/main`。
