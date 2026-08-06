@@ -248,10 +248,4 @@ groups?: string[];
 
 该改动是向后兼容的。旧 `.metadata.json` 没有 `custom_groups` 字段时正常加载。新增字段使用 `omitempty`，没有分组的 skill 不产生额外 JSON 噪声。
 
-实现完成后需要按项目规则运行常规测试。由于会修改代码文件，还需要运行：
-
-```sh
-graphify update .
-```
-
-如果该命令报错中明确包含 `too large for HTML viz`，可以忽略该可视化产物过大的错误；其他错误不能忽略。
+实现完成后需要按项目规则运行常规测试。
