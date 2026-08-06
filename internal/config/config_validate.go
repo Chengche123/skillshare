@@ -13,21 +13,18 @@ import (
 func ValidateConfig(cfg *Config) (warnings []string, err error) {
 	var errs []string
 
-	// Source path validation
-	if cfg.Source == "" {
-		errs = append(errs, "source path is empty")
-	} else {
-		expanded := ExpandPath(cfg.Source)
-		info, statErr := os.Stat(expanded)
-		if statErr != nil {
-			if os.IsNotExist(statErr) {
-				errs = append(errs, fmt.Sprintf("source path does not exist: %s", cfg.Source))
-			} else {
-				errs = append(errs, fmt.Sprintf("cannot access source path: %v", statErr))
-			}
-		} else if !info.IsDir() {
-			errs = append(errs, fmt.Sprintf("source path is not a directory: %s", cfg.Source))
+	// Source path validation checks the effective source, including the default
+	// <BaseDir>/skills fallback when source/sources.skills are omitted.
+	sourcePath := cfg.EffectiveSkillsSource()
+	info, statErr := os.Stat(sourcePath)
+	if statErr != nil {
+		if os.IsNotExist(statErr) {
+			errs = append(errs, fmt.Sprintf("source path does not exist: %s", sourcePath))
+		} else {
+			errs = append(errs, fmt.Sprintf("cannot access source path: %v", statErr))
 		}
+	} else if !info.IsDir() {
+		errs = append(errs, fmt.Sprintf("source path is not a directory: %s", sourcePath))
 	}
 
 	// Global sync mode
@@ -36,6 +33,13 @@ func ValidateConfig(cfg *Config) (warnings []string, err error) {
 	}
 	if !IsValidTargetNaming(cfg.TargetNaming) {
 		errs = append(errs, fmt.Sprintf("invalid global target naming %q (valid: %s)", cfg.TargetNaming, strings.Join(ValidTargetNamings, ", ")))
+	}
+
+	// git_root scope keyword. An unknown value silently falls back to the skills
+	// scope in ScopeDir, so commit/push/pull would operate on the wrong repo
+	// without warning — reject it here instead.
+	if !ValidGitRoot(cfg.GitRoot) {
+		errs = append(errs, fmt.Sprintf("invalid git_root %q (valid: %s)", cfg.GitRoot, strings.Join(ValidGitRoots, ", ")))
 	}
 
 	// Per-target validation
@@ -72,8 +76,8 @@ func ValidateConfig(cfg *Config) (warnings []string, err error) {
 func ValidateProjectConfig(cfg *ProjectConfig, projectRoot string) (warnings []string, err error) {
 	var errs []string
 
-	// Source path is always .skillshare/skills/ — validate it exists
-	sourcePath := filepath.Join(projectRoot, ".skillshare", "skills")
+	sourcePath := cfg.EffectiveSkillsSource(projectRoot)
+	agentsSourcePath := cfg.EffectiveAgentsSource(projectRoot)
 	if info, statErr := os.Stat(sourcePath); statErr != nil {
 		if os.IsNotExist(statErr) {
 			// For project mode, missing source is a warning not an error —
@@ -101,20 +105,32 @@ func ValidateProjectConfig(cfg *ProjectConfig, projectRoot string) (warnings []s
 			continue
 		}
 
-		if sc.Path == "" {
+		var skillsBuiltin string
+		if t, ok := LookupProjectTarget(entry.Name); ok {
+			skillsBuiltin = t.Path
+		}
+		if sc.Path == "" && skillsBuiltin == "" {
 			// Known built-in targets are resolved from targets.yaml;
 			// custom targets must have an explicit path.
-			if _, known := LookupProjectTarget(entry.Name); !known {
-				errs = append(errs, fmt.Sprintf("target %q: missing path (custom targets require skills.path)", entry.Name))
-			}
+			errs = append(errs, fmt.Sprintf("target %q: missing path (custom targets require skills.path)", entry.Name))
 		} else {
-			absPath := sc.Path
-			if !filepath.IsAbs(sc.Path) {
-				absPath = filepath.Join(projectRoot, filepath.FromSlash(sc.Path))
-			} else {
-				absPath = ExpandPath(sc.Path)
+			skillsTargetPath := resolveProjectTargetPath(projectRoot, sc.Path, skillsBuiltin)
+			if sc.Path != "" {
+				errs = append(errs, validateTargetPath(entry.Name, skillsTargetPath)...)
 			}
-			errs = append(errs, validateTargetPath(entry.Name, absPath)...)
+			if skillsTargetPath != "" && pathsOverlap(sourcePath, skillsTargetPath) {
+				errs = append(errs, fmt.Sprintf("target %q: skills target path %s overlaps skills source %s — sync --force could destroy the source", entry.Name, skillsTargetPath, sourcePath))
+			}
+		}
+
+		ac := entry.AgentsConfig()
+		var agentsBuiltin string
+		if t, ok := LookupProjectAgentTarget(entry.Name); ok {
+			agentsBuiltin = t.Path
+		}
+		agentsTargetPath := resolveProjectTargetPath(projectRoot, ac.Path, agentsBuiltin)
+		if agentsTargetPath != "" && pathsOverlap(agentsSourcePath, agentsTargetPath) {
+			errs = append(errs, fmt.Sprintf("target %q: agents target path %s overlaps agents source %s — sync --force could destroy the source", entry.Name, agentsTargetPath, agentsSourcePath))
 		}
 	}
 
@@ -122,6 +138,42 @@ func ValidateProjectConfig(cfg *ProjectConfig, projectRoot string) (warnings []s
 		return warnings, errors.New(strings.Join(errs, "; "))
 	}
 	return warnings, nil
+}
+
+// resolveProjectTargetPath returns an absolute path for a project target.
+// Uses configPath if non-empty, else builtinDefault. Returns "" if both empty.
+func resolveProjectTargetPath(projectRoot, configPath, builtinDefault string) string {
+	path := strings.TrimSpace(configPath)
+	if path == "" {
+		path = strings.TrimSpace(builtinDefault)
+	}
+	if path == "" {
+		return ""
+	}
+	if filepath.IsAbs(path) {
+		return ExpandPath(path)
+	}
+	return filepath.Join(projectRoot, filepath.FromSlash(path))
+}
+
+// pathsOverlap returns true when a and b refer to the same directory or one
+// contains the other. Both inputs must be absolute. Used to reject configs
+// where a source directory aliases a sync target, which sync --force could
+// wipe.
+func pathsOverlap(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if a == b {
+		return true
+	}
+	upPrefix := ".." + string(filepath.Separator)
+	if rel, err := filepath.Rel(a, b); err == nil && rel != ".." && !strings.HasPrefix(rel, upPrefix) {
+		return true
+	}
+	if rel, err := filepath.Rel(b, a); err == nil && rel != ".." && !strings.HasPrefix(rel, upPrefix) {
+		return true
+	}
+	return false
 }
 
 // validateTargetPath checks a single target's path is accessible and is a directory.

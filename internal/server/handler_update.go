@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"skillshare/internal/audit"
+	"skillshare/internal/config"
 	"skillshare/internal/git"
 	"skillshare/internal/install"
 	"skillshare/internal/utils"
@@ -21,6 +23,28 @@ type updateRequest struct {
 	Force     bool   `json:"force"`
 	All       bool   `json:"all"`
 	SkipAudit bool   `json:"skipAudit"`
+}
+
+// missingTrackedRepoInfo describes a tracked repo declared in metadata whose
+// clone directory is absent on disk. Carried in update responses so the UI can
+// warn and offer rehydration (issue #212).
+type missingTrackedRepoInfo struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// missingTrackedRepos returns tracked repos declared in metadata but absent on disk.
+func (s *Server) missingTrackedRepos() []missingTrackedRepoInfo {
+	repos, err := install.GetMissingTrackedRepos(s.cfg.EffectiveSkillsSource())
+	if err != nil || len(repos) == 0 {
+		return nil
+	}
+	out := make([]missingTrackedRepoInfo, 0, len(repos))
+	for _, r := range repos {
+		out = append(out, missingTrackedRepoInfo{Name: r.Name, Source: r.Source, Branch: r.Branch})
+	}
+	return out
 }
 
 type updateResultItem struct {
@@ -94,7 +118,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			"results_blocked": blocked,
 			"scope":           "ui",
 		}, msg)
-		writeJSON(w, map[string]any{"results": results})
+		writeJSON(w, map[string]any{"results": results, "missingTrackedRepos": s.missingTrackedRepos()})
 		return
 	}
 
@@ -138,7 +162,7 @@ func (s *Server) updateSingleByKind(name, kind string, force, skipAudit bool) up
 		return s.updateAgent(name, force, skipAudit)
 	}
 	// Try exact skill path first (prevents basename collision with nested repos)
-	skillPath := filepath.Join(s.cfg.Source, name)
+	skillPath := filepath.Join(s.cfg.EffectiveSkillsSource(), name)
 	if entry := s.skillsStore.GetByPath(name); entry != nil && entry.Source != "" {
 		return s.updateRegularSkill(name, skillPath, skipAudit)
 	}
@@ -186,7 +210,7 @@ func (s *Server) updateAgent(name string, force, skipAudit bool) updateResultIte
 		}
 	}
 
-	source, err := install.ParseSource(entry.Source)
+	source, err := install.ParseSourceWithOptions(entry.Source, s.parseOpts())
 	if err != nil {
 		return updateResultItem{Name: metaKey, Kind: "agent", Action: "error", Message: "invalid source: " + err.Error()}
 	}
@@ -391,11 +415,13 @@ func (s *Server) updateRegularSkill(name, skillPath string, skipAudit bool) upda
 		}
 	}
 
+	sourceDir := s.cfg.EffectiveSkillsSource()
 	opts := install.InstallOptions{
 		Force:          true,
 		Update:         true,
 		SkipAudit:      skipAudit,
 		AuditThreshold: s.updateAuditThreshold(),
+		SourceDir:      sourceDir,
 	}
 	if s.IsProjectMode() {
 		opts.AuditProjectRoot = s.projectRoot
@@ -407,6 +433,10 @@ func (s *Server) updateRegularSkill(name, skillPath string, skipAudit bool) upda
 			Action:  "error",
 			Message: err.Error(),
 		}
+	}
+
+	if st, loadErr := install.LoadMetadataWithMigration(sourceDir, ""); loadErr == nil && st != nil {
+		s.skillsStore = st
 	}
 
 	item := updateResultItem{
@@ -425,24 +455,95 @@ func (s *Server) updateAll(force, skipAudit bool) []updateResultItem {
 	var results []updateResultItem
 
 	// Update tracked repos
-	repos, err := install.GetTrackedRepos(s.cfg.Source)
+	repos, err := install.GetTrackedRepos(s.cfg.EffectiveSkillsSource())
 	if err == nil {
 		for _, repo := range repos {
-			repoPath := filepath.Join(s.cfg.Source, repo)
+			repoPath := filepath.Join(s.cfg.EffectiveSkillsSource(), repo)
 			results = append(results, s.updateTrackedRepo(repo, repoPath, force, skipAudit))
 		}
 	}
 
 	// Update regular skills with source metadata
-	skills, err := getServerUpdatableSkills(s.cfg.Source, s.skillsStore)
+	skills, err := getServerUpdatableSkills(s.cfg.EffectiveSkillsSource(), s.skillsStore)
 	if err == nil {
 		for _, skill := range skills {
-			skillPath := filepath.Join(s.cfg.Source, skill)
+			skillPath := filepath.Join(s.cfg.EffectiveSkillsSource(), skill)
 			results = append(results, s.updateRegularSkill(skill, skillPath, skipAudit))
 		}
 	}
 
 	return results
+}
+
+// handleMissingTrackedRepos returns tracked repos declared in metadata whose
+// clone directories are absent on disk (issue #212), so the UI can warn on load.
+func (s *Server) handleMissingTrackedRepos(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	repos := s.missingTrackedRepos()
+	s.mu.RUnlock()
+	if repos == nil {
+		repos = []missingTrackedRepoInfo{}
+	}
+	writeJSON(w, map[string]any{"repos": repos})
+}
+
+// handleRehydrateTrackedRepos re-clones tracked repos declared in metadata whose
+// clone directories are absent on disk (issue #212). Mirrors bare CLI install.
+func (s *Server) handleRehydrateTrackedRepos(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sourceDir := s.cfg.EffectiveSkillsSource()
+	opts := install.InstallOptions{
+		AuditThreshold: s.updateAuditThreshold(),
+		SourceDir:      sourceDir,
+	}
+	if s.IsProjectMode() {
+		opts.AuditProjectRoot = s.projectRoot
+	}
+
+	results, err := install.RehydrateMissingTrackedRepos(sourceDir, s.parseOpts(), opts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Reload metadata + reconcile config so newly cloned repos register.
+	if st, lerr := install.LoadMetadataWithMigration(sourceDir, ""); lerr == nil && st != nil {
+		s.skillsStore = st
+	}
+	if s.IsProjectMode() {
+		if rErr := config.ReconcileProjectSkills(s.projectRoot, s.projectCfg, s.skillsStore, sourceDir); rErr != nil {
+			log.Printf("warning: failed to reconcile project skills config: %v", rErr)
+		}
+	} else {
+		if rErr := config.ReconcileGlobalSkills(s.cfg, s.skillsStore); rErr != nil {
+			log.Printf("warning: failed to reconcile global skills config: %v", rErr)
+		}
+	}
+
+	rehydrated, failed := 0, 0
+	for _, res := range results {
+		if res.Action == "rehydrated" {
+			rehydrated++
+		} else {
+			failed++
+		}
+	}
+	status, msg := "ok", ""
+	if failed > 0 {
+		status = "partial"
+		msg = fmt.Sprintf("%d repo(s) failed to rehydrate", failed)
+	}
+	s.writeOpsLog("install", status, start, map[string]any{
+		"name":       "--rehydrate",
+		"tracked":    true,
+		"scope":      "ui",
+		"rehydrated": rehydrated,
+		"failed":     failed,
+	}, msg)
+	writeJSON(w, map[string]any{"results": results})
 }
 
 // getServerUpdatableSkills returns relative paths of skills that have metadata with a remote source.

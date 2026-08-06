@@ -24,6 +24,52 @@ skillshare init --source ~/my-skills
 
 ---
 
+### `failed to load project config: ...`
+
+**Cause:** `.skillshare/config.yaml` exists but cannot be parsed (malformed YAML, wrong types, etc.). Mutating commands (`uninstall`, `new`, `enable`/`disable`, `check`) refuse to proceed in this state so they don't accidentally touch the default `.skillshare/skills/` directory when you have a custom `sources` configuration.
+
+**Solution:** Fix the YAML and re-run the command. Common issues:
+
+```yaml
+# WRONG — targets must be a list
+targets: {}
+
+# RIGHT
+targets: []
+```
+
+```yaml
+# WRONG — skills must be a list
+skills: my-skill
+
+# RIGHT
+skills:
+  - name: my-skill
+    source: github.com/org/my-skill
+```
+
+Validate the file with any YAML linter, or temporarily restore from `.skillshare/backups/` if you have one.
+
+---
+
+### `target "<name>": skills target path X overlaps skills source Y`
+
+**Cause:** Your `sources.skills` resolves to the same directory as a target's skills path (or one contains the other). For example, configuring `sources.skills: .claude/skills` together with a `claude` target — both point to `.claude/skills/`. Without this guard, `sync --force` would treat the source as a target directory and delete its contents.
+
+**Solution:** Choose a source path that does not alias any target. Common safe choices:
+
+```yaml
+# Co-locate with project docs
+sources:
+  skills: ./docs/skills
+
+# Keep under .skillshare/ (default — remove the sources key entirely)
+```
+
+The same check applies to `sources.agents` against agent target paths.
+
+---
+
 ## Target Errors
 
 ### `target add: path does not exist`
@@ -87,6 +133,30 @@ ignore:
   - "**/.git/**"
   - "**/node_modules/**"
 ```
+
+### `no space left on device` / `ENOSPC` during sync
+
+**Cause:** Something is filling the volume. Check the backup directory first, then your source.
+
+**Solution:**
+```bash
+df -h ~                                     # Confirm the volume is full
+du -sh ~/.local/share/skillshare/backups    # Backup usage
+du -sh ~/.config/skillshare/skills          # Source usage
+```
+
+If backups are large, prune them — retention runs automatically after each `sync`, but a directory grown before that can be cleared on demand:
+
+```bash
+skillshare backup --cleanup --dry-run   # Preview
+skillshare backup --cleanup
+```
+
+If a volume is pinned at 100%, `rm` can fail with "Permission denied" until a little space is freed. Free one large file first, then prune.
+
+If the **source** is large, the artifacts are inside your skills. Backups do not copy them (symlinked skills are skipped), but every target in copy mode does. Move runtime caches, model weights, and browser profiles outside the skill tree, or exclude them with `ignore:`.
+
+See [Backups & Disk Space](/docs/reference/commands/backup#backups--disk-space) for how backup scope differs from `.gitignore` and `ignore:`.
 
 ---
 
@@ -158,6 +228,57 @@ skillshare sync
 git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 ```
+
+### `Git root mismatch`
+
+**Cause:** `git_root` in `config.yaml` points to a scope directory that has no git repo, but another scope directory does. This happens when you change `git_root` without relocating the repository — switching scope means "start versioning a different directory", not "move the existing history". See [`git_root`](/docs/reference/targets/configuration#git-root).
+
+**Solution:** Pick one of the three options the error prints:
+```bash
+# Start a fresh repo at the configured scope (no history)
+skillshare init --git-root <scope>
+
+# Move the existing repo over, keeping history
+mv <old-scope>/.git <new-scope>/.git
+
+# Or keep using the existing repo: set git_root back in config.yaml
+#   git_root: <scope-that-has-the-repo>
+```
+
+### `tracked repository clone is missing`
+
+**Cause:** A tracked repo is declared in `.metadata.json`, but the clone directory (for example `skills/_team-skills/`) is missing locally. This often happens after cloning your skillshare source repo on a new machine because tracked repo directories are intentionally listed in the managed `.gitignore` block.
+
+**Solution:** Rehydrate the missing tracked repo clones from metadata:
+```bash
+skillshare install
+skillshare sync
+```
+
+For project mode:
+```bash
+skillshare install -p
+skillshare sync -p
+```
+
+`status`, `check`, `update --all`, and `doctor` report this state and suggest `skillshare install`.
+
+### `nested git repositories must be disabled first`
+
+**Cause:** With `git_root: root`, a subdirectory (e.g. a tracked skill repo under `skills/_org/`) has its own `.git`. Git would upload it as an **empty submodule**, silently dropping its files, so `commit`/`push` abort until each nested repo is disabled.
+
+**Solution:**
+```bash
+# Disable each reported nested repo (reversible — just rename back to re-enable)
+mv ~/.config/skillshare/<dir>/.git ~/.config/skillshare/<dir>/.git.disabled
+```
+Or use the one-click disable on the web UI Git Sync page. skillshare also keeps `config.yaml` out of a root-scope repo automatically (it holds machine-specific paths).
+
+### `Invalid git_root`
+
+**Cause:** `git_root` in `config.yaml` is set to an unrecognized value (e.g. a typo).
+
+**Solution:** Use one of `skills`, `agents`, `extras`, or `root` — or leave it empty (defaults to `skills`).
 
 ---
 
@@ -365,6 +486,27 @@ skillshare doctor
 
 # 3. Restart AI CLI
 ```
+
+### Antigravity does not load synced skills
+
+**Cause:** Antigravity's skill scanner only discovers **real directories** — it skips symlinks. skillshare's default `merge` mode creates one symlink per skill (an NTFS junction on Windows), so none of them are picked up. On Windows this surfaces as an `Incorrect function` error; on macOS and Linux the skills are silently absent.
+
+This is an Antigravity-side limitation, not a skillshare bug. Two workarounds:
+
+**Option 1 — switch the target to `copy` mode**
+
+```bash
+skillshare target antigravity --mode copy
+skillshare sync --force
+```
+
+Real directories are written instead of symlinks. Trade-off: re-run `skillshare sync` after editing a source skill.
+
+**Option 2 — point Antigravity at your source directory**
+
+In Antigravity: **Settings → Customizations → Skill Custom Paths → "+ Add"**, then enter the **absolute** path to your skillshare source (e.g. `/Users/you/.config/skillshare/skills`). The `~` shorthand is not expanded, so a full path is required.
+
+Either way, restart Antigravity to reload skills.
 
 ### `skill name 'X' is defined in multiple places`
 

@@ -18,35 +18,38 @@ var version = "dev"
 
 // commands maps command names to their handler functions
 var commands = map[string]func([]string) error{
-	"init":      cmdInit,
-	"install":   cmdInstall,
-	"uninstall": cmdUninstall,
-	"list":      cmdList,
-	"sync":      cmdSync,
-	"status":    cmdStatus,
-	"diff":      cmdDiff,
-	"backup":    cmdBackup,
-	"restore":   cmdRestore,
-	"collect":   cmdCollect,
-	"pull":      cmdPull,
-	"push":      cmdPush,
-	"doctor":    cmdDoctor,
-	"target":    cmdTarget,
-	"upgrade":   cmdUpgrade,
-	"update":    cmdUpdate,
-	"check":     cmdCheck,
-	"new":       cmdNew,
-	"search":    cmdSearch,
-	"trash":     cmdTrash,
-	"analyze":   cmdAnalyze,
-	"audit":     cmdAudit,
-	"hub":       cmdHub,
-	"log":       cmdLog,
-	"ui":        cmdUI,
-	"tui":       cmdTUIToggle,
-	"extras":    cmdExtras,
-	"enable":    cmdEnable,
-	"disable":   cmdDisable,
+	"init":         cmdInit,
+	"install":      cmdInstall,
+	"uninstall":    cmdUninstall,
+	"list":         cmdList,
+	"sync":         cmdSync,
+	"status":       cmdStatus,
+	"diff":         cmdDiff,
+	"backup":       cmdBackup,
+	"restore":      cmdRestore,
+	"collect":      cmdCollect,
+	"pull":         cmdPull,
+	"push":         cmdPush,
+	"commit":       cmdCommit,
+	"doctor":       cmdDoctor,
+	"target":       cmdTarget,
+	"upgrade":      cmdUpgrade,
+	"update":       cmdUpdate,
+	"check":        cmdCheck,
+	"new":          cmdNew,
+	"search":       cmdSearch,
+	"trash":        cmdTrash,
+	"analyze":      cmdAnalyze,
+	"audit":        cmdAudit,
+	"hub":          cmdHub,
+	"log":          cmdLog,
+	"ui":           cmdUI,
+	"__ui-restart": cmdUIRestart,
+	"tui":          cmdTUIToggle,
+	"extras":       cmdExtras,
+	"enable":       cmdEnable,
+	"disable":      cmdDisable,
+	"completion":   cmdCompletion,
 }
 
 func main() {
@@ -253,6 +256,7 @@ func printUsage() {
 
 	// Git Remote
 	fmt.Println("GIT REMOTE")
+	cmd("commit", "", "Create local git commit without pushing")
 	cmd("push", "", "Commit and push source to git remote")
 	cmd("pull", "", "Pull from git remote and sync to targets")
 	fmt.Println()
@@ -265,6 +269,7 @@ func printUsage() {
 	cmd("tui", "[on|off]", "Toggle interactive TUI mode")
 	cmd("ui", "", "Launch web dashboard")
 	cmd("doctor", "", "Check environment and diagnose issues")
+	cmd("completion", "<shell>", "Generate shell completion scripts")
 	cmd("version", "", "Show version")
 	cmd("help", "", "Show this help")
 	fmt.Println()
@@ -286,6 +291,7 @@ func printUsage() {
 	fmt.Println("  skillshare install anthropics/skills/pdf -p         # Project install")
 	fmt.Println("  skillshare install repo -a my-agent                 # Install specific agent")
 	fmt.Println("  skillshare target add cursor -p                     # Project target")
+	fmt.Println("  skillshare commit -m \"Update skill\"                # Commit locally")
 	fmt.Println("  skillshare push -m \"Add new skill\"                  # Push to remote")
 	fmt.Println("  skillshare pull                                     # Pull from remote")
 	fmt.Println("  skillshare install github.com/team/skills --track   # Team repo")

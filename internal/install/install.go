@@ -3,6 +3,7 @@ package install
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 )
@@ -168,9 +169,9 @@ func normalizeCloneURL(u string) string {
 	u = strings.TrimSpace(u)
 	u = strings.TrimSuffix(u, ".git")
 	u = strings.TrimSuffix(u, "/")
-	// git@github.com:owner/repo → github.com/owner/repo
-	if strings.HasPrefix(u, "git@") {
-		u = strings.TrimPrefix(u, "git@")
+	// user@github.com:owner/repo → github.com/owner/repo
+	if at := strings.Index(u, "@"); at > 0 && !strings.Contains(u, "://") {
+		u = u[at+1:]
 		u = strings.Replace(u, ":", "/", 1)
 	}
 	// https://github.com/owner/repo → github.com/owner/repo
@@ -192,6 +193,17 @@ func buildForceHint(rawSource, into string) string {
 
 // removeAll is a test hook used by audit/install paths.
 var removeAll = os.RemoveAll
+
+var removeTempRepoPath = os.RemoveAll
+
+func cleanupTempRepo(path string) {
+	if path == "" {
+		return
+	}
+	if err := removeTempRepoPath(path); err != nil {
+		slog.Warn("failed to clean up temp repo", "path", path, "error", err)
+	}
+}
 
 // Install executes the installation from source to destination.
 // This file is intentionally a thin facade; implementation lives in split files.
@@ -221,9 +233,23 @@ func DiscoverFromGitSubdirWithProgress(source *Source, onProgress ProgressCallba
 	return discoverFromGitSubdirWithProgressImpl(source, onProgress)
 }
 
+// TrackKindAmbiguousError is returned by InferTrackedKind when a tracked
+// install targets a repository that contains both skills and agents and the
+// caller did not pass an explicit kind. It carries the discovered counts so
+// the UI can present a kind picker without re-cloning.
+type TrackKindAmbiguousError struct {
+	Skills int
+	Agents int
+}
+
+func (e *TrackKindAmbiguousError) Error() string {
+	return "tracked install is ambiguous for mixed repositories; pass --kind skill or --kind agent"
+}
+
 // InferTrackedKind determines which resource kind a tracked install should use.
 // Pure-agent repositories resolve to "agent". Mixed repositories must specify
-// the kind explicitly to avoid ambiguous install roots.
+// the kind explicitly to avoid ambiguous install roots; in that case the
+// returned error is a *TrackKindAmbiguousError carrying the discovered counts.
 func InferTrackedKind(source *Source, explicitKind string) (string, error) {
 	if !source.IsGit() {
 		return "", fmt.Errorf("--track requires a git repository source")
@@ -249,7 +275,10 @@ func InferTrackedKind(source *Source, explicitKind string) (string, error) {
 
 	switch {
 	case discovery.HasSkills() && discovery.HasAgents():
-		return "", fmt.Errorf("tracked install is ambiguous for mixed repositories; pass --kind skill or --kind agent")
+		return "", &TrackKindAmbiguousError{
+			Skills: len(discovery.Skills),
+			Agents: len(discovery.Agents),
+		}
 	case discovery.HasAgents() && !discovery.HasSkills():
 		return "agent", nil
 	default:
@@ -285,4 +314,15 @@ func GetUpdatableSkills(sourceDir string) ([]string, error) {
 // GetTrackedRepos returns tracked repositories in the source directory.
 func GetTrackedRepos(sourceDir string) ([]string, error) {
 	return getTrackedReposImpl(sourceDir)
+}
+
+// GetMissingTrackedRepos returns tracked metadata entries whose repo clone is absent.
+func GetMissingTrackedRepos(sourceDir string) ([]TrackedRepoMeta, error) {
+	return getMissingTrackedReposImpl(sourceDir)
+}
+
+// RehydrateMissingTrackedRepos re-clones tracked repos declared in metadata whose
+// clone directories are absent on disk. Repos already present are left untouched.
+func RehydrateMissingTrackedRepos(sourceDir string, parseOpts ParseOptions, opts InstallOptions) ([]RehydrateResult, error) {
+	return rehydrateMissingTrackedReposImpl(sourceDir, parseOpts, opts)
 }

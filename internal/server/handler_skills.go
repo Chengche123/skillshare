@@ -336,7 +336,7 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetSkillFile(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	s.mu.RUnlock()
 
 	name := r.PathValue("name")
@@ -424,18 +424,19 @@ func (s *Server) handleUninstallRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove from .gitignore (project mode writes to .skillshare/.gitignore with "skills/" prefix)
-	gitDir := s.gitignoreDir()
-	if s.IsProjectMode() {
-		install.RemoveFromGitIgnore(gitDir, filepath.Join("skills", repoName))
-	} else {
-		install.RemoveFromGitIgnore(gitDir, repoName)
-	}
-
-	// Move to trash instead of permanent delete
+	// Move to trash first — only clean gitignore after durable removal.
 	if _, err := trash.MoveToTrash(repoPath, repoName, s.trashBase()); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to trash repo: "+err.Error())
 		return
+	}
+
+	gitDir := s.gitignoreDir()
+	if gitDir != "" {
+		if s.IsProjectMode() {
+			install.RemoveFromGitIgnore(gitDir, s.projectGitignorePrefix()+"/"+repoName)
+		} else {
+			install.RemoveFromGitIgnore(gitDir, repoName)
+		}
 	}
 
 	// Prune store entries: the repo itself + skills belonging to it.
@@ -473,7 +474,7 @@ func (s *Server) handleUninstallRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.skillsStore.Save(s.cfg.Source); err != nil {
+	if err := s.skillsStore.Save(s.cfg.EffectiveSkillsSource()); err != nil {
 		log.Printf("warning: failed to save metadata after repo uninstall: %v", err)
 	}
 
@@ -534,8 +535,9 @@ func (s *Server) handleUninstallSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find skill path
-	discovered, err := sync.DiscoverSourceSkills(s.cfg.Source)
+	// Find skill path. Disabled skills are listed in .skillignore, but the UI
+	// still shows them, so single-resource uninstall must resolve them too (#190).
+	discovered, err := sync.DiscoverSourceSkillsAll(s.cfg.EffectiveSkillsSource())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -572,10 +574,10 @@ func (s *Server) handleUninstallSkill(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveTrackedRepo resolves a repo name (flat or nested) to its directory name
-// and absolute path under s.cfg.Source. Returns ("", "", nil) if not found.
+// and absolute path under s.cfg.EffectiveSkillsSource(). Returns ("", "", nil) if not found.
 // Returns a non-nil error for ambiguous matches or internal failures.
 func (s *Server) resolveTrackedRepo(input string) (string, string, error) {
-	sourceRoot := filepath.Clean(s.cfg.Source)
+	sourceRoot := filepath.Clean(s.cfg.EffectiveSkillsSource())
 	candidates := []string{input}
 	if !strings.HasPrefix(filepath.Base(input), "_") {
 		if dir := filepath.Dir(input); dir != "." && dir != "" {
@@ -596,7 +598,7 @@ func (s *Server) resolveTrackedRepo(input string) (string, string, error) {
 	}
 
 	// Fallback: match nested tracked repos by basename.
-	repos, err := install.GetTrackedRepos(s.cfg.Source)
+	repos, err := install.GetTrackedRepos(s.cfg.EffectiveSkillsSource())
 	if err != nil {
 		return "", "", fmt.Errorf("failed to list tracked repositories: %w", err)
 	}

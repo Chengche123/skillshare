@@ -133,6 +133,7 @@ func TestIsScannable(t *testing.T) {
 		{"shell", "setup.sh", true},
 		{"python", "script.py", true},
 		{"go", "main.go", true},
+		{"swift", "ViewModel.swift", true},
 		{"no extension", "Makefile", true},
 		{"png", "image.png", false},
 		{"jpg", "photo.jpg", false},
@@ -228,6 +229,60 @@ func TestScanSkill_ExternalLinkSkipped(t *testing.T) {
 	for _, f := range result.Findings {
 		if f.Pattern == "dangling-link" {
 			t.Errorf("unexpected dangling-link finding for external link: %+v", f)
+		}
+	}
+}
+
+func TestScanSkill_DanglingLink_CustomSchemeSkipped(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "my-skill")
+	os.MkdirAll(skillDir, 0755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("# Skill\n\n[open viewer](vscode://ms-windows-ai-studio.windows-ai-studio/open_data_viewer?file=<file_path>)\n"), 0644)
+
+	result, err := ScanSkill(skillDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range result.Findings {
+		if f.Pattern == "dangling-link" {
+			t.Errorf("unexpected dangling-link finding for custom URI scheme: %+v", f)
+		}
+	}
+}
+
+func TestScanSkill_DanglingLink_UppercaseSchemeSkipped(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "my-skill")
+	os.MkdirAll(skillDir, 0755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("# Skill\n\n[open in VS Code](VSCode://vscode.github-authentication/did-authenticate?windowId=1)\n"), 0644)
+
+	result, err := ScanSkill(skillDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range result.Findings {
+		if f.Pattern == "dangling-link" {
+			t.Errorf("unexpected dangling-link finding for uppercase custom URI scheme: %+v", f)
+		}
+	}
+}
+
+func TestScanSkill_DanglingLink_BracketPlaceholderWithFollowingParens_NoFinding(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "my-skill")
+	os.MkdirAll(skillDir, 0755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("# Skill\n\n- **Duplicate Rows**: [Count] ([Percentage]%)\n"), 0644)
+
+	result, err := ScanSkill(skillDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range result.Findings {
+		if f.Pattern == "dangling-link" {
+			t.Errorf("unexpected dangling-link finding for bracket placeholder text: %+v", f)
 		}
 	}
 }
@@ -677,6 +732,24 @@ func TestScanSkill_DocumentationLink_OnlyExternal(t *testing.T) {
 	}
 	if !foundExternal {
 		t.Error("documentation link should trigger external-link")
+	}
+}
+
+func TestScanSkill_TrustedDocumentationLinkSkipped(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "trusted-doc-skill")
+	os.MkdirAll(skillDir, 0755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("# Skill\n\n[Microsoft docs](https://learn.microsoft.com/en-us/azure/ai-foundry/)\n"), 0644)
+
+	result, err := ScanSkill(skillDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range result.Findings {
+		if f.Pattern == "external-link" {
+			t.Errorf("unexpected external-link finding for trusted documentation link: %+v", f)
+		}
 	}
 }
 

@@ -4,20 +4,48 @@
   "title": "Skillshare Global Configuration",
   "description": "Configuration file for skillshare — the universal AI skill manager. Location: ~/.config/skillshare/config.yaml",
   "type": "object",
-  "required": ["source"],
   "additionalProperties": false,
   "properties": {
     "source": {
       "type": "string",
-      "description": "Path to the skills source directory (single source of truth). Supports ~ for home directory.",
+      "description": "Legacy top-level skills source path. Prefer sources.skills (added in v0.19.16). When both are set, sources.skills wins. Supports ~ for home directory.",
       "default": "~/.config/skillshare/skills",
       "examples": ["~/.config/skillshare/skills", "/home/user/my-skills"]
     },
     "agents_source": {
       "type": "string",
-      "description": "Path to the agents source directory. Supports ~ for home directory. Defaults to ~/.config/skillshare/agents if not set.",
+      "description": "Legacy top-level agents source path. Prefer sources.agents (added in v0.19.16). When both are set, sources.agents wins. Supports ~ for home directory.",
       "default": "~/.config/skillshare/agents",
       "examples": ["~/.config/skillshare/agents", "/home/user/my-agents"]
+    },
+    "sources": {
+      "type": "object",
+      "description": "Custom source directories for global resources (added in v0.19.16). Mirrors project-mode sources. When set, each key overrides the corresponding legacy top-level field (source / agents_source / extras_source). Supports ~ for home directory.",
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "type": "string",
+          "description": "Custom skills source directory. Falls back to source (legacy) or ~/.config/skillshare/skills.",
+          "examples": ["~/work/skills", "/home/user/my-skills"]
+        },
+        "agents": {
+          "type": "string",
+          "description": "Custom agents source directory. Falls back to agents_source (legacy) or ~/.config/skillshare/agents.",
+          "examples": ["~/work/agents"]
+        },
+        "extras": {
+          "type": "string",
+          "description": "Custom extras parent directory. Falls back to extras_source (legacy) or the sibling 'extras' directory next to the skills source.",
+          "examples": ["~/work/extras"]
+        }
+      }
+    },
+    "git_root": {
+      "type": "string",
+      "description": "Directory scope that the git integration (commit/push/pull) operates on. 'skills' (default) versions the skills source; 'agents' and 'extras' version those sources; 'root' versions the entire ~/.config/skillshare/ directory (skills + agents + extras) under one repo. Changing this requires re-running 'skillshare init' so git is set up at the new directory.",
+      "enum": ["skills", "agents", "extras", "root"],
+      "default": "skills",
+      "examples": ["skills", "root"]
     },
     "mode": {
       "type": "string",
@@ -52,11 +80,14 @@
       "items": {
         "type": "string"
       },
-      "default": ["**/.DS_Store", "**/.git/**"],
-      "examples": [["**/.DS_Store", "**/.git/**", "**/node_modules/**"]]
+      "default": [".DS_Store", ".git/", "__pycache__/"],
+      "examples": [[".DS_Store", ".git/", "__pycache__/", "node_modules/"]]
     },
     "audit": {
       "$ref": "#/$defs/auditConfig"
+    },
+    "context_budget": {
+      "$ref": "#/$defs/contextBudgetConfig"
     },
     "hub": {
       "$ref": "#/$defs/hubConfig"
@@ -72,6 +103,18 @@
       "items": { "type": "string" },
       "uniqueItems": true,
       "examples": [["git.company.com", "code.internal.io"]]
+    },
+    "azure_hosts": {
+      "type": "array",
+      "description": "Hostnames of self-hosted Azure DevOps Server instances. The built-in patterns for dev.azure.com and *.visualstudio.com are always active.",
+      "items": { "type": "string" },
+      "uniqueItems": true,
+      "examples": [["azuredevops.mycompany.com"]]
+    },
+    "preserve_tilde_on_save": {
+      "type": "boolean",
+      "description": "When true, fold $HOME prefixes back to ~ when serializing this config to YAML. Keeps the on-disk config portable across machines (e.g. when shared via dotfiles). The in-memory config is unaffected; Load() still expands ~ as usual.",
+      "default": false
     },
     "extras": {
       "type": "array",
@@ -159,7 +202,7 @@
         },
         "agents": {
           "type": "object",
-          "description": "(Reserved — not yet available) Agents-specific target configuration. Will be enabled in a future release.",
+          "description": "Agents-specific target configuration. Controls which agents are synced to this target, the sync mode, and the target path.",
           "additionalProperties": false,
           "properties": {
             "path": { "type": "string" },
@@ -167,6 +210,25 @@
             "include": { "type": "array", "items": { "type": "string" } },
             "exclude": { "type": "array", "items": { "type": "string" } }
           }
+        }
+      }
+    },
+    "contextBudgetConfig": {
+      "type": "object",
+      "description": "Token budget warning thresholds. Warnings appear after sync and analyze when token count exceeds budget.",
+      "additionalProperties": false,
+      "properties": {
+        "warn_always_loaded_tokens": {
+          "type": "integer",
+          "description": "Warn when always-loaded tokens exceed this value. 0 disables the warning.",
+          "default": 10000,
+          "minimum": 0
+        },
+        "warn_on_demand_tokens": {
+          "type": "integer",
+          "description": "Warn when on-demand tokens exceed this value. 0 disables the warning.",
+          "default": 100000,
+          "minimum": 0
         }
       }
     },
@@ -286,6 +348,11 @@
           "type": "boolean",
           "description": "When true, files from subdirectories are synced directly into the target root instead of preserving directory structure.",
           "default": false
+        },
+        "extension": {
+          "type": "string",
+          "description": "Transform each file through an extension before writing it to this target (copy mode only). A bare name resolves under the extensions directory; a path (containing a separator or starting with '.') is used directly.",
+          "examples": ["md2gemini", "./my-converter.js"]
         }
       }
     }

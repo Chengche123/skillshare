@@ -143,10 +143,62 @@ The same `skillshare init` run creates both directories. Agents are single `.md`
 - `~/.cursor/agents/` — Cursor
 - `~/.augment/agents/` — Augment
 - `~/.config/opencode/agents/` — OpenCode
+- `~/.factory/droids/` — Droid
 
 Other targets are silently skipped during agent sync (with a `target(s) skipped for agents (no agents path)` warning). The same merge / copy / symlink modes that apply to skills also apply to agents.
 
 See [Agents](/docs/understand/agents) for the full agent file format, `.agentignore` rules, and discovery semantics.
+
+---
+
+## Custom Source Directories
+
+By default, global mode reads skills from `~/.config/skillshare/skills/`, agents from `~/.config/skillshare/agents/`, and derives the extras parent from the skills source. Since v0.19.16, the optional top-level `sources` map lets you override any of these:
+
+```yaml
+# ~/.config/skillshare/config.yaml
+sources:
+  skills: ~/work/skills
+  agents: ~/work/agents
+  extras: ~/work/extras
+targets:
+  claude:
+    skills:
+      path: ~/.claude/skills
+```
+
+Each key is optional — omit a key to keep its built-in default. Paths support `~` (home expansion) and absolute paths.
+
+**Common layouts:**
+
+```yaml
+# Point all three at a shared dotfiles directory
+sources:
+  skills: ~/dotfiles/skillshare/skills
+  agents: ~/dotfiles/skillshare/agents
+  extras: ~/dotfiles/skillshare/extras
+
+# Override only skills; agents and extras keep their defaults
+sources:
+  skills: ~/projects/team-skills
+```
+
+### Backward Compatibility
+
+The pre-v0.19.16 top-level fields are still accepted and continue to work unchanged:
+
+```yaml
+# Legacy format — fully supported, no auto-migration on save
+source: ~/.config/skillshare/skills
+agents_source: ~/.config/skillshare/agents
+extras_source: ~/.config/skillshare/extras
+```
+
+When both formats are present, the `sources.<key>` value wins over the corresponding legacy field. Existing configs are never auto-rewritten; only fresh `skillshare init` runs emit the new `sources:` shape.
+
+### When This Matters
+
+The same feature exists in project mode (see [Project Skills](/docs/understand/project-skills#custom-source-directories) for the project-mode form, which also supports relative paths from the project root).
 
 ---
 
@@ -158,8 +210,9 @@ Targets are AI CLI skill directories that skillshare syncs to.
 - `~/.claude/skills/` — Claude Code
 - `~/.cursor/skills/` — Cursor
 - `~/.codex/skills/` — OpenAI Codex CLI
+- `~/.gemini/config/skills/` — Antigravity
 - `~/.gemini/skills/` — Gemini CLI
-- And [56+ more](/docs/reference/targets/supported-targets)
+- And [64+ more](/docs/reference/targets/supported-targets)
 
 **Auto-detection:** When you run `skillshare init`, it automatically detects installed AI CLIs and adds them as targets.
 

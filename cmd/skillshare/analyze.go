@@ -208,7 +208,7 @@ func runAnalyze(opts *analyzeOptions) error {
 	}
 	if opts.targetName == "" && !opts.json && shouldLaunchTUI(opts.noTUI, cfg) {
 		loadFn := func() analyzeLoadResult {
-			discovered, err := ssync.DiscoverSourceSkillsForAnalyze(cfg.Source)
+			discovered, err := ssync.DiscoverSourceSkillsForAnalyze(cfg.EffectiveSkillsSource())
 			if err != nil {
 				return analyzeLoadResult{err: err}
 			}
@@ -220,14 +220,14 @@ func runAnalyze(opts *analyzeOptions) error {
 		}
 		return runAnalyzeTUI(loadFn, "global", opts.filter)
 	}
-	return runAnalyzeCore(cfg.Source, cfg.Targets, cfg.Mode, opts)
+	return runAnalyzeCore(cfg.EffectiveSkillsSource(), cfg.Targets, cfg.Mode, cfg.ContextBudget, opts)
 }
 
 const charsPerToken = 4
 
 func estimateTokens(chars int) int { return chars / charsPerToken }
 
-func runAnalyzeCore(sourcePath string, targets map[string]config.TargetConfig, defaultMode string, opts *analyzeOptions) error {
+func runAnalyzeCore(sourcePath string, targets map[string]config.TargetConfig, defaultMode string, budget config.ContextBudgetConfig, opts *analyzeOptions) error {
 	var sp *ui.Spinner
 	if !opts.json {
 		sp = ui.StartSpinner("Analyzing skills...")
@@ -298,6 +298,12 @@ func runAnalyzeCore(sourcePath string, targets map[string]config.TargetConfig, d
 	} else {
 		printAnalyzeTable(entries)
 	}
+
+	if violations := checkBudget(entries, budget); len(violations) > 0 {
+		fmt.Println()
+		printBudgetWarning(violations, false)
+	}
+
 	return nil
 }
 

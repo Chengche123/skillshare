@@ -12,10 +12,21 @@ targets:
     skills:
       global: "~/.config/agents/skills"
       project: ".agents/skills"
+    also_scans:
+      global: ["~/.claude/skills"]
+      project: [".claude/skills"]
   - name: antigravity
     skills:
-      global: "~/.gemini/antigravity/skills"
-      project: ".agent/skills"
+      global: "~/.gemini/config/skills"
+      project: ".agents/skills"
+    also_scans:
+      global: ["~/.agents/skills"]
+    aliases: [antigravity-cli]
+  - name: aiderdesk
+    skills:
+      global: "~/.aider-desk/skills"
+      project: ".aider-desk/skills"
+    aliases: [aider-desk]
   - name: astrbot
     skills:
       global: "~/.astrbot/data/skills"
@@ -39,14 +50,24 @@ targets:
       global: "~/.claude/agents"
       project: ".claude/agents"
     aliases: [claude-code]
+  - name: codearts
+    skills:
+      global: "~/.codeartsdoer/skills"
+      project: ".codeartsdoer/skills"
+    aliases: [codearts-agent]
   - name: cline
     skills:
-      global: "~/.agents/skills"
-      project: ".agents/skills"
+      global: "~/.cline/skills"
+      project: ".cline/skills"
   - name: codebuddy
     skills:
       global: "~/.codebuddy/skills"
       project: ".codebuddy/skills"
+  - name: codestudio
+    skills:
+      global: "~/.codestudio/skills"
+      project: ".codestudio/skills"
+    aliases: [code-studio]
   - name: comate
     skills:
       global: "~/.comate/skills"
@@ -55,6 +76,8 @@ targets:
     skills:
       global: "~/.codex/skills"
       project: ".agents/skills"
+    also_scans:
+      global: ["~/.agents/skills"]
   - name: commandcode
     skills:
       global: "~/.commandcode/skills"
@@ -72,6 +95,9 @@ targets:
     skills:
       global: "~/.copilot/skills"
       project: ".github/skills"
+    agents:
+      global: "~/.copilot/agents"
+      project: ".github/agents"
     aliases: [github-copilot]
   - name: crush
     skills:
@@ -80,32 +106,65 @@ targets:
   - name: cursor
     skills:
       global: "~/.cursor/skills"
-      project: ".cursor/skills"
+      project: ".agents/skills"
     agents:
       global: "~/.cursor/agents"
       project: ".cursor/agents"
+    also_scans:
+      global: ["~/.agents/skills", "~/.claude/skills", "~/.codex/skills"]
+      project: [".claude/skills", ".codex/skills"]
   - name: deepagents
     skills:
       global: "~/.deepagents/agent/skills"
       project: ".deepagents/skills"
     aliases: [deep-agents]
+  - name: devin
+    skills:
+      global: "~/.config/devin/skills"
+      project: ".devin/skills"
+    aliases: [devin-terminal]
+  - name: dexto
+    skills:
+      global: "~/.agents/skills"
+      project: ".agents/skills"
   - name: droid
     skills:
       global: "~/.factory/skills"
       project: ".factory/skills"
+    agents:
+      global: "~/.factory/droids"
+      project: ".factory/droids"
+    aliases: [factory]
   - name: firebender
     skills:
       global: "~/.firebender/skills"
       project: ".firebender/skills"
+    also_scans:
+      global: ["~/.agents/skills", "~/.claude/skills", "~/.codex/skills", "~/.cursor/skills", "~/.goose/skills"]
+  - name: forgecode
+    skills:
+      global: "~/forge/skills"
+      project: ".forge/skills"
+    aliases: [forge-code]
   - name: gemini
     skills:
       global: "~/.gemini/skills"
       project: ".gemini/skills"
+    also_scans:
+      global: ["~/.agents/skills"]
+      project: [".agents/skills"]
     aliases: [gemini-cli]
   - name: goose
     skills:
       global: "~/.config/goose/skills"
       project: ".goose/skills"
+  - name: grok
+    skills:
+      global: "~/.grok/skills"
+      project: ".grok/skills"
+    also_scans:
+      global: ["~/.agents/skills"]
+    aliases: [xai, grok-cli]
   - name: hermes
     skills:
       global: "~/.hermes/skills"
@@ -129,6 +188,9 @@ targets:
     skills:
       global: "~/.config/agents/skills"
       project: ".agents/skills"
+    also_scans:
+      global: ["~/.agents/skills", "~/.claude/skills", "~/.codex/skills"]
+      project: [".claude/skills", ".codex/skills"]
     aliases: [kimi-cli]
   - name: kiro
     skills:
@@ -205,6 +267,19 @@ targets:
     skills:
       global: "~/.roo/skills"
       project: ".roo/skills"
+    also_scans:
+      global: ["~/.agents/skills"]
+      project: [".agents/skills"]
+  - name: rovodev
+    skills:
+      global: "~/.rovodev/skills"
+      project: ".rovodev/skills"
+    aliases: [rovo-dev]
+  - name: tabnine
+    skills:
+      global: "~/.tabnine/agent/skills"
+      project: ".tabnine/agent/skills"
+    aliases: [tabnine-cli]
   - name: trae
     skills:
       global: "~/.trae/skills"
@@ -242,6 +317,10 @@ targets:
     skills:
       global: "~/Library/Developer/Xcode/CodingAssistant/codex/skills"
       project: ".codex/skills"
+  - name: zed
+    skills:
+      global: "~/.agents/skills"
+      project: ".agents/skills"
   - name: zencoder
     skills:
       global: "~/.zencoder/skills"

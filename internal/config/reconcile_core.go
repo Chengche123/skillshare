@@ -115,6 +115,12 @@ func reconcileSkillsWalk(sourcePath string, store *install.MetadataStore, onFoun
 			result.changed = true
 		}
 
+		if tracked {
+			if changed, hashErr := store.RefreshTrackedRootSkillHashes(fullPath, path); hashErr == nil && changed {
+				result.changed = true
+			}
+		}
+
 		if onFound != nil {
 			onFound(fullPath)
 		}

@@ -12,7 +12,7 @@ import (
 	"skillshare/internal/testutil"
 )
 
-func TestBackup_AfterSync_ResolvesSymlinks(t *testing.T) {
+func TestBackup_AfterSync_SkipsSymlinkedSkills(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
@@ -48,21 +48,24 @@ targets:
 	backupResult := sb.RunCLI("backup")
 	backupResult.AssertSuccess(t)
 
-	// Verify backup contains local skill but not the symlinked one
+	// Verify backup contains the local skill only.
 	backupDir := filepath.Join(sb.Home, ".local", "share", "skillshare", "backups")
 	entries, err := os.ReadDir(backupDir)
 	if err != nil || len(entries) == 0 {
 		t.Fatal("backup directory should contain a timestamp directory")
 	}
 
-	backupPath := filepath.Join(backupDir, entries[0].Name(), "claude")
+	// os.ReadDir returns entries sorted ascending, so the newest backup —
+	// the one taken after the symlink existed — is the last entry.
+	latest := entries[len(entries)-1]
+	backupPath := filepath.Join(backupDir, latest.Name(), "claude")
 	if _, err := os.Stat(filepath.Join(backupPath, "my-local", "SKILL.md")); err != nil {
 		t.Error("local skill should be in backup")
 	}
-	// Symlinked skills are now followed at the top level and their content
-	// is copied, so merge-mode targets are fully backed up.
-	if _, err := os.Stat(filepath.Join(backupPath, "agent-browser", "SKILL.md")); err != nil {
-		t.Error("symlinked skill should be resolved and backed up")
+	// Symlinked skills live in the source and are recreated by sync, so the
+	// backup must not duplicate their content (issue #252).
+	if _, err := os.Lstat(filepath.Join(backupPath, "agent-browser")); !os.IsNotExist(err) {
+		t.Error("symlinked skill should be skipped, not copied into the backup")
 	}
 }
 

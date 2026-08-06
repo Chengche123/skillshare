@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"skillshare/internal/install"
 )
 
 func TestHandlePutSkillContent_WritesFile(t *testing.T) {
@@ -135,5 +138,167 @@ func TestHandlePutSkillContent_RejectsTraversal(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "# victim") {
 		t.Errorf("victim content was modified: %q", got)
+	}
+}
+
+func TestHandlePatchSkillSource_RemoteUpdateFailureDoesNotPersistMetadata(t *testing.T) {
+	s, src := newTestServer(t)
+
+	repoDir := filepath.Join(src, "_team-repo")
+	skillDir := filepath.Join(repoDir, "skill-a")
+	if err := os.MkdirAll(filepath.Join(repoDir, ".git"), 0o755); err != nil {
+		t.Fatalf("create .git dir: %v", err)
+	}
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("create skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: skill-a\n---\n# skill-a"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	s.skillsStore = install.NewMetadataStore()
+	s.skillsStore.Set("_team-repo/skill-a", &install.MetadataEntry{
+		Source:  "https://github.com/old/repo/skill-a",
+		RepoURL: "https://github.com/old/repo.git",
+		Tracked: true,
+	})
+	if err := s.skillsStore.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+
+	body := patchSourceRequest{Source: "https://github.com/new/repo/skill-a"}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/_team-repo__skill-a/source", bytes.NewReader(raw))
+	req.SetPathValue("name", "_team-repo__skill-a")
+	rr := httptest.NewRecorder()
+	s.handlePatchSkillSource(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "failed to update git remote URL") {
+		t.Fatalf("response %q does not mention remote update failure", rr.Body.String())
+	}
+
+	store, err := install.LoadMetadata(src)
+	if err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	entry := store.Get("_team-repo/skill-a")
+	if entry == nil {
+		t.Fatal("metadata entry missing")
+	}
+	if entry.Source != "https://github.com/old/repo/skill-a" {
+		t.Fatalf("metadata Source = %q, want old source", entry.Source)
+	}
+	if entry.RepoURL != "https://github.com/old/repo.git" {
+		t.Fatalf("metadata RepoURL = %q, want old repo URL", entry.RepoURL)
+	}
+}
+
+func TestHandlePatchSkillSource_UpdatesRemoteAndMetadata(t *testing.T) {
+	s, src := newTestServer(t)
+
+	repoDir := filepath.Join(src, "_team-repo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("create repo dir: %v", err)
+	}
+	initGitRepo(t, repoDir)
+	cmd := exec.Command("git", "remote", "add", "origin", "https://github.com/old/repo.git")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add failed: %v\n%s", err, out)
+	}
+
+	skillDir := filepath.Join(repoDir, "skill-a")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("create skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: skill-a\n---\n# skill-a"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	s.skillsStore = install.NewMetadataStore()
+	s.skillsStore.Set("_team-repo/skill-a", &install.MetadataEntry{
+		Source:  "https://github.com/old/repo/skill-a",
+		RepoURL: "https://github.com/old/repo.git",
+		Tracked: true,
+	})
+	if err := s.skillsStore.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+
+	body := patchSourceRequest{Source: "https://github.com/new/repo/skill-a"}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/api/resources/_team-repo__skill-a/source", bytes.NewReader(raw))
+	req.SetPathValue("name", "_team-repo__skill-a")
+	rr := httptest.NewRecorder()
+	s.handlePatchSkillSource(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	cmd = exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git remote get-url failed: %v", err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "https://github.com/new/repo.git" {
+		t.Fatalf("remote URL = %q, want %q", got, "https://github.com/new/repo.git")
+	}
+
+	store, err := install.LoadMetadata(src)
+	if err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	entry := store.Get("_team-repo/skill-a")
+	if entry == nil {
+		t.Fatal("metadata entry missing")
+	}
+	if entry.Source != "https://github.com/new/repo/skill-a" {
+		t.Fatalf("metadata Source = %q, want new source", entry.Source)
+	}
+	if entry.RepoURL != "https://github.com/new/repo.git" {
+		t.Fatalf("metadata RepoURL = %q, want new repo URL", entry.RepoURL)
+	}
+}
+
+// TestFindRepoRoot_ExcludesSourceRoot guards the origin-hijack regression: when
+// the skills source root is itself a git repo (e.g. GitSync-backed), a nested
+// non-tracked skill must NOT resolve the source root as its tracked repo —
+// otherwise editing that skill's source rewrites the source root repo's origin.
+func TestFindRepoRoot_ExcludesSourceRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "frontend", "react", "react-doctor")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Nested skill with no .git of its own: source root must be ignored.
+	if got := findRepoRoot(nested, root); got != "" {
+		t.Fatalf("findRepoRoot resolved source root as tracked repo: %q", got)
+	}
+
+	// A real tracked repo (.git in a subdirectory) is still found.
+	tracked := filepath.Join(root, "_repo")
+	if err := os.MkdirAll(filepath.Join(tracked, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := findRepoRoot(tracked, root); got != tracked {
+		t.Fatalf("findRepoRoot(%q) = %q, want %q", tracked, got, tracked)
+	}
+
+	// Sibling dir sharing a name prefix must not be treated as inside root.
+	sibling := root + "-extra"
+	if err := os.MkdirAll(filepath.Join(sibling, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := findRepoRoot(filepath.Join(sibling, "skill"), root); got != "" {
+		t.Fatalf("findRepoRoot leaked into sibling dir: %q", got)
 	}
 }

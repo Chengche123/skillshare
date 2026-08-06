@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"skillshare/internal/config"
@@ -18,8 +17,12 @@ func cmdListProject(root string, opts listOptions, kind resourceKindFilter) erro
 		}
 	}
 
-	skillsSource := filepath.Join(root, ".skillshare", "skills")
-	agentsSource := filepath.Join(root, ".skillshare", "agents")
+	projCfg, err := config.LoadProject(root)
+	if err != nil {
+		return err
+	}
+	skillsSource := projCfg.EffectiveSkillsSource(root)
+	agentsSource := projCfg.EffectiveAgentsSource(root)
 
 	resourceLabel := "skills"
 	if kind == kindAgents {
@@ -49,11 +52,13 @@ func cmdListProject(root string, opts listOptions, kind resourceKindFilter) erro
 			allEntries = append(allEntries, buildSkillEntries(discovered)...)
 			allEntries = append(allEntries, discoverAndBuildAgentEntries(agentsSource)...)
 			total := len(allEntries)
-			allEntries = filterSkillEntries(allEntries, opts.Pattern, opts.TypeFilter)
+			// Status is NOT filtered here — the TUI needs both enabled and
+			// disabled entries loaded so the `s` key can restore them.
+			allEntries = filterSkillEntries(allEntries, opts.Pattern, opts.TypeFilter, statusFilterAll)
 			sortSkillEntries(allEntries, sortBy)
 			return listLoadResult{skills: toSkillItems(allEntries), totalCount: total}
 		}
-		action, skillName, skillKind, err := runListTUI(loadFn, "project", skillsSource, agentsSource, targets, kind)
+		action, skillName, skillKind, err := runListTUI(loadFn, "project", skillsSource, agentsSource, targets, kind, opts.Status)
 		if err != nil {
 			return err
 		}
@@ -77,9 +82,8 @@ func cmdListProject(root string, opts listOptions, kind resourceKindFilter) erro
 			return updateErr
 		case "uninstall":
 			if skillKind == "agent" {
-				agentsDir := filepath.Join(root, ".skillshare", "agents")
 				uOpts := &uninstallOptions{skillNames: []string{skillName}, force: true}
-				return cmdUninstallAgents(agentsDir, uOpts, config.ProjectConfigPath(root), trash.ProjectAgentTrashDir(root), time.Now())
+				return cmdUninstallAgents(agentsSource, uOpts, config.ProjectConfigPath(root), trash.ProjectAgentTrashDir(root), time.Now())
 			}
 			return cmdUninstallProject([]string{"--force", skillName}, root)
 		}
@@ -105,7 +109,7 @@ func cmdListProject(root string, opts listOptions, kind resourceKindFilter) erro
 			}
 			return fmt.Errorf("cannot discover project skills: %w", discErr)
 		}
-		trackedRepos = extractTrackedRepos(discoveredSkills)
+		trackedRepos = extractTrackedRepos(skillsSource)
 		if sp != nil {
 			sp.Update(fmt.Sprintf("Reading metadata for %d skills...", len(discoveredSkills)))
 		}
@@ -120,10 +124,10 @@ func cmdListProject(root string, opts listOptions, kind resourceKindFilter) erro
 		sp.Success(fmt.Sprintf("Loaded %d %s", len(allEntries), resourceLabel))
 	}
 	totalCount := len(allEntries)
-	hasFilter := opts.Pattern != "" || opts.TypeFilter != ""
+	hasFilter := opts.Pattern != "" || opts.TypeFilter != "" || opts.Status != statusFilterAll
 
 	// Apply filter and sort
-	allEntries = filterSkillEntries(allEntries, opts.Pattern, opts.TypeFilter)
+	allEntries = filterSkillEntries(allEntries, opts.Pattern, opts.TypeFilter, opts.Status)
 	sortBy := opts.SortBy
 	if sortBy == "" {
 		sortBy = "name" // project mode default
@@ -145,13 +149,7 @@ func cmdListProject(root string, opts listOptions, kind resourceKindFilter) erro
 	}
 
 	if hasFilter && len(allEntries) == 0 {
-		if opts.Pattern != "" && opts.TypeFilter != "" {
-			ui.Info("No %s matching %q (type: %s)", resourceLabel, opts.Pattern, opts.TypeFilter)
-		} else if opts.Pattern != "" {
-			ui.Info("No %s matching %q", resourceLabel, opts.Pattern)
-		} else {
-			ui.Info("No %s matching type %q", resourceLabel, opts.TypeFilter)
-		}
+		ui.Info("%s", noMatchMessage(resourceLabel, opts))
 		return nil
 	}
 
@@ -180,9 +178,9 @@ func cmdListProject(root string, opts listOptions, kind resourceKindFilter) erro
 	if hasFilter && len(allEntries) > 0 {
 		fmt.Println()
 		if opts.Pattern != "" {
-			ui.Info("%d of %d %s matching %q", len(allEntries), totalCount, resourceLabel, opts.Pattern)
+			ui.Info("%d of %d %s matching %q%s", len(allEntries), totalCount, resourceLabel, opts.Pattern, statusNote(opts.Status))
 		} else {
-			ui.Info("%d of %d %s", len(allEntries), totalCount, resourceLabel)
+			ui.Info("%d of %d %s%s", len(allEntries), totalCount, resourceLabel, statusNote(opts.Status))
 		}
 	} else {
 		fmt.Println()

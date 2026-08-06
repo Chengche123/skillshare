@@ -21,17 +21,23 @@ func TestValidateConfig_SourceNotExist(t *testing.T) {
 	}
 }
 
-func TestValidateConfig_SourceEmpty(t *testing.T) {
+func TestValidateConfig_DefaultSource_OK(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	defaultSource := filepath.Join(tmpDir, "skillshare", "skills")
+	if err := os.MkdirAll(defaultSource, 0755); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &Config{
 		Source:  "",
 		Targets: map[string]TargetConfig{},
 	}
-	_, err := ValidateConfig(cfg)
-	if err == nil {
-		t.Fatal("expected error for empty source")
+	warnings, err := ValidateConfig(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error for default source: %v", err)
 	}
-	if !strings.Contains(err.Error(), "source path is empty") {
-		t.Errorf("unexpected error: %v", err)
+	if len(warnings) > 0 {
+		t.Errorf("unexpected warnings: %v", warnings)
 	}
 }
 
@@ -81,6 +87,22 @@ func TestValidateConfig_InvalidGlobalTargetNaming(t *testing.T) {
 		t.Fatal("expected error for invalid global target naming")
 	}
 	if !strings.Contains(err.Error(), "invalid global target naming") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateConfig_InvalidGitRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{
+		Source:  tmpDir,
+		GitRoot: "agnets", // typo for "agents"
+		Targets: map[string]TargetConfig{},
+	}
+	_, err := ValidateConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid git_root")
+	}
+	if !strings.Contains(err.Error(), "invalid git_root") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -216,6 +238,43 @@ func TestValidateProjectConfig_CustomTarget_MissingPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing path") {
 		t.Fatalf("expected 'missing path' error, got: %v", err)
+	}
+}
+
+func TestValidateProjectConfig_SourceAliasesBuiltinTarget(t *testing.T) {
+	root := t.TempDir()
+	// Configure source to alias the built-in claude target path
+	os.MkdirAll(filepath.Join(root, ".claude", "skills"), 0755)
+	cfg := &ProjectConfig{
+		Sources: ProjectSources{Skills: ".claude/skills"},
+		Targets: []ProjectTargetEntry{
+			{Name: "claude", Skills: &ResourceTargetConfig{Mode: "merge"}},
+		},
+	}
+	_, err := ValidateProjectConfig(cfg, root)
+	if err == nil {
+		t.Fatal("expected overlap error when skills source aliases claude target path")
+	}
+	if !strings.Contains(err.Error(), "overlaps skills source") {
+		t.Fatalf("expected 'overlaps skills source' error, got: %v", err)
+	}
+}
+
+func TestValidateProjectConfig_SourceNestsTargetPath(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "shared", "skills", "nested"), 0755)
+	cfg := &ProjectConfig{
+		Sources: ProjectSources{Skills: "shared"},
+		Targets: []ProjectTargetEntry{
+			{Name: "custom", Skills: &ResourceTargetConfig{Path: "shared/skills/nested", Mode: "merge"}},
+		},
+	}
+	_, err := ValidateProjectConfig(cfg, root)
+	if err == nil {
+		t.Fatal("expected overlap error when target nests inside source")
+	}
+	if !strings.Contains(err.Error(), "overlaps") {
+		t.Fatalf("expected overlap error, got: %v", err)
 	}
 }
 

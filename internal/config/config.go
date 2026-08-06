@@ -30,6 +30,10 @@ var ValidSyncModes = []string{"merge", "symlink", "copy"}
 // ValidTargetNamings lists all valid target naming values.
 var ValidTargetNamings = []string{"flat", "standard"}
 
+// ValidGitRoots lists all valid git_root scope keywords. Empty is also accepted
+// (meaning "skills"); see ValidGitRoot.
+var ValidGitRoots = []string{"skills", "agents", "extras", "root"}
+
 // IsValidSyncMode reports whether mode is a valid sync mode (or empty, meaning inherit).
 func IsValidSyncMode(mode string) bool {
 	if mode == "" {
@@ -195,6 +199,31 @@ type LogConfig struct {
 	MaxEntries *int `yaml:"max_entries,omitempty"` // nil = use default (1000), 0 = unlimited, >0 = limit
 }
 
+// ContextBudgetConfig holds token budget warning thresholds.
+type ContextBudgetConfig struct {
+	WarnAlwaysLoadedTokens *int `yaml:"warn_always_loaded_tokens,omitempty"`
+	WarnOnDemandTokens     *int `yaml:"warn_on_demand_tokens,omitempty"`
+}
+
+const (
+	DefaultWarnAlwaysLoadedTokens = 10000
+	DefaultWarnOnDemandTokens     = 100000
+)
+
+func (c ContextBudgetConfig) AlwaysLoadedThreshold() int {
+	if c.WarnAlwaysLoadedTokens == nil {
+		return DefaultWarnAlwaysLoadedTokens
+	}
+	return *c.WarnAlwaysLoadedTokens
+}
+
+func (c ContextBudgetConfig) OnDemandThreshold() int {
+	if c.WarnOnDemandTokens == nil {
+		return DefaultWarnOnDemandTokens
+	}
+	return *c.WarnOnDemandTokens
+}
+
 // HubEntry represents a single saved hub source.
 type HubEntry struct {
 	Label   string `yaml:"label"`
@@ -210,9 +239,10 @@ type HubConfig struct {
 
 // ExtraTargetConfig holds configuration for one target of an extra resource.
 type ExtraTargetConfig struct {
-	Path    string `yaml:"path"`
-	Mode    string `yaml:"mode,omitempty"`    // merge (default), symlink, or copy
-	Flatten bool   `yaml:"flatten,omitempty"` // flatten subdirectories into target root
+	Path      string `yaml:"path"`
+	Mode      string `yaml:"mode,omitempty"`      // merge (default), symlink, or copy
+	Flatten   bool   `yaml:"flatten,omitempty"`   // flatten subdirectories into target root
+	Extension string `yaml:"extension,omitempty"` // transform script applied during sync (implies copy)
 }
 
 // ExtraConfig holds configuration for a non-skill resource type (rules, commands, etc.).
@@ -222,34 +252,150 @@ type ExtraConfig struct {
 	Targets []ExtraTargetConfig `yaml:"targets"`
 }
 
+// GlobalSources overrides default source directories for global resources.
+// New in v0.19.16 — mirrors ProjectSources for project mode.
+// When a field is set, it takes precedence over the corresponding legacy
+// top-level field (Source / AgentsSource / ExtrasSource). When all three are
+// empty, EffectiveSkillsSource / EffectiveAgentsSource / EffectiveExtrasSource
+// fall back to <BaseDir>/<type>/ defaults (or, for extras, the derivation
+// described in ExtrasParentDir).
+type GlobalSources struct {
+	Skills string `yaml:"skills,omitempty"`
+	Agents string `yaml:"agents,omitempty"`
+	Extras string `yaml:"extras,omitempty"`
+}
+
 // Config holds the application configuration
 type Config struct {
-	Source       string                  `yaml:"source"`
-	AgentsSource string                  `yaml:"agents_source,omitempty"`
-	ExtrasSource string                  `yaml:"extras_source,omitempty"`
-	Mode         string                  `yaml:"mode,omitempty"` // default mode: merge
-	TargetNaming string                  `yaml:"target_naming,omitempty"`
-	Targets      map[string]TargetConfig `yaml:"targets"`
-	Extras       []ExtraConfig           `yaml:"extras,omitempty"`
-	Ignore       []string                `yaml:"ignore,omitempty"`
-	Audit        AuditConfig             `yaml:"audit,omitempty"`
-	Hub          HubConfig               `yaml:"hub,omitempty"`
-	Log          LogConfig               `yaml:"log,omitempty"`
-	TUI          *bool                   `yaml:"tui,omitempty"` // nil = default true
-	GitLabHosts  []string                `yaml:"gitlab_hosts,omitempty"`
+	Source       string        `yaml:"source,omitempty"`
+	AgentsSource string        `yaml:"agents_source,omitempty"`
+	ExtrasSource string        `yaml:"extras_source,omitempty"`
+	Sources      GlobalSources `yaml:"sources,omitempty"`
+	// GitRoot selects which directory the git integration (commit/push/pull)
+	// operates on. One of: "skills" (default), "agents", "extras", "root".
+	// "root" is BaseDir() and version-controls skills + agents + extras together.
+	// Empty is treated as "skills" for backward compatibility.
+	GitRoot       string                  `yaml:"git_root,omitempty"`
+	Mode          string                  `yaml:"mode,omitempty"` // default mode: merge
+	TargetNaming  string                  `yaml:"target_naming,omitempty"`
+	Targets       map[string]TargetConfig `yaml:"targets"`
+	Extras        []ExtraConfig           `yaml:"extras,omitempty"`
+	Ignore        []string                `yaml:"ignore,omitempty"`
+	Audit         AuditConfig             `yaml:"audit,omitempty"`
+	Hub           HubConfig               `yaml:"hub,omitempty"`
+	Log           LogConfig               `yaml:"log,omitempty"`
+	ContextBudget ContextBudgetConfig     `yaml:"context_budget,omitempty"`
+	TUI           *bool                   `yaml:"tui,omitempty"` // nil = default true
+	GitLabHosts   []string                `yaml:"gitlab_hosts,omitempty"`
+	AzureHosts    []string                `yaml:"azure_hosts,omitempty"`
+
+	// PreserveTildeOnSave folds $HOME prefixes back to ~ when serializing the
+	// config to YAML. Useful when the config is shared via dotfiles across
+	// machines or users. The in-memory config is unaffected; Load() still
+	// expands ~ as usual.
+	PreserveTildeOnSave bool `yaml:"preserve_tilde_on_save,omitempty"`
 
 	// RegistryDir is the resolved directory for registry.yaml (cached SourceRoot result).
 	// Set during Load(), not serialized to YAML.
 	RegistryDir string `yaml:"-"`
 }
 
-// EffectiveAgentsSource returns the agents source directory.
-// Defaults to <BaseDir>/agents if not explicitly configured.
+// EffectiveSkillsSource returns the resolved skills source directory.
+// Priority: c.Sources.Skills (v0.19.16+) → c.Source (legacy) → <BaseDir>/skills.
+func (c *Config) EffectiveSkillsSource() string {
+	if c.Sources.Skills != "" {
+		return ExpandPath(c.Sources.Skills)
+	}
+	if c.Source != "" {
+		return ExpandPath(c.Source)
+	}
+	return filepath.Join(BaseDir(), "skills")
+}
+
+// EffectiveAgentsSource returns the resolved agents source directory.
+// Priority: c.Sources.Agents (v0.19.16+) → c.AgentsSource (legacy) → <BaseDir>/agents.
 func (c *Config) EffectiveAgentsSource() string {
+	if c.Sources.Agents != "" {
+		return ExpandPath(c.Sources.Agents)
+	}
 	if c.AgentsSource != "" {
 		return ExpandPath(c.AgentsSource)
 	}
 	return filepath.Join(BaseDir(), "agents")
+}
+
+// EffectiveExtrasSource returns the resolved extras parent directory.
+// Priority: c.Sources.Extras (v0.19.16+) → c.ExtrasSource (legacy) →
+// ExtrasParentDir(c.EffectiveSkillsSource()) (sibling of skills source).
+// The fallback preserves existing global-mode behavior where extras live in
+// the parent of the skills source directory.
+func (c *Config) EffectiveExtrasSource() string {
+	if c.Sources.Extras != "" {
+		return ExpandPath(c.Sources.Extras)
+	}
+	if c.ExtrasSource != "" {
+		return ExpandPath(c.ExtrasSource)
+	}
+	return ExtrasParentDir(c.EffectiveSkillsSource())
+}
+
+// ScopeDir resolves a git_root scope keyword to its directory. It is the single
+// source of truth for the scope→directory mapping; EffectiveGitRoot and the
+// CLI helpers all delegate here. Empty/"skills" maps to the skills source.
+func ScopeDir(c *Config, scope string) string {
+	switch scope {
+	case "root":
+		return BaseDir()
+	case "agents":
+		return c.EffectiveAgentsSource()
+	case "extras":
+		return c.EffectiveExtrasSource()
+	default: // "skills" or ""
+		return c.EffectiveSkillsSource()
+	}
+}
+
+// EffectiveGitRoot returns the directory the git integration (commit/push/pull)
+// operates on, based on the git_root scope keyword. Empty/"skills" preserves the
+// historical behavior of operating on the skills source.
+func (c *Config) EffectiveGitRoot() string {
+	return ScopeDir(c, c.GitRoot)
+}
+
+// gitDirExists reports whether dir contains a .git entry directly.
+func gitDirExists(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// GitRootMismatch reports whether the git repository lives at a different scope
+// than configured: the configured git root has no .git, but another scope's
+// directory does. This happens when git_root is changed without re-initializing
+// git at the new directory. Returns the stray scope keyword and its directory.
+func (c *Config) GitRootMismatch() (scope, dir string, mismatch bool) {
+	root := c.EffectiveGitRoot()
+	if gitDirExists(root) {
+		return "", "", false
+	}
+	for _, s := range []string{"root", "skills", "agents", "extras"} {
+		d := ScopeDir(c, s)
+		if d == root {
+			continue
+		}
+		if gitDirExists(d) {
+			return s, d, true
+		}
+	}
+	return "", "", false
+}
+
+// ValidGitRoot reports whether s is an accepted git_root scope keyword.
+// Empty is accepted (means "skills").
+func ValidGitRoot(s string) bool {
+	if s == "" {
+		return true // empty = skills
+	}
+	return slices.Contains(ValidGitRoots, s)
 }
 
 // HasAgentTarget reports whether any configured target has an agents path,
@@ -265,6 +411,9 @@ func (c *Config) HasAgentTarget() bool {
 		if _, ok := builtinAgents[name]; ok {
 			return true
 		}
+		if _, ok := LookupGlobalAgentTarget(name); ok {
+			return true
+		}
 	}
 	return false
 }
@@ -274,6 +423,11 @@ func (c *Config) HasAgentTarget() bool {
 // GitLabHosts contains only config-file values and is safe to persist via Save().
 func (c *Config) EffectiveGitLabHosts() []string {
 	return mergeGitLabHostsFromEnv(c.GitLabHosts)
+}
+
+// EffectiveAzureHosts returns AzureHosts merged with SKILLSHARE_AZURE_HOSTS env var.
+func (c *Config) EffectiveAzureHosts() []string {
+	return mergeAzureHostsFromEnv(c.AzureHosts)
 }
 
 // IsTUIEnabled reports whether interactive TUI is enabled.
@@ -410,6 +564,13 @@ func Load() (*Config, error) {
 	}
 	cfg.GitLabHosts = hosts
 
+	// Validate and normalize azure_hosts
+	azureHosts, err := normalizeAzureHosts(cfg.AzureHosts)
+	if err != nil {
+		return nil, err
+	}
+	cfg.AzureHosts = azureHosts
+
 	// Migrate legacy flat target fields to skills: sub-key (one-time, persisted immediately)
 	if migrateTargetConfigs(cfg.Targets) {
 		if data, err := marshalYAML(&cfg); err == nil {
@@ -422,7 +583,11 @@ func Load() (*Config, error) {
 
 	// Expand ~ in paths
 	cfg.Source = expandPath(cfg.Source)
+	cfg.AgentsSource = expandPath(cfg.AgentsSource)
 	cfg.ExtrasSource = expandPath(cfg.ExtrasSource)
+	cfg.Sources.Skills = expandPath(cfg.Sources.Skills)
+	cfg.Sources.Agents = expandPath(cfg.Sources.Agents)
+	cfg.Sources.Extras = expandPath(cfg.Sources.Extras)
 	defaults := DefaultTargets()
 	for name, target := range cfg.Targets {
 		target.defaultTargetNaming = cfg.TargetNaming
@@ -450,8 +615,10 @@ func Load() (*Config, error) {
 	}
 
 	// Cache SourceRoot so callers don't re-walk .git/ on every LoadRegistry call.
-	if cfg.Source != "" {
-		cfg.RegistryDir = SourceRoot(cfg.Source)
+	// Use EffectiveSkillsSource so configs using the new sources.skills field
+	// (without a legacy source: top-level) still resolve a registry root.
+	if skillsDir := cfg.EffectiveSkillsSource(); skillsDir != "" {
+		cfg.RegistryDir = SourceRoot(skillsDir)
 		MigrateRegistryToSource(filepath.Dir(path), cfg.RegistryDir)
 	}
 
@@ -468,7 +635,17 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	data, err := marshalYAML(c)
+	// fork patch: fold $HOME prefixes back to ~ so serialized paths are
+	// machine-agnostic (dotfiles-friendly). Opt-in via preserve_tilde_on_save.
+	// The in-memory config is left untouched; we marshal a shallow copy with
+	// folded path fields.
+	var payload *Config
+	if c.PreserveTildeOnSave {
+		payload = c.cloneForSave()
+	} else {
+		payload = c
+	}
+	data, err := marshalYAML(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
@@ -480,6 +657,66 @@ func (c *Config) Save() error {
 	}
 
 	return nil
+}
+
+// cloneForSave returns a shallow copy of c with all path fields folded back to
+// ~ form via utils.FoldHomePathWith. Slices and maps that contain path fields
+// are re-allocated to avoid mutating the live config. The user home directory
+// is resolved once and passed to FoldHomePathWith to avoid repeated syscalls.
+//
+// Keep this in sync with the expandPath() calls in Load().
+func (c *Config) cloneForSave() *Config {
+	out := *c
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		// Cannot fold without a home directory; serialize as-is.
+		return &out
+	}
+
+	fold := func(p string) string { return utils.FoldHomePathWith(p, home) }
+
+	out.Source = fold(out.Source)
+	out.AgentsSource = fold(out.AgentsSource)
+	out.ExtrasSource = fold(out.ExtrasSource)
+	out.Sources.Skills = fold(out.Sources.Skills)
+	out.Sources.Agents = fold(out.Sources.Agents)
+	out.Sources.Extras = fold(out.Sources.Extras)
+
+	if len(c.Targets) > 0 {
+		out.Targets = make(map[string]TargetConfig, len(c.Targets))
+		for name, tc := range c.Targets {
+			tc.Path = fold(tc.Path)
+			if tc.Skills != nil {
+				skills := *tc.Skills
+				skills.Path = fold(skills.Path)
+				tc.Skills = &skills
+			}
+			if tc.Agents != nil {
+				agents := *tc.Agents
+				agents.Path = fold(agents.Path)
+				tc.Agents = &agents
+			}
+			out.Targets[name] = tc
+		}
+	}
+
+	if len(c.Extras) > 0 {
+		out.Extras = make([]ExtraConfig, len(c.Extras))
+		for i, extra := range c.Extras {
+			extra.Source = fold(extra.Source)
+			if len(extra.Targets) > 0 {
+				targets := make([]ExtraTargetConfig, len(extra.Targets))
+				for j, et := range extra.Targets {
+					et.Path = fold(et.Path)
+					targets[j] = et
+				}
+				extra.Targets = targets
+			}
+			out.Extras[i] = extra
+		}
+	}
+
+	return &out
 }
 
 // ExpandPath expands ~ to home directory.
@@ -548,48 +785,55 @@ func migrateSkillsToRegistry(configPath string) error {
 	return os.WriteFile(configPath, cleaned, 0644)
 }
 
-// isValidGitLabHostname reports whether h is a bare hostname
+// isValidHostname reports whether h is a bare hostname
 // (no scheme, path, port, or empty after trim).
-func isValidGitLabHostname(h string) bool {
+func isValidHostname(h string) bool {
 	return h != "" &&
 		!strings.Contains(h, "://") &&
 		!strings.Contains(h, "/") &&
 		!strings.Contains(h, ":")
 }
 
-// normalizeGitLabHosts validates and normalizes gitlab_hosts entries.
+// normalizeHostList validates and normalizes host list entries.
+// fieldName is used in error messages (e.g. "gitlab_hosts", "azure_hosts").
 // Rejects entries containing "://", "/", ":", or empty after trim.
 // Returns lowercased, trimmed hostnames.
-func normalizeGitLabHosts(hosts []string) ([]string, error) {
+func normalizeHostList(hosts []string, fieldName string) ([]string, error) {
 	if len(hosts) == 0 {
 		return nil, nil
 	}
 	out := make([]string, 0, len(hosts))
 	for _, h := range hosts {
 		h = strings.TrimSpace(h)
-		if !isValidGitLabHostname(h) {
+		if !isValidHostname(h) {
 			if h == "" {
-				return nil, fmt.Errorf("gitlab_hosts: empty entry")
+				return nil, fmt.Errorf("%s: empty entry", fieldName)
 			}
 			if strings.Contains(h, "://") {
-				return nil, fmt.Errorf("gitlab_hosts: entry %q must be a hostname, not a URL (remove scheme)", h)
+				return nil, fmt.Errorf("%s: entry %q must be a hostname, not a URL (remove scheme)", fieldName, h)
 			}
 			if strings.Contains(h, "/") {
-				return nil, fmt.Errorf("gitlab_hosts: entry %q must be a hostname without path", h)
+				return nil, fmt.Errorf("%s: entry %q must be a hostname without path", fieldName, h)
 			}
-			return nil, fmt.Errorf("gitlab_hosts: entry %q must be a hostname without port", h)
+			return nil, fmt.Errorf("%s: entry %q must be a hostname without port", fieldName, h)
 		}
 		out = append(out, strings.ToLower(h))
 	}
 	return out, nil
 }
 
-// mergeGitLabHostsFromEnv merges SKILLSHARE_GITLAB_HOSTS env var entries
-// with the already-normalized config file hosts. Returns deduplicated list.
-// Invalid entries in the env var are silently skipped (unlike normalizeGitLabHosts
-// which returns errors for config file entries).
-func mergeGitLabHostsFromEnv(configHosts []string) []string {
-	envVal := os.Getenv("SKILLSHARE_GITLAB_HOSTS")
+func normalizeGitLabHosts(hosts []string) ([]string, error) {
+	return normalizeHostList(hosts, "gitlab_hosts")
+}
+
+func normalizeAzureHosts(hosts []string) ([]string, error) {
+	return normalizeHostList(hosts, "azure_hosts")
+}
+
+// mergeHostsFromEnv merges comma-separated env var entries with config file hosts.
+// Invalid entries in the env var are silently skipped.
+func mergeHostsFromEnv(configHosts []string, envKey string) []string {
+	envVal := os.Getenv(envKey)
 	if envVal == "" {
 		return configHosts
 	}
@@ -600,8 +844,8 @@ func mergeGitLabHostsFromEnv(configHosts []string) []string {
 	merged := append([]string(nil), configHosts...)
 	for _, raw := range strings.Split(envVal, ",") {
 		h := strings.ToLower(strings.TrimSpace(raw))
-		if !isValidGitLabHostname(h) {
-			continue // silently skip invalid entries from env
+		if !isValidHostname(h) {
+			continue
 		}
 		if !seen[h] {
 			seen[h] = true
@@ -609,6 +853,14 @@ func mergeGitLabHostsFromEnv(configHosts []string) []string {
 		}
 	}
 	return merged
+}
+
+func mergeGitLabHostsFromEnv(configHosts []string) []string {
+	return mergeHostsFromEnv(configHosts, "SKILLSHARE_GITLAB_HOSTS")
+}
+
+func mergeAzureHostsFromEnv(configHosts []string) []string {
+	return mergeHostsFromEnv(configHosts, "SKILLSHARE_AZURE_HOSTS")
 }
 
 func normalizeAuditBlockThreshold(v string) (string, error) {

@@ -11,7 +11,7 @@ import {
   ArrowUpCircle,
   PartyPopper,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import type { DoctorCheck } from '../api/client';
 import { queryKeys, staleTimes } from '../lib/queryKeys';
@@ -64,21 +64,23 @@ function CheckRow({ check }: { check: DoctorCheck }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const hasDetails = check.details && check.details.length > 0;
+  const hasSuggestions = check.suggestions && check.suggestions.length > 0;
+  const expandable = hasDetails || hasSuggestions;
   const fallback = checkLabelFallbacks[check.name] ?? check.name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   const label = t(`doctor.check.${check.name}`, {}, fallback);
 
   return (
     <div className="border-b border-muted last:border-b-0">
       <button
-        onClick={() => hasDetails && setExpanded((v) => !v)}
-        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${hasDetails ? 'cursor-pointer hover:bg-muted/20' : 'cursor-default'}`}
+        onClick={() => expandable && setExpanded((v) => !v)}
+        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${expandable ? 'cursor-pointer hover:bg-muted/20' : 'cursor-default'}`}
       >
         {statusIcon(check.status)}
         <div className="flex-1 min-w-0">
           <span className="font-medium text-pencil text-sm">{label}</span>
           <p className="text-pencil-light text-sm mt-0.5 truncate">{check.message}</p>
         </div>
-        {hasDetails && (
+        {expandable && (
           <span className="text-pencil-light shrink-0">
             {expanded
               ? <ChevronDown size={16} strokeWidth={2.5} />
@@ -86,9 +88,22 @@ function CheckRow({ check }: { check: DoctorCheck }) {
           </span>
         )}
       </button>
-      {expanded && hasDetails && (
-        <div className="px-4 pb-3 pl-11">
-          <CheckDetails details={check.details!} name={check.name} />
+      {expanded && expandable && (
+        <div className="px-4 pb-3 pl-11 space-y-3">
+          {hasDetails && <CheckDetails details={check.details!} name={check.name} />}
+          {hasSuggestions && (
+            <div>
+              <p className="text-xs font-medium text-pencil-light mb-1.5">{t('doctor.suggestions')}</p>
+              <ul className="space-y-1">
+                {check.suggestions!.map((s, i) => (
+                  <li key={i} className="text-sm text-pencil-light flex items-start gap-2">
+                    <span className="text-muted-dark mt-0.5 shrink-0">&rarr;</span>
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -147,12 +162,15 @@ function CheckDetails({ details, name }: { details: string[]; name: string }) {
 
 export default function DoctorPage() {
   const t = useT();
+  const queryClient = useQueryClient();
   const { data, isPending, error, isFetching, refetch } = useQuery({
     queryKey: queryKeys.doctor,
     queryFn: () => api.doctor(),
     staleTime: staleTimes.doctor,
   });
   const [filter, setFilter] = useState<StatusFilter>('all');
+  const [upgrading, setUpgrading] = useState(false);
+  const [upgradeMessage, setUpgradeMessage] = useState<string | null>(null);
 
   const filteredChecks = useMemo(() => {
     if (!data) return [];
@@ -162,6 +180,45 @@ export default function DoctorPage() {
   }, [data, filter]);
 
   const allPassed = data && data.summary.errors === 0 && data.summary.warnings === 0;
+
+  const waitForRestartThenReload = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    for (let i = 0; i < 40; i++) {
+      try {
+        await api.health();
+        window.location.reload();
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+    setUpgradeMessage(t('updateDialog.restartManual'));
+    setUpgrading(false);
+  };
+
+  const handleUpgradeNow = async () => {
+    setUpgrading(true);
+    setUpgradeMessage(t('updateDialog.updating'));
+    try {
+      const result = await api.upgradeApp();
+      if (result.devMode) {
+        setUpgradeMessage(t('updateDialog.restartDev'));
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        await Promise.all([
+          refetch(),
+          queryClient.invalidateQueries({ queryKey: queryKeys.versionCheck }),
+        ]);
+        setUpgrading(false);
+        return;
+      }
+      setUpgradeMessage(t('updateDialog.restarting'));
+      await api.restartApp({ clearCache: true });
+      void waitForRestartThenReload();
+    } catch (err) {
+      setUpgradeMessage((err as Error).message);
+      setUpgrading(false);
+    }
+  };
 
   if (isPending) return <PageSkeleton />;
 
@@ -278,27 +335,75 @@ export default function DoctorPage() {
       </Card>
 
       {/* Version info */}
-      {data!.version && (
-        <Card>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-pencil">{t('doctor.version.title')}</div>
-              <div className="text-sm text-pencil-light mt-0.5">
-                {t('doctor.version.current')} <span className="font-mono">{data!.version.current}</span>
-                {data!.version.latest && (
-                  <> &middot; {t('doctor.version.latest')} <span className="font-mono">{data!.version.latest}</span></>
+      {data!.version && (() => {
+        const updateAvailable = data!.version.update_available;
+        const messageIsError = upgradeMessage && (upgradeMessage.includes('failed') || upgradeMessage.includes('失敗'));
+        const messageTone = upgrading ? 'progress' : messageIsError ? 'error' : 'success';
+        const messageColor = palette[updateAvailable ? 'info' : 'success'];
+        return (
+          <Card>
+            <div className="flex items-start gap-4">
+              {/* Status icon — semantic anchor, mirrors Summary card style */}
+              <div
+                className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ backgroundColor: `${messageColor}18` }}
+              >
+                {updateAvailable ? (
+                  <ArrowUpCircle size={20} strokeWidth={2.5} style={{ color: messageColor }} />
+                ) : (
+                  <CheckCircle2 size={20} strokeWidth={2.5} style={{ color: messageColor }} />
                 )}
               </div>
+
+              {/* Content */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-pencil">{t('doctor.version.title')}</span>
+                  {updateAvailable ? (
+                    <Badge variant="info" size="sm" dot>{t('doctor.version.updateAvailable')}</Badge>
+                  ) : (
+                    <Badge variant="success" size="sm" dot>{t('dashboard.version.upToDate')}</Badge>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 text-sm mt-1 flex-wrap">
+                  <span className="font-mono text-pencil-light">{data!.version.current}</span>
+                  {data!.version.latest && data!.version.latest !== data!.version.current && (
+                    <>
+                      <ChevronRight size={14} className="text-pencil-light shrink-0" />
+                      <span className="font-mono font-semibold text-pencil">{data!.version.latest}</span>
+                    </>
+                  )}
+                </div>
+
+                {upgradeMessage && (
+                  <p
+                    className={`mt-2 inline-flex items-center gap-1.5 text-sm ${
+                      messageTone === 'progress' ? 'text-pencil-light'
+                        : messageTone === 'error' ? 'text-danger'
+                        : 'text-success'
+                    }`}
+                  >
+                    {messageTone === 'success' && <CheckCircle2 size={14} strokeWidth={2.5} />}
+                    {messageTone === 'error' && <XCircle size={14} strokeWidth={2.5} />}
+                    {upgradeMessage}
+                  </p>
+                )}
+              </div>
+
+              {/* CTA — only show when an update is actually available */}
+              {updateAvailable && (
+                <div className="shrink-0 self-center">
+                  <Button variant="primary" size="sm" onClick={handleUpgradeNow} loading={upgrading}>
+                    <ArrowUpCircle size={14} strokeWidth={2.5} />
+                    {t('updateDialog.updateNow')}
+                  </Button>
+                </div>
+              )}
             </div>
-            {data!.version.update_available && (
-              <Badge variant="info" size="md" dot>
-                <ArrowUpCircle size={12} strokeWidth={2.5} />
-                {t('doctor.version.updateAvailable')}
-              </Badge>
-            )}
-          </div>
-        </Card>
-      )}
+          </Card>
+        );
+      })()}
     </div>
   );
 }

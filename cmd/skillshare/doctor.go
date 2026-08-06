@@ -39,8 +39,12 @@ func (r *doctorResult) addWarning() {
 }
 
 func (r *doctorResult) addCheck(name, status, message string, details []string) {
+	r.addCheckWithSuggestions(name, status, message, details, nil)
+}
+
+func (r *doctorResult) addCheckWithSuggestions(name, status, message string, details []string, suggestions []string) {
 	r.checks = append(r.checks, doctorCheck{
-		Name: name, Status: status, Message: message, Details: details,
+		Name: name, Status: status, Message: message, Details: details, Suggestions: suggestions,
 	})
 }
 
@@ -139,7 +143,7 @@ func cmdDoctorGlobal(jsonMode bool) error {
 	}
 
 	runDoctorChecks(cfg, result, false)
-	checkExtras(cfg.Extras, result, false, cfg.Source, cfg.ExtrasSource, "")
+	checkExtras(cfg.Extras, result, false, cfg.EffectiveSkillsSource(), cfg.EffectiveExtrasSource(), "", "")
 	ui.Header("Storage")
 	checkBackupStatus(result, false, backup.BackupDir())
 	checkTrashStatus(result, trash.TrashDir())
@@ -197,7 +201,7 @@ func cmdDoctorProject(root string, jsonMode bool) error {
 	}
 
 	runDoctorChecks(cfg, result, true)
-	checkExtras(rt.config.Extras, result, true, "", "", root)
+	checkExtras(rt.config.Extras, result, true, "", "", root, rt.config.EffectiveExtrasSource(root))
 	ui.Header("Storage")
 	checkBackupStatus(result, true, "")
 	checkTrashStatus(result, trash.ProjectTrashDir(root))
@@ -216,7 +220,7 @@ func cmdDoctorProject(root string, jsonMode bool) error {
 func runDoctorChecks(cfg *config.Config, result *doctorResult, isProject bool) {
 	// Single discovery pass for all checks (with .skillignore stats)
 	sp := ui.StartSpinner("Discovering skills...")
-	discovered, stats, discoverErr := sync.DiscoverSourceSkillsWithStats(cfg.Source)
+	discovered, stats, discoverErr := sync.DiscoverSourceSkillsWithStats(cfg.EffectiveSkillsSource())
 	if discoverErr != nil {
 		discovered = nil
 	}
@@ -229,15 +233,18 @@ func runDoctorChecks(cfg *config.Config, result *doctorResult, isProject bool) {
 	checkTheme(result)
 
 	if !isProject {
-		checkGitStatus(cfg.Source, result)
+		checkGitStatus(cfg.EffectiveSkillsSource(), result)
 	}
+	checkMissingTrackedRepos(cfg.EffectiveSkillsSource(), result, isProject)
 
 	fmt.Println() // visual break before skill validation
-	checkSkillsValidity(cfg.Source, result, discovered)
+	checkSkillsValidity(cfg.EffectiveSkillsSource(), result, discovered)
 	checkSkillIntegrity(result, discovered)
 	checkSkillTargetsField(result, discovered, targetNamesFromConfig(cfg.Targets))
 	targetCache := checkTargets(cfg, result, isProject)
 	printSymlinkCompatHint(cfg.Targets, cfg.Mode, isProject)
+	checkSharedTargetPaths(cfg, result, isProject)
+	checkCrossTargetDiscovery(cfg, result, isProject)
 	checkSyncDrift(cfg, result, discovered, targetCache)
 	checkBrokenSymlinks(cfg, result)
 	checkDuplicateSkills(cfg, result, discovered)
@@ -278,18 +285,18 @@ func checkSkillignore(result *doctorResult, stats *skillignore.IgnoreStats) {
 }
 
 func checkSource(cfg *config.Config, result *doctorResult, discovered []sync.DiscoveredSkill, discoverErr error) {
-	info, err := os.Stat(cfg.Source)
+	info, err := os.Stat(cfg.EffectiveSkillsSource())
 	if err != nil {
-		ui.Error("Source not found: %s", cfg.Source)
+		ui.Error("Source not found: %s", cfg.EffectiveSkillsSource())
 		result.addError()
-		result.addCheck("source", checkError, fmt.Sprintf("Source not found: %s", cfg.Source), nil)
+		result.addCheck("source", checkError, fmt.Sprintf("Source not found: %s", cfg.EffectiveSkillsSource()), nil)
 		return
 	}
 
 	if !info.IsDir() {
-		ui.Error("Source is not a directory: %s", cfg.Source)
+		ui.Error("Source is not a directory: %s", cfg.EffectiveSkillsSource())
 		result.addError()
-		result.addCheck("source", checkError, fmt.Sprintf("Source is not a directory: %s", cfg.Source), nil)
+		result.addCheck("source", checkError, fmt.Sprintf("Source is not a directory: %s", cfg.EffectiveSkillsSource()), nil)
 		return
 	}
 
@@ -297,15 +304,15 @@ func checkSource(cfg *config.Config, result *doctorResult, discovered []sync.Dis
 	if discoverErr == nil {
 		skillCount = len(discovered)
 	} else {
-		entries, _ := os.ReadDir(cfg.Source)
+		entries, _ := os.ReadDir(cfg.EffectiveSkillsSource())
 		for _, e := range entries {
 			if e.IsDir() && !utils.IsHidden(e.Name()) {
 				skillCount++
 			}
 		}
 	}
-	ui.Success("Source: %s (%d skills)", cfg.Source, skillCount)
-	result.addCheck("source", checkPass, fmt.Sprintf("Source: %s (%d skills)", cfg.Source, skillCount), nil)
+	ui.Success("Source: %s (%d skills)", cfg.EffectiveSkillsSource(), skillCount)
+	result.addCheck("source", checkPass, fmt.Sprintf("Source: %s (%d skills)", cfg.EffectiveSkillsSource(), skillCount), nil)
 }
 
 func checkAgentsSource(cfg *config.Config, result *doctorResult) {
@@ -480,7 +487,7 @@ func checkTargets(cfg *config.Config, result *doctorResult, isProject bool) map[
 			result.addWarning()
 		}
 
-		targetIssues := checkTargetIssues(target, cfg.Source)
+		targetIssues := checkTargetIssues(target, cfg.EffectiveSkillsSource(), mode)
 
 		// Target name header
 		fmt.Printf("%s%s%s\n", ui.Bold, name, ui.Reset)
@@ -491,7 +498,7 @@ func checkTargets(cfg *config.Config, result *doctorResult, isProject bool) map[
 			details = append(details, fmt.Sprintf("%s: %s", name, strings.Join(targetIssues, ", ")))
 			hasError = true
 		} else {
-			cached := displayTargetStatus(target, cfg.Source, mode)
+			cached := displayTargetStatus(target, cfg.EffectiveSkillsSource(), mode)
 			cache[name] = cached
 		}
 
@@ -512,7 +519,7 @@ func checkTargets(cfg *config.Config, result *doctorResult, isProject bool) map[
 	return cache
 }
 
-func checkTargetIssues(target config.TargetConfig, source string) []string {
+func checkTargetIssues(target config.TargetConfig, source, mode string) []string {
 	sc := target.SkillsConfig()
 	var targetIssues []string
 
@@ -530,12 +537,13 @@ func checkTargetIssues(target config.TargetConfig, source string) []string {
 		return targetIssues
 	}
 
-	// Check if it's a symlink
-	if info.Mode()&os.ModeSymlink != 0 {
+	// Check if it's a symlink. Relative links must resolve against the link's
+	// parent directory, not the current working directory.
+	if mode == "symlink" && info.Mode()&os.ModeSymlink != 0 {
 		link, _ := os.Readlink(sc.Path)
-		absLink, _ := filepath.Abs(link)
+		absLink, err := utils.ResolveLinkTarget(sc.Path)
 		absSource, _ := filepath.Abs(source)
-		if !utils.PathsEqual(absLink, absSource) {
+		if err != nil || !utils.PathsEqual(absLink, absSource) {
 			targetIssues = append(targetIssues, fmt.Sprintf("symlink points to wrong location: %s", link))
 		}
 	}
@@ -719,6 +727,36 @@ func checkGitStatus(source string, result *doctorResult) {
 }
 
 // checkSkillsValidity checks if all skills have valid SKILL.md files
+func checkMissingTrackedRepos(source string, result *doctorResult, isProject bool) {
+	missingRepos, err := install.GetMissingTrackedRepos(source)
+	if err != nil || len(missingRepos) == 0 {
+		return
+	}
+
+	details := make([]string, 0, len(missingRepos))
+	for _, repo := range missingRepos {
+		detail := repo.Name
+		if repo.Source != "" {
+			detail += " ← " + repo.Source
+		}
+		details = append(details, detail)
+	}
+
+	suggestion := "Run 'skillshare install' to rehydrate tracked repositories from metadata."
+	if isProject {
+		suggestion = "Run 'skillshare install -p' to rehydrate tracked repositories from project metadata."
+	}
+
+	result.addWarning()
+	result.addCheckWithSuggestions(
+		"tracked_repos",
+		checkWarning,
+		fmt.Sprintf("%d tracked repository clone(s) are missing", len(missingRepos)),
+		details,
+		[]string{suggestion},
+	)
+}
+
 func checkSkillsValidity(source string, result *doctorResult, discovered []sync.DiscoveredSkill) {
 	entries, err := os.ReadDir(source)
 	if err != nil {
@@ -977,6 +1015,12 @@ func checkDuplicateSkills(cfg *config.Config, result *doctorResult, discovered [
 			continue
 		}
 
+		// The target dir is itself a link (symlink mode after sync), so its
+		// entries are the source itself, not target-local copies.
+		if mode == "symlink" && utils.IsSymlinkOrJunction(sc.Path) {
+			continue
+		}
+
 		resolution, err := sync.ResolveTargetSkillsForTarget(name, target.SkillsConfig(), discovered)
 		if err != nil {
 			continue
@@ -1047,7 +1091,7 @@ func checkDuplicateSkills(cfg *config.Config, result *doctorResult, discovered [
 }
 
 // checkExtras verifies extras source directories exist and targets are reachable.
-func checkExtras(extras []config.ExtraConfig, result *doctorResult, isProject bool, source, extrasSource, projectRoot string) {
+func checkExtras(extras []config.ExtraConfig, result *doctorResult, isProject bool, source, extrasSource, projectRoot, projectExtrasParent string) {
 	if len(extras) == 0 {
 		return
 	}
@@ -1060,7 +1104,7 @@ func checkExtras(extras []config.ExtraConfig, result *doctorResult, isProject bo
 	for _, extra := range extras {
 		var sourceDir string
 		if isProject {
-			sourceDir = config.ExtrasSourceDirProject(projectRoot, extra.Name)
+			sourceDir = config.ExtrasSourceDirProject(projectExtrasParent, extra.Name)
 		} else {
 			sourceDir = config.ResolveExtrasSourceDir(extra, extrasSource, source)
 		}
@@ -1213,17 +1257,17 @@ func checkVersionDoctor(cfg *config.Config, result *doctorResult, isProject bool
 	result.addCheck("cli_version", checkPass, fmt.Sprintf("CLI: %s", version), nil)
 
 	// Skill version: try SKILL.md frontmatter first, then metadata store
-	localVersion := versioncheck.ReadLocalSkillVersion(cfg.Source)
+	localVersion := versioncheck.ReadLocalSkillVersion(cfg.EffectiveSkillsSource())
 	if localVersion == "" {
 		// Try metadata store (tracks installed version even without metadata.version in SKILL.md)
-		store := install.LoadMetadataOrNew(cfg.Source)
+		store := install.LoadMetadataOrNew(cfg.EffectiveSkillsSource())
 		if entry := store.Get("skillshare"); entry != nil && entry.Version != "" {
 			localVersion = strings.TrimPrefix(entry.Version, "v")
 		}
 	}
 
 	if localVersion == "" {
-		skillFile := filepath.Join(cfg.Source, "skillshare", "SKILL.md")
+		skillFile := filepath.Join(cfg.EffectiveSkillsSource(), "skillshare", "SKILL.md")
 		if _, err := os.Stat(skillFile); os.IsNotExist(err) {
 			if isProject {
 				ui.Info("Skill: not installed")
@@ -1249,6 +1293,14 @@ func checkVersionDoctor(cfg *config.Config, result *doctorResult, isProject bool
 // proper semver comparison. Safe to call from a goroutine.
 func fetchDoctorUpdateResult() *versioncheck.CheckResult {
 	method := detectInstallMethod()
+	if version == "" || version == "dev" {
+		return &versioncheck.CheckResult{
+			CurrentVersion:  "dev",
+			LatestVersion:   "dev-ui-flow",
+			UpdateAvailable: true,
+			InstallMethod:   method,
+		}
+	}
 	return versioncheck.Check(version, method)
 }
 

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUpCircle, RefreshCw, Search, Check, Zap, Trash2,
   Circle, CheckCircle, XCircle, MinusCircle, ShieldAlert, Loader2,
-  LayoutGrid, Users, Globe, Puzzle, Bot,
+  LayoutGrid, Users, Globe, Puzzle, Bot, AlertTriangle, DownloadCloud,
 } from 'lucide-react';
 import { Virtuoso } from 'react-virtuoso';
 import Card from '../components/Card';
@@ -22,7 +22,7 @@ import { Input } from '../components/Input';
 import { Checkbox } from '../components/Checkbox';
 import { useToast } from '../components/Toast';
 import { api } from '../api/client';
-import type { CheckResult } from '../api/client';
+import type { CheckResult, UpdateResultItem } from '../api/client';
 import { queryKeys, staleTimes } from '../lib/queryKeys';
 import { clearAuditCache } from '../lib/auditCache';
 import { globToRegex } from '../lib/glob';
@@ -38,6 +38,23 @@ interface CheckItemStatus {
   status: CheckStatus;
   message?: string;
   behind?: number;
+  checkedAt?: string;
+}
+
+const CHECK_STATUS_VALUES: CheckStatus[] = [
+  'unchecked',
+  'checking',
+  'behind',
+  'up-to-date',
+  'update-available',
+  'error',
+];
+const UPDATE_CHECK_CACHE_KEY = 'skillshare.updateCheckCache.global';
+const UPDATE_CHECK_CACHE_VERSION = 1;
+
+interface StoredCheckCache {
+  version: number;
+  items: Record<string, CheckItemStatus>;
 }
 
 type TypeFilter = 'all' | 'tracked' | 'github';
@@ -80,6 +97,15 @@ export default function UpdatePage() {
     queryFn: () => api.listSkills(),
     staleTime: staleTimes.skills,
   });
+
+  // Tracked repos declared in metadata but missing on disk (issue #212)
+  const { data: missingReposData } = useQuery({
+    queryKey: queryKeys.missingTrackedRepos,
+    queryFn: () => api.missingTrackedRepos(),
+    staleTime: staleTimes.missingTrackedRepos,
+  });
+  const missingTrackedRepos = missingReposData?.repos ?? [];
+  const [rehydrating, setRehydrating] = useState(false);
   const allSkills = skillsData?.resources ?? [];
 
   // Tab state (skills vs agents)
@@ -123,7 +149,7 @@ export default function UpdatePage() {
   );
 
   // Check state
-  const [checkStatuses, setCheckStatuses] = useState<Map<string, CheckItemStatus>>(new Map());
+  const [checkStatuses, setCheckStatuses] = useState<Map<string, CheckItemStatus>>(() => readStoredCheckStatuses());
   const [checking, setChecking] = useState(false);
   const [checkMode, setCheckMode] = useState<'all' | 'selected' | null>(null);
   const esRef = useRef<EventSource | null>(null);
@@ -146,6 +172,13 @@ export default function UpdatePage() {
     return () => { esRef.current?.close(); };
   }, []);
 
+  // Keep the last completed check in browser storage so revisiting the page
+  // does not reset every item to "unchecked".
+  useEffect(() => {
+    if ([...checkStatuses.values()].some((status) => status.status === 'checking')) return;
+    writeStoredCheckStatuses(checkStatuses);
+  }, [checkStatuses]);
+
   // Auto-scroll to the item currently being updated
   useEffect(() => {
     if (phase !== 'updating') return;
@@ -163,34 +196,51 @@ export default function UpdatePage() {
   const applyCheckResult = useCallback((result: CheckResult, filterNames?: Set<string>) => {
     setCheckStatuses((prev) => {
       const next = new Map(prev);
+      const pending = new Set(filterNames ?? allUpdatableItems.map((item) => item.name));
+      const checkedAt = new Date().toISOString();
 
       // Tracked repos: propagate the repo's status to every item belonging to it.
       // The backend returns one entry per repo directory (e.g. `_awesome-claude-agents`)
       // but the UI uses per-item keys (`api-architect`, `backend-developer`, ...).
       for (const repo of result.tracked_repos) {
-        const repoStatus: CheckItemStatus = {
-          status: repo.status === 'behind' ? 'behind' : 'up-to-date',
-          message: repo.message,
-          behind: repo.behind,
-        };
+        const repoStatus: CheckItemStatus = repo.status === 'behind'
+          ? { status: 'behind', message: repo.message, behind: repo.behind, checkedAt }
+          : repo.status === 'error' || repo.status === 'dirty'
+          ? { status: 'error', message: repo.message, checkedAt }
+          : { status: 'up-to-date', message: repo.message, checkedAt };
         for (const item of allUpdatableItems) {
           if (!item.isInRepo) continue;
           if (item.relPath.split('/')[0] !== repo.name) continue;
           if (filterNames && !filterNames.has(item.name)) continue;
           next.set(item.name, repoStatus);
+          pending.delete(item.name);
         }
       }
 
-      // Individual non-repo skills (GitHub-installed)
+      // Individual non-repo skills (GitHub-installed). Backend check results use
+      // metadata relative paths for nested installs, while the list displays the
+      // basename; match all stable identifiers so nested items don't stay checking.
       for (const skill of result.skills) {
         const item = allUpdatableItems.find(
-          (i) => !i.isInRepo && (i.name === skill.name || i.flatName === skill.name),
+          (i) => !i.isInRepo && matchesCheckSkill(i, skill.name),
         );
         if (!item) continue;
         if (filterNames && !filterNames.has(item.name)) continue;
         next.set(item.name, {
-          status: skill.status === 'update_available' ? 'update-available' : 'up-to-date',
+          status: skill.status === 'update_available'
+            ? 'update-available'
+            : skill.status === 'error'
+            ? 'error'
+            : 'up-to-date',
+          checkedAt,
         });
+        pending.delete(item.name);
+      }
+
+      for (const name of pending) {
+        if (next.get(name)?.status === 'checking') {
+          next.set(name, { status: 'error', checkedAt });
+        }
       }
 
       return next;
@@ -229,10 +279,11 @@ export default function UpdatePage() {
         // Mark items as error
         setCheckStatuses((prev) => {
           const next = new Map(prev);
+          const checkedAt = new Date().toISOString();
           if (filterNames) {
-            for (const name of filterNames) next.set(name, { status: 'error' });
+            for (const name of filterNames) next.set(name, { status: 'error', checkedAt });
           } else {
-            for (const item of allUpdatableItems) next.set(item.name, { status: 'error' });
+            for (const item of allUpdatableItems) next.set(item.name, { status: 'error', checkedAt });
           }
           return next;
         });
@@ -293,7 +344,11 @@ export default function UpdatePage() {
   const toggleSelect = useCallback((name: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
       return next;
     });
   }, []);
@@ -324,6 +379,41 @@ export default function UpdatePage() {
     queryClient.invalidateQueries({ queryKey: queryKeys.skills.all });
   }, [queryClient]);
 
+  const applyUpdateResultsToCheckStatuses = useCallback((results: UpdateResultItem[]) => {
+    if (results.length === 0) return;
+
+    setCheckStatuses((prev) => {
+      const next = new Map(prev);
+      const checkedAt = new Date().toISOString();
+
+      for (const result of results) {
+        if (!isSuccessfulUpdateAction(result.action)) continue;
+
+        const status: CheckItemStatus = {
+          status: 'up-to-date',
+          message: result.message,
+          checkedAt,
+        };
+
+        if (result.isRepo) {
+          for (const item of allUpdatableItems) {
+            if (!item.isInRepo) continue;
+            if (item.relPath.split('/')[0] !== result.name) continue;
+            next.set(item.name, status);
+          }
+          continue;
+        }
+
+        const item = allUpdatableItems.find(
+          (candidate) => !candidate.isInRepo && matchesCheckSkill(candidate, result.name),
+        );
+        if (item) next.set(item.name, status);
+      }
+
+      return next;
+    });
+  }, [allUpdatableItems]);
+
   const handleUpdate = useCallback((opts?: { force?: boolean }) => {
     if (selected.size === 0) return;
 
@@ -343,8 +433,8 @@ export default function UpdatePage() {
         names.push(repoDir);
         items.push({ name: repoDir, kind: item.kind, isRepo: true, status: 'pending' });
       } else {
-        names.push(item.flatName);
-        items.push({ name: item.flatName, kind: item.kind, isRepo: false, status: 'pending' });
+        names.push(item.relPath);
+        items.push({ name: item.relPath, kind: item.kind, isRepo: false, status: 'pending' });
       }
     }
 
@@ -381,7 +471,8 @@ export default function UpdatePage() {
           }),
         );
       },
-      () => {
+      (data) => {
+        applyUpdateResultsToCheckStatuses(data.results);
         setPhase('done');
         invalidateSkillData();
       },
@@ -391,7 +482,7 @@ export default function UpdatePage() {
       },
       { names, force: opts?.force ?? false },
     );
-  }, [selected, updatableItems, invalidateSkillData, toast]);
+  }, [selected, updatableItems, applyUpdateResultsToCheckStatuses, invalidateSkillData, toast]);
 
   const patchItem = useCallback(
     (name: string, patch: Partial<ItemUpdateStatus>) =>
@@ -411,12 +502,15 @@ export default function UpdatePage() {
             auditRiskLabel: item.auditRiskLabel,
           });
         },
-        () => invalidateSkillData(),
+        (data) => {
+          applyUpdateResultsToCheckStatuses(data.results);
+          invalidateSkillData();
+        },
         (err) => patchItem(name, { status: 'error', message: err.message }),
         { names: [name], force: true },
       );
     },
-    [patchItem, invalidateSkillData],
+    [patchItem, applyUpdateResultsToCheckStatuses, invalidateSkillData],
   );
 
   const handlePurge = useCallback(
@@ -437,9 +531,27 @@ export default function UpdatePage() {
     setPhase('selecting');
     setItemStatuses([]);
     setSelected(new Set());
-    setCheckStatuses(new Map());
     itemRefs.current = {};
   }, []);
+
+  const handleRehydrate = useCallback(async () => {
+    setRehydrating(true);
+    try {
+      const { results } = await api.rehydrateTrackedRepos();
+      const failed = results.filter((r) => r.action !== 'rehydrated');
+      if (failed.length > 0) {
+        toast(t('update.missingRepos.rehydratePartial', { count: failed.length }), 'error');
+      } else {
+        toast(t('update.missingRepos.rehydrateSuccess', { count: results.length }), 'success');
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.missingTrackedRepos });
+      invalidateSkillData();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setRehydrating(false);
+    }
+  }, [t, toast, queryClient, invalidateSkillData]);
 
   /* ── Derived counts ──────────────────────────────── */
 
@@ -537,13 +649,43 @@ export default function UpdatePage() {
           }
         />
 
-        {allUpdatableItems.length === 0 ? (
+        {missingTrackedRepos.length > 0 && (
+          <div
+            className="flex items-start gap-2 p-3 bg-warning/10 text-sm"
+            style={{ borderRadius: radius.md }}
+          >
+            <AlertTriangle size={16} className="text-warning shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-pencil">
+                {t('update.missingRepos.title', { count: missingTrackedRepos.length })}
+              </p>
+              <p className="text-pencil-light mt-0.5">{t('update.missingRepos.description')}</p>
+              <ul className="mt-2 space-y-1">
+                {missingTrackedRepos.map((repo) => (
+                  <li key={repo.name} className="flex items-center gap-2 min-w-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-warning shrink-0" />
+                    <span className="font-mono text-pencil shrink-0">{repo.name}</span>
+                    {repo.source && (
+                      <span className="text-pencil-light truncate text-xs">{repo.source}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <Button variant="primary" size="sm" onClick={handleRehydrate} loading={rehydrating}>
+              <DownloadCloud size={16} />
+              {t('update.missingRepos.rehydrate')}
+            </Button>
+          </div>
+        )}
+
+        {allUpdatableItems.length === 0 && missingTrackedRepos.length === 0 ? (
           <EmptyState
             icon={Check}
             title={t('update.empty.title')}
             description={t('update.empty.description')}
           />
-        ) : (
+        ) : allUpdatableItems.length === 0 ? null : (
           <>
             {/* Resource type tabs (Skills / Agents) */}
             <nav
@@ -677,7 +819,7 @@ export default function UpdatePage() {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center justify-end gap-3 shrink-0 sm:min-w-[15rem]">
                           <SourceBadge type={item.type} isInRepo={item.isInRepo} />
                           <CheckStatusBadge status={checkStatus} />
                         </div>
@@ -862,6 +1004,57 @@ ItemStatusCard.displayName = 'ItemStatusCard';
 
 /* ── Helper functions ──────────────────────────────── */
 
+function readStoredCheckStatuses(): Map<string, CheckItemStatus> {
+  if (typeof window === 'undefined') return new Map();
+  try {
+    const raw = window.localStorage.getItem(UPDATE_CHECK_CACHE_KEY);
+    if (!raw) return new Map();
+
+    const parsed = JSON.parse(raw) as Partial<StoredCheckCache>;
+    if (parsed.version !== UPDATE_CHECK_CACHE_VERSION || !parsed.items) return new Map();
+
+    const entries: Array<[string, CheckItemStatus]> = [];
+    for (const [name, status] of Object.entries(parsed.items)) {
+      if (isStoredCheckStatus(status)) entries.push([name, status]);
+    }
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+function writeStoredCheckStatuses(statuses: Map<string, CheckItemStatus>) {
+  if (typeof window === 'undefined') return;
+
+  const items: Record<string, CheckItemStatus> = {};
+  for (const [name, status] of statuses) {
+    if (status.status === 'checking' || status.status === 'unchecked') continue;
+    items[name] = status;
+  }
+
+  try {
+    if (Object.keys(items).length === 0) {
+      window.localStorage.removeItem(UPDATE_CHECK_CACHE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      UPDATE_CHECK_CACHE_KEY,
+      JSON.stringify({ version: UPDATE_CHECK_CACHE_VERSION, items }),
+    );
+  } catch {
+    // Best-effort UI cache only.
+  }
+}
+
+function isStoredCheckStatus(value: unknown): value is CheckItemStatus {
+  if (!value || typeof value !== 'object') return false;
+  const status = (value as Partial<CheckItemStatus>).status;
+  return typeof status === 'string'
+    && CHECK_STATUS_VALUES.includes(status as CheckStatus)
+    && status !== 'checking'
+    && status !== 'unchecked';
+}
+
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -878,6 +1071,14 @@ function formatRelativeTime(dateStr: string): string {
 function isStaleError(message?: string): boolean {
   if (!message) return false;
   return message.includes('does not exist in repository') || message.includes('not found in repository');
+}
+
+function matchesCheckSkill(item: UpdatableItem, resultName: string): boolean {
+  return item.name === resultName || item.flatName === resultName || item.relPath === resultName;
+}
+
+function isSuccessfulUpdateAction(action: string): boolean {
+  return action === 'updated' || action === 'up-to-date';
 }
 
 function actionToStatus(action: string): ItemUpdateStatus['status'] {
@@ -928,18 +1129,36 @@ function StatusBadge({ status }: { status: ItemUpdateStatus['status'] }) {
 
 function CheckStatusBadge({ status }: { status: CheckItemStatus }) {
   const t = useT();
+  let badge: React.ReactNode;
   switch (status.status) {
     case 'unchecked':
-      return <Badge size="sm">{t('update.check.unchecked')}</Badge>;
+      badge = <Badge size="sm">{t('update.check.unchecked')}</Badge>;
+      break;
     case 'checking':
-      return <Badge variant="info" size="sm"><Loader2 size={10} className="animate-spin mr-1" />{t('update.check.checking')}</Badge>;
+      badge = <Badge variant="info" size="sm"><Loader2 size={10} className="animate-spin mr-1" />{t('update.check.checking')}</Badge>;
+      break;
     case 'behind':
-      return <Badge variant="warning" size="sm">{status.behind ? t('update.check.behind', { count: status.behind }) : t('update.check.behindFallback')}</Badge>;
+      badge = <Badge variant="warning" size="sm">{status.behind ? t('update.check.behind', { count: status.behind }) : t('update.check.behindFallback')}</Badge>;
+      break;
     case 'up-to-date':
-      return <Badge variant="success" size="sm">{t('update.check.upToDate')}</Badge>;
+      badge = <Badge variant="success" size="sm">{t('update.check.upToDate')}</Badge>;
+      break;
     case 'update-available':
-      return <Badge variant="warning" size="sm">{t('update.check.updateAvailable')}</Badge>;
+      badge = <Badge variant="warning" size="sm">{t('update.check.updateAvailable')}</Badge>;
+      break;
     case 'error':
-      return <Badge variant="danger" size="sm">{t('update.check.error')}</Badge>;
+      badge = <Badge variant="danger" size="sm">{t('update.check.error')}</Badge>;
+      break;
   }
+
+  return (
+    <span className="inline-flex min-w-[8.5rem] flex-col items-end gap-1.5 py-0.5">
+      {badge}
+      {status.checkedAt && status.status !== 'checking' && status.status !== 'unchecked' && (
+        <span className="text-[10px] leading-tight text-muted-dark whitespace-nowrap">
+          {t('update.check.checkedAt', { time: formatRelativeTime(status.checkedAt) })}
+        </span>
+      )}
+    </span>
+  );
 }

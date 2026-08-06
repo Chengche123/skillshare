@@ -12,13 +12,13 @@ func installTrackedRepoImpl(source *Source, sourceDir string, opts InstallOption
 		return nil, fmt.Errorf("--track requires a git repository source")
 	}
 
-	// Determine repo name: opts.Name > TrackName (owner-repo) > source.Name
+	// Determine repo name: opts.Name > source.Name (from config) > TrackName (derived from URL)
 	repoName := opts.Name
 	if repoName == "" {
-		repoName = source.TrackName()
+		repoName = source.Name
 	}
 	if repoName == "" {
-		repoName = source.Name
+		repoName = source.TrackName()
 	}
 
 	// Prefix with _ to indicate tracked repo (avoid double prefix if user already added _)
@@ -79,12 +79,19 @@ func installTrackedRepoImpl(source *Source, sourceDir string, opts InstallOption
 
 	// Clone tracked repos with a download-optimized strategy first, then
 	// fallback to the legacy full clone for compatibility.
-	if err := cloneTrackedRepo(source.CloneURL, source.Subdir, destPath, opts.Branch, opts.OnProgress); err != nil {
+	// Prefer CLI --branch over source.Branch (from config); both beat empty.
+	cloneBranch := opts.Branch
+	if cloneBranch == "" {
+		cloneBranch = source.Branch
+	}
+	if err := cloneTrackedRepoForSource(source, destPath, cloneBranch, opts.OnProgress); err != nil {
 		return nil, fmt.Errorf("failed to clone repository: %w", err)
 	}
 
-	// Discover skills in the cloned repo (exclude root for tracked repos)
-	skills := discoverSkills(destPath, false)
+	// Discover skills in the cloned repo. Include root SKILL.md so the count
+	// matches what `skillshare sync` will see: every SKILL.md inside a tracked
+	// repo (root and nested alike) becomes an independent skill on sync.
+	skills := discoverSkills(destPath, true)
 	result.SkillCount = len(skills)
 	for _, skill := range skills {
 		result.Skills = append(result.Skills, skill.Name)
@@ -153,8 +160,8 @@ func updateTrackedRepo(repoPath string, result *TrackedRepoResult, opts InstallO
 		return nil, err
 	}
 
-	// Re-discover skills (exclude root for tracked repos)
-	skills := discoverSkills(repoPath, false)
+	// Re-discover skills (include root so count matches `sync` view).
+	skills := discoverSkills(repoPath, true)
 	result.SkillCount = len(skills)
 	for _, skill := range skills {
 		result.Skills = append(result.Skills, skill.Name)
@@ -187,6 +194,37 @@ func cloneRepoFull(url, destPath, branch string, onProgress ProgressCallback) er
 	}
 	args = append(args, url, destPath)
 	return runGitCommandWithProgress(args, "", authEnv(url), onProgress)
+}
+
+func cloneTrackedRepoForSource(source *Source, destPath, branch string, onProgress ProgressCallback) error {
+	err := cloneTrackedRepo(source.CloneURL, source.Subdir, destPath, branch, onProgress)
+	if err == nil {
+		return nil
+	}
+	if !shouldRetryNestedGitLabURL(err) {
+		return err
+	}
+
+	var lastErr error
+	for _, fallback := range cloneFallbackSourcesForNestedGitLabURL(source) {
+		if cleanupErr := removeAll(destPath); cleanupErr != nil && !os.IsNotExist(cleanupErr) {
+			return fmt.Errorf("clone failed (%v), and cleanup before fallback failed: %w", err, cleanupErr)
+		}
+		if onProgress != nil {
+			onProgress("Clone failed; retrying as a nested GitLab repository...")
+		}
+		fallbackErr := cloneTrackedRepo(fallback.CloneURL, fallback.Subdir, destPath, branch, onProgress)
+		if fallbackErr == nil {
+			*source = fallback
+			return nil
+		}
+		lastErr = fallbackErr
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("%w (nested GitLab fallback also failed: %v)", err, lastErr)
+	}
+	return err
 }
 
 // cloneTrackedRepo clones a tracked repository with an optimized payload first

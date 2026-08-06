@@ -501,9 +501,12 @@ func installFromSearchResultProject(result search.SearchResult, cwd string) (err
 		ui.Warning("%s", warning)
 	}
 
-	// Update .gitignore for the installed skill
-	if err := install.UpdateGitIgnore(filepath.Join(runtime.root, ".skillshare"), filepath.Join("skills", result.Name)); err != nil {
-		ui.Warning("Failed to update .skillshare/.gitignore: %v", err)
+	// Update .gitignore for the installed skill (skip for external sources)
+	gitDir, gitPrefix := config.ProjectGitignoreTarget(runtime.root, runtime.sourcePath)
+	if gitDir != "" {
+		if err := install.UpdateGitIgnore(gitDir, gitPrefix+"/"+result.Name); err != nil {
+			ui.Warning("Failed to update .gitignore: %v", err)
+		}
 	}
 
 	// Reconcile project config with installed skills
@@ -538,7 +541,7 @@ func installFromSearchResult(result search.SearchResult, cfg *config.Config) (er
 	}
 
 	// Determine destination
-	destPath := filepath.Join(cfg.Source, result.Name)
+	destPath := filepath.Join(cfg.EffectiveSkillsSource(), result.Name)
 
 	// Check if already exists
 	if _, err := os.Stat(destPath); err == nil {
@@ -578,7 +581,7 @@ func installFromSearchResult(result search.SearchResult, cfg *config.Config) (er
 	logSummary.InstalledSkills = []string{result.Name}
 
 	// Reconcile global config with installed skills
-	store, _ := install.LoadMetadataWithMigration(cfg.Source, "")
+	store, _ := install.LoadMetadataWithMigration(cfg.EffectiveSkillsSource(), "")
 	if store == nil {
 		store = install.NewMetadataStore()
 	}
@@ -711,7 +714,8 @@ func looksLikeURLOrPath(v string) bool {
 		strings.HasPrefix(v, "/") ||
 		strings.HasPrefix(v, "./") ||
 		strings.HasPrefix(v, "../") ||
-		strings.HasPrefix(v, "~")
+		strings.HasPrefix(v, "~") ||
+		install.IsSSHURL(v)
 }
 
 // loadHubConfig loads the HubConfig from the appropriate config, returning

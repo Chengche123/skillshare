@@ -35,7 +35,7 @@ func (s *Server) handlePutSkillContent(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	agentsSource := s.agentsSource()
 	s.mu.RUnlock()
 
@@ -123,7 +123,7 @@ func (s *Server) handlePatchSkillSource(w http.ResponseWriter, r *http.Request) 
 		newRepoURL = parsed.CloneURL
 	}
 
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	agentsSource := s.agentsSource()
 
 	m := s.findMetadataEntry(name, kind, source, agentsSource)
@@ -134,7 +134,6 @@ func (s *Server) handlePatchSkillSource(w http.ResponseWriter, r *http.Request) 
 	entry := m.Entry
 	if entry == nil {
 		entry = &install.MetadataEntry{}
-		m.Store.Set(m.RelPath, entry)
 	}
 
 	// Detect tracked repo by walking up for .git, bounded by storeDir.
@@ -152,6 +151,25 @@ func (s *Server) handlePatchSkillSource(w http.ResponseWriter, r *http.Request) 
 
 	oldSource := entry.Source
 	updated := 0
+
+	// Update git remote origin before persisting metadata so the API does not
+	// report success while the on-disk repository still points at the old URL.
+	if repoRoot != "" {
+		if err := git.SetRemoteURL(repoRoot, newRepoURL); err != nil {
+			s.writeOpsLog("skill.source", "error", start, map[string]any{
+				"name":      name,
+				"kind":      m.Kind,
+				"oldSource": oldSource,
+				"newSource": req.Source,
+			}, err.Error())
+			writeError(w, http.StatusInternalServerError, "failed to update git remote URL: "+err.Error())
+			return
+		}
+	}
+
+	if m.Entry == nil {
+		m.Store.Set(m.RelPath, entry)
+	}
 
 	// For tracked repos, update ALL skills sharing the same git repo.
 	if oldRepoURL != "" && isTracked {
@@ -183,11 +201,6 @@ func (s *Server) handlePatchSkillSource(w http.ResponseWriter, r *http.Request) 
 	if err := m.Store.Save(m.StoreDir); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save metadata: "+err.Error())
 		return
-	}
-
-	// Update git remote origin if this is a tracked repo.
-	if repoRoot != "" {
-		_ = git.SetRemoteURL(repoRoot, newRepoURL)
 	}
 
 	s.writeOpsLog("skill.source", "ok", start, map[string]any{
@@ -255,12 +268,18 @@ func (s *Server) findMetadataEntry(name, kind, source, agentsSource string) *met
 	return nil
 }
 
-// findRepoRoot walks up from path looking for a .git directory, bounded by root.
-// Returns the directory containing .git, or "" if none found.
+// findRepoRoot walks up from path looking for a tracked-skill .git directory,
+// strictly BELOW root. The source root itself is never a tracked repo (it holds
+// many skills from different sources), and it may legitimately be a GitSync repo
+// — treating it as a tracked repo would rewrite that repo's origin. Returns the
+// directory containing .git, or "" if none found.
 func findRepoRoot(path, root string) string {
 	cleanRoot := filepath.Clean(root)
-	for dir := path; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		if !strings.HasPrefix(filepath.Clean(dir), cleanRoot) {
+	prefix := cleanRoot + string(filepath.Separator)
+	for dir := filepath.Clean(path); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		// Stop once we reach the source root (or step outside it): a tracked
+		// skill's .git always lives in a subdirectory, never at root itself.
+		if dir == cleanRoot || !strings.HasPrefix(dir, prefix) {
 			break
 		}
 		if fi, err := os.Stat(filepath.Join(dir, ".git")); err == nil && fi.IsDir() {

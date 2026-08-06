@@ -51,7 +51,7 @@ func newSyncMatrixEntry(skill, target, status, reason, kind string) syncMatrixEn
 func (s *Server) handleSyncMatrix(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	agentsSource := s.agentsSource()
 	targets := s.cloneTargets()
 	s.mu.RUnlock()
@@ -126,7 +126,7 @@ func (s *Server) handleSyncMatrix(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSyncMatrixPreview(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	agentsSource := s.agentsSource()
 	targets := s.cloneTargets()
 	s.mu.RUnlock()

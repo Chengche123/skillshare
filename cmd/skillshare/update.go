@@ -31,13 +31,22 @@ type updateOptions struct {
 
 // updateJSONOutput is the JSON representation for update --json output.
 type updateJSONOutput struct {
-	Updated        int              `json:"updated"`
-	Skipped        int              `json:"skipped"`
-	SecurityFailed int              `json:"security_failed"`
-	Pruned         int              `json:"pruned"`
-	DryRun         bool             `json:"dry_run"`
-	Duration       string           `json:"duration"`
-	Items          []updateJSONItem `json:"items"`
+	Updated             int                         `json:"updated"`
+	Skipped             int                         `json:"skipped"`
+	SecurityFailed      int                         `json:"security_failed"`
+	Pruned              int                         `json:"pruned"`
+	DryRun              bool                        `json:"dry_run"`
+	Duration            string                      `json:"duration"`
+	Items               []updateJSONItem            `json:"items"`
+	MissingTrackedRepos *missingTrackedReposSummary `json:"missing_tracked_repos,omitempty"`
+}
+
+// missingTrackedReposSummary aggregates tracked repos declared in metadata whose
+// clone directories are absent on disk, so the per-item error stays concise while
+// the recovery hint is surfaced once. See issue #212.
+type missingTrackedReposSummary struct {
+	Names []string `json:"names"`
+	Hint  string   `json:"hint"`
 }
 
 type updateJSONItem struct {
@@ -182,6 +191,7 @@ func cmdUpdate(args []string) error {
 	if opts.threshold == "" {
 		opts.threshold = cfg.Audit.BlockThreshold
 	}
+	sourcePath := utils.ResolveSymlink(cfg.EffectiveSkillsSource())
 
 	// In JSON mode, redirect all UI output to stderr early so the
 	// header, step, spinner, and handler output don't corrupt stdout.
@@ -198,7 +208,7 @@ func cmdUpdate(args []string) error {
 	}
 
 	ui.Header(ui.WithModeLabel("Updating"))
-	ui.StepStart("Source", cfg.Source)
+	ui.StepStart("Source", cfg.EffectiveSkillsSource())
 
 	// --- Resolve targets ---
 	var targets []updateTarget
@@ -208,8 +218,11 @@ func cmdUpdate(args []string) error {
 	if opts.all {
 		// Recursive discovery for --all
 		scanSpinner := ui.StartSpinner("Scanning skills...")
-		walkRoot := utils.ResolveSymlink(cfg.Source)
-		metaStore, _ := install.LoadMetadataWithMigration(cfg.Source, "")
+		walkRoot := sourcePath
+		metaStore, metaErr := install.LoadMetadataWithMigration(sourcePath, "")
+		if metaErr != nil {
+			resolveWarnings = append(resolveWarnings, fmt.Sprintf("could not read skill metadata: %v", metaErr))
+		}
 		err := filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
 			if err != nil || path == walkRoot {
 				return nil
@@ -253,14 +266,21 @@ func cmdUpdate(args []string) error {
 			}
 			return fmt.Errorf("failed to scan skills: %w", err)
 		}
+		missingRepos, _ := install.GetMissingTrackedRepos(sourcePath)
+		for _, repo := range missingRepos {
+			if !seen[repo.Name] {
+				seen[repo.Name] = true
+				targets = append(targets, updateTarget{name: repo.Name, path: filepath.Join(sourcePath, filepath.FromSlash(repo.Name)), isRepo: true})
+			}
+		}
 	} else {
 		// Load store once for name resolution
-		nameStore, _ := install.LoadMetadata(cfg.Source)
+		nameStore, _ := install.LoadMetadata(sourcePath)
 		// Resolve by specific names/groups
 		for _, name := range opts.names {
 			// Glob pattern matching (e.g. "core-*", "_team-?")
 			if isGlobPattern(name) {
-				globMatches, globErr := resolveByGlob(cfg.Source, name)
+				globMatches, globErr := resolveByGlob(sourcePath, name)
 				if globErr != nil {
 					resolveWarnings = append(resolveWarnings, fmt.Sprintf("%s: %v", name, globErr))
 					continue
@@ -279,8 +299,8 @@ func cmdUpdate(args []string) error {
 				continue
 			}
 
-			if isGroupDir(name, cfg.Source, nameStore) {
-				groupMatches, groupErr := resolveGroupUpdatable(name, cfg.Source)
+			if isGroupDir(name, sourcePath, nameStore) {
+				groupMatches, groupErr := resolveGroupUpdatable(name, sourcePath)
 				if groupErr != nil {
 					resolveWarnings = append(resolveWarnings, fmt.Sprintf("%s: %v", name, groupErr))
 					continue
@@ -299,7 +319,7 @@ func cmdUpdate(args []string) error {
 				continue
 			}
 
-			match, err := resolveByBasename(cfg.Source, name)
+			match, err := resolveByBasename(sourcePath, name)
 			if err != nil {
 				resolveWarnings = append(resolveWarnings, fmt.Sprintf("%s: %v", name, err))
 				continue
@@ -311,7 +331,7 @@ func cmdUpdate(args []string) error {
 		}
 
 		for _, group := range opts.groups {
-			groupMatches, err := resolveGroupUpdatable(group, cfg.Source)
+			groupMatches, err := resolveGroupUpdatable(group, sourcePath)
 			if err != nil {
 				resolveWarnings = append(resolveWarnings, fmt.Sprintf("--group %s: %v", group, err))
 				continue
@@ -363,7 +383,7 @@ func cmdUpdate(args []string) error {
 	}
 
 	// --- Execute ---
-	uc := &updateContext{sourcePath: cfg.Source, registryDir: cfg.RegistryDir, opts: opts, parseOpts: parseOptsFromConfig(cfg)}
+	uc := &updateContext{sourcePath: sourcePath, registryDir: cfg.RegistryDir, opts: opts, parseOpts: parseOptsFromConfig(cfg)}
 
 	if len(targets) == 1 {
 		// Single target: verbose path
@@ -372,7 +392,11 @@ func cmdUpdate(args []string) error {
 		var r updateResult
 		var updateErr error
 		if t.isRepo {
-			r, updateErr = updateTrackedRepo(uc, t.name)
+			if mr, missing := missingTrackedRepoResult(t); opts.all && missing {
+				r = mr
+			} else {
+				r, updateErr = updateTrackedRepo(uc, t.name)
+			}
 		} else {
 			r, updateErr = updateRegularSkill(uc, t.name)
 		}
@@ -387,6 +411,7 @@ func cmdUpdate(args []string) error {
 		if opts.jsonOutput {
 			return jsonWriteResult(&r, updateErr)
 		}
+		displayMissingTrackedReposWarning(r.missingTrackedRepos)
 		return updateErr
 	}
 
@@ -426,6 +451,13 @@ func updateOutputJSON(result *updateResult, dryRun bool, start time.Time, update
 		output.Skipped = result.skipped
 		output.SecurityFailed = result.securityFailed
 		output.Pruned = result.pruned
+		output.Items = result.items
+		if len(result.missingTrackedRepos) > 0 {
+			output.MissingTrackedRepos = &missingTrackedReposSummary{
+				Names: result.missingTrackedRepos,
+				Hint:  missingTrackedRepoHint(),
+			}
+		}
 	}
 	return writeJSONResult(&output, updateErr)
 }

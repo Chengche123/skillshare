@@ -111,6 +111,12 @@ skills:
     source: github.com/team/skills
     tracked: true
 
+# Fold $HOME → ~ on save (dotfiles-friendly)
+# preserve_tilde_on_save: true
+
+# Directory for commit/push/pull (skills default, agents, extras, root)
+# git_root: skills
+
 # Custom agents source (optional, overrides default location)
 agents_source: ~/my-agents
 
@@ -515,6 +521,44 @@ SKILLSHARE_GITLAB_HOSTS=git.company.com,code.internal.io skillshare install git.
 
 When both the config file and env var are set, their values are **merged** (deduplicated). Invalid entries in the env var are silently skipped.
 
+### `azure_hosts`
+
+Hostnames of self-hosted Azure DevOps Server instances. The built-in patterns for `dev.azure.com` and `*.visualstudio.com` are always active — this field is only needed for on-premises Azure DevOps Server with custom domains.
+
+```yaml
+azure_hosts:
+  - azuredevops.mycompany.com
+```
+
+When a hostname is listed here, URLs containing `/_git/` are routed through Azure DevOps parsing logic, which correctly extracts the org, project, and repo without appending `.git` to the clone URL.
+
+**Without `azure_hosts`:**
+
+```bash
+# Falls through to generic HTTPS parsing — clone URL becomes
+# https://azuredevops.mycompany.com/Org/Project.git (WRONG)
+skillshare install https://azuredevops.mycompany.com/Org/Project/_git/Repo
+```
+
+**With `azure_hosts: [azuredevops.mycompany.com]`:**
+
+```bash
+# Correctly parsed — clone URL is
+# https://azuredevops.mycompany.com/Org/Project/_git/Repo
+skillshare install https://azuredevops.mycompany.com/Org/Project/_git/Repo
+```
+
+Entries must be bare hostnames (no scheme, path, or port). They are normalized to lowercase.
+
+#### Environment variable
+
+For CI/CD pipelines, use `SKILLSHARE_AZURE_HOSTS` (comma-separated):
+
+```bash
+SKILLSHARE_AZURE_HOSTS=azuredevops.mycompany.com skillshare install \
+  https://azuredevops.mycompany.com/Org/Project/_git/Repo
+```
+
 ### `audit`
 
 Security audit configuration.
@@ -549,6 +593,97 @@ audit:
 - `block_threshold` only controls when install is **blocked** — scanning always runs
 - Use `--skip-audit` to bypass scanning for a single install
 - Use `--force` to override a block (findings are still shown)
+
+### `context_budget`
+
+Token budget warning thresholds. Warnings appear after `sync` and `analyze` when token count exceeds budget.
+
+```yaml
+context_budget:
+  warn_always_loaded_tokens: 10000
+  warn_on_demand_tokens: 100000
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `warn_always_loaded_tokens` | integer | `10000` | Warn when always-loaded tokens exceed this value. `0` disables |
+| `warn_on_demand_tokens` | integer | `100000` | Warn when on-demand tokens exceed this value. `0` disables |
+
+When omitted, defaults apply (10K / 100K). Use `skillshare sync --quiet` to suppress warnings. See [sync — Context Cost](/docs/reference/commands/sync#context-cost) for output format.
+
+### `preserve_tilde_on_save`
+
+When `true`, folds `$HOME` prefixes back to `~` before writing `config.yaml`. Keeps the on-disk config portable across machines — useful when the config is shared via dotfiles (stow, chezmoi, yadm, bare git repo).
+
+```yaml
+preserve_tilde_on_save: true
+```
+
+**Default:** `false` (existing behavior unchanged — paths are saved as absolute).
+
+Without this flag, every save rewrites `~/...` paths as `/home/alice/...` (the expanded form). When the config is version-controlled and shared across machines, this creates noisy diffs and breaks portability.
+
+With the flag enabled, the serialized YAML uses `~` for any path under `$HOME`:
+
+```yaml
+# Before (default): absolute, machine-specific
+source: /home/alice/.config/skillshare/skills
+targets:
+  claude:
+    skills:
+      path: /home/alice/.claude/skills
+
+# After (preserve_tilde_on_save: true): portable
+source: ~/.config/skillshare/skills
+targets:
+  claude:
+    skills:
+      path: ~/.claude/skills
+```
+
+The in-memory config is unaffected — `Load()` still expands `~` as usual. Non-home absolute paths (e.g. `/opt/shared/skills`) are passed through unchanged.
+
+:::note Global mode only
+This option applies to the global `config.yaml` only. Project configs (`.skillshare/config.yaml`) typically use relative paths and don't need tilde folding.
+:::
+
+### `git_root` {#git-root}
+
+Selects which directory `skillshare commit`, `push`, and `pull` operate on.
+
+```yaml
+git_root: skills
+```
+
+| Value | Directory versioned |
+|-------|---------------------|
+| `skills` (default) | Skills source (`~/.config/skillshare/skills/`) |
+| `agents` | Agents source (`~/.config/skillshare/agents/`) |
+| `extras` | Extras source (`~/.config/skillshare/extras/`) |
+| `root` | Config root (`~/.config/skillshare/`) — skills + agents + extras in one repo; `config.yaml` is auto-ignored |
+
+**Default:** `skills`
+
+Set during init with `skillshare init --git-root <scope>`, or interactively during the init wizard.
+
+#### Changing the scope after init
+
+Switch the scope headlessly on an already-initialized setup:
+
+```bash
+skillshare init --git-root <scope>   # global mode; add -g if your cwd is a project
+```
+
+This initializes a git repo at the new scope directory (reusing one already there), persists `git_root` to config, and does not prompt or require `--remote`. It does **not** move an existing repo, though — switching scope means "start versioning a different directory", not "relocate history":
+
+- **Fresh history** — `skillshare init --git-root <scope>` initializes an empty repo at the new scope.
+- **Keep history** — first `mv <old-scope>/.git <new-scope>/.git`, then `skillshare init --git-root <scope>` to record the scope.
+
+You can also edit `git_root` in `config.yaml` directly. If `git_root` points to a directory without a repo while another scope directory has one, `commit`/`push`/`pull` print a "Git root mismatch" error that includes the exact `skillshare init` / `mv` commands to resolve it.
+
+:::note Global mode only
+`git_root` applies to global mode only. Project mode uses the `.skillshare/` directory and does not support this field.
+:::
 
 ---
 

@@ -6,6 +6,7 @@ import { radius } from '../design';
 import { api } from '../api/client';
 import type { VersionCheck } from '../api/client';
 import DialogShell from './DialogShell';
+import Button from './Button';
 import { useT } from '../i18n';
 
 const DISMISSED_KEY = 'ss-update-dialog-dismissed';
@@ -24,6 +25,8 @@ export default function UpdateDialog() {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
 
   const isMockMode = new URLSearchParams(window.location.search).has('update-test');
 
@@ -51,7 +54,9 @@ export default function UpdateDialog() {
 
   const dismiss = () => {
     setOpen(false);
-    try { sessionStorage.setItem(DISMISSED_KEY, '1'); } catch {}
+    try { sessionStorage.setItem(DISMISSED_KEY, '1'); } catch {
+      // Ignore storage access failures.
+    }
   };
 
   const handleCopy = async () => {
@@ -59,16 +64,55 @@ export default function UpdateDialog() {
       await navigator.clipboard.writeText('skillshare upgrade');
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {}
+    } catch {
+      // Ignore clipboard failures.
+    }
+  };
+
+  const waitForRestartThenReload = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    for (let i = 0; i < 40; i++) {
+      try {
+        await api.health();
+        window.location.reload();
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+    setStatus(t('updateDialog.restartManual', {}, 'Updated. Restart with skillshare ui start if this page does not reconnect.'));
+    setUpdating(false);
+  };
+
+  const handleUpdateNow = async () => {
+    setUpdating(true);
+    setStatus(t('updateDialog.updating', {}, 'Updating Skillshare…'));
+    try {
+      const result = await api.upgradeApp();
+      if (result.devMode) {
+        setStatus(t('updateDialog.restartDev', {}, 'DEV mode restart simulated.'));
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        setUpdating(false);
+        setOpen(false);
+        return;
+      }
+      setStatus(t('updateDialog.restarting', {}, 'Restarting local UI server…'));
+      await api.restartApp({ clearCache: true });
+      void waitForRestartThenReload();
+    } catch (err) {
+      setStatus((err as Error).message);
+      setUpdating(false);
+    }
   };
 
   return (
-    <DialogShell open={open} onClose={dismiss} maxWidth="sm">
+    <DialogShell open={open} onClose={dismiss} maxWidth="sm" preventClose={updating}>
         {/* Close */}
         <button
           onClick={dismiss}
-          className="absolute top-3 right-3 p-1 text-pencil-light hover:text-pencil transition-colors cursor-pointer"
+          className="absolute top-3 right-3 p-1 text-pencil-light hover:text-pencil transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           aria-label={t('common.close')}
+          disabled={updating}
         >
           <X size={16} />
         </button>
@@ -108,11 +152,27 @@ export default function UpdateDialog() {
             onClick={handleCopy}
             className="p-1 text-pencil-light hover:text-pencil transition-colors cursor-pointer"
             aria-label={t('updateDialog.copyCommand')}
+            disabled={updating}
           >
             {copied
               ? <Check size={14} className="text-success" />
               : <Copy size={14} />}
           </button>
+        </div>
+
+        {status && (
+          <p className={`mt-3 text-sm ${updating ? 'text-pencil-light' : 'text-danger'}`}>
+            {status}
+          </p>
+        )}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={dismiss} disabled={updating}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" size="sm" onClick={handleUpdateNow} loading={updating}>
+            {t('updateDialog.updateNow', {}, 'Update now')}
+          </Button>
         </div>
     </DialogShell>
   );

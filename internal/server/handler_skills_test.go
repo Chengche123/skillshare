@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"skillshare/internal/config"
 	"skillshare/internal/install"
 	"skillshare/internal/trash"
 )
@@ -140,6 +141,27 @@ func TestHandleGetSkill_NotFound(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rr.Code)
+	}
+}
+
+func TestHandleUninstallSkill_DisabledSkill(t *testing.T) {
+	s, src := newTestServer(t)
+	addSkill(t, src, "disabled-skill")
+	if err := os.WriteFile(filepath.Join(src, ".skillignore"), []byte("disabled-skill\n"), 0644); err != nil {
+		t.Fatalf("disable skill: %v", err)
+	}
+	s.skillsStore = install.NewMetadataStore()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/resources/disabled-skill", nil)
+	req.SetPathValue("name", "disabled-skill")
+	rr := httptest.NewRecorder()
+	s.handleUninstallSkill(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(src, "disabled-skill")); !os.IsNotExist(err) {
+		t.Fatalf("expected disabled-skill directory to be removed from source, stat err=%v", err)
 	}
 }
 
@@ -310,6 +332,7 @@ func TestHandleUninstallRepo_ProjectMode_GitignorePath(t *testing.T) {
 	projectSkillsDir := filepath.Join(projectRoot, ".skillshare", "skills")
 	os.MkdirAll(projectSkillsDir, 0755)
 	s.projectRoot = projectRoot
+	s.projectCfg = &config.ProjectConfig{}
 	s.cfg.Source = projectSkillsDir
 
 	// Create tracked repo inside project skills dir

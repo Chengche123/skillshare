@@ -36,8 +36,13 @@ func TestInitProject_Fresh_CreatesStructure(t *testing.T) {
 	if !sb.FileExists(filepath.Join(projectRoot, ".claude", "skills")) {
 		t.Error(".claude/skills/ should exist")
 	}
-	if !sb.FileExists(filepath.Join(projectRoot, ".cursor", "skills")) {
-		t.Error(".cursor/skills/ should exist")
+	if !sb.FileExists(filepath.Join(projectRoot, ".agents", "skills")) {
+		t.Error(".agents/skills/ should exist (cursor project path)")
+	}
+
+	cfg := sb.ReadFile(filepath.Join(projectRoot, ".skillshare", "config.yaml"))
+	if !strings.Contains(cfg, "__pycache__/") {
+		t.Errorf("project config should include default __pycache__/ ignore, got:\n%s", cfg)
 	}
 }
 
@@ -49,6 +54,18 @@ func TestInitProject_AlreadyInitialized_Error(t *testing.T) {
 	result := sb.RunCLIInDir(projectRoot, "init", "-p", "--targets", "claude")
 	result.AssertFailure(t)
 	result.AssertAnyOutputContains(t, "already initialized")
+}
+
+// git_root is global-only; project init must reject --git-root with guidance
+// to use global mode, not a bare "unknown option".
+func TestInitProject_GitRootFlag_RejectedAsGlobalOnly(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	projectRoot := sb.SetupProjectDir("claude")
+	result := sb.RunCLIInDir(projectRoot, "init", "-p", "--git-root", "root")
+	result.AssertFailure(t)
+	result.AssertAnyOutputContains(t, "global-only")
 }
 
 func TestInitProject_DryRun_NoFiles(t *testing.T) {
@@ -119,9 +136,9 @@ func TestInitProject_Discover_WithMode_AddsTargetMode(t *testing.T) {
 	defer sb.Cleanup()
 
 	projectRoot := sb.SetupProjectDir("claude")
-	os.MkdirAll(filepath.Join(projectRoot, ".cursor"), 0755)
+	os.MkdirAll(filepath.Join(projectRoot, ".windsurf"), 0755)
 
-	result := sb.RunCLIInDir(projectRoot, "init", "-p", "--discover", "--select", "cursor", "--mode", "copy")
+	result := sb.RunCLIInDir(projectRoot, "init", "-p", "--discover", "--select", "windsurf", "--mode", "copy")
 	result.AssertSuccess(t)
 	result.AssertOutputContains(t, "Added 1 target")
 

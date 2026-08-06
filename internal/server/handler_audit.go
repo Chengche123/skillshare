@@ -135,7 +135,9 @@ type auditAggregation struct {
 }
 
 // processAuditResults aggregates scan outputs into results, summary, and log args.
-func processAuditResults(skills []skillEntry, scanned []audit.ScanOutput, policy audit.Policy) auditAggregation {
+// projectRoot selects which audit-rules.yaml layers apply to cross-skill findings
+// ("" = global mode).
+func processAuditResults(skills []skillEntry, scanned []audit.ScanOutput, policy audit.Policy, projectRoot string) auditAggregation {
 	threshold := policy.Threshold
 	var results []auditResultResponse
 	var rawResults []*audit.Result
@@ -261,7 +263,11 @@ func processAuditResults(skills []skillEntry, scanned []audit.ScanOutput, policy
 		args["info_skills"] = infoSkills
 	}
 	// Cross-skill analysis (after summary so counts are unaffected).
-	if xr := audit.CrossSkillAnalysis(rawResults); xr != nil {
+	disabled := audit.DisabledRuleIDs()
+	if projectRoot != "" {
+		disabled = audit.DisabledRuleIDsForProject(projectRoot)
+	}
+	if xr := audit.CrossSkillAnalysis(rawResults, disabled); xr != nil {
 		results = append(results, toAuditResponse(xr))
 	}
 
@@ -280,7 +286,7 @@ func (s *Server) resolveAuditSource(r *http.Request) (string, string, bool) {
 	if kind == "agents" {
 		return s.agentsSource(), "agent", true
 	}
-	return s.cfg.Source, "skill", false
+	return s.cfg.EffectiveSkillsSource(), "skill", false
 }
 
 func (s *Server) handleAuditAll(w http.ResponseWriter, r *http.Request) {
@@ -323,7 +329,7 @@ func (s *Server) handleAuditAll(w http.ResponseWriter, r *http.Request) {
 	}
 	scanned := audit.ParallelScan(inputs, auditProjectRoot, nil, nil)
 
-	agg := processAuditResults(skills, scanned, policy)
+	agg := processAuditResults(skills, scanned, policy, auditProjectRoot)
 	for i := range agg.Results {
 		agg.Results[i].Kind = resultKind
 	}
@@ -338,7 +344,7 @@ func (s *Server) handleAuditAll(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAuditSkill(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	agentsSource := s.agentsSource()
 	policy := s.auditPolicy()
 	projectRoot := s.projectRoot

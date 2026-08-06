@@ -32,6 +32,8 @@ On a TTY, `skillshare list` launches an interactive terminal UI with:
   | `type:` | `t:` | `tracked`, `remote`, `local`, `github` | `t:tracked` |
   | `group:` | `g:` | any directory name | `g:security` |
   | `repo:` | `r:` | any repo name | `r:team` |
+  | `kind:` | `k:` | `skill`, `agent` | `k:agent` |
+  | `status:` | `s:` | `enabled`, `disabled` | `s:disabled` |
 
   Tags can be combined with free text (AND logic):
   ```
@@ -39,6 +41,13 @@ On a TTY, `skillshare list` launches an interactive terminal UI with:
   ```
   This shows only tracked skills in the "security" group whose name contains "audit".
 
+  :::tip
+  For enabled/disabled filtering you usually don't need the tag — just press `s`
+  (see **Status filter** below). The `s:enabled` / `s:disabled` tag is for *combining*
+  status with other tags, e.g. `t:tracked s:disabled`.
+  :::
+
+- **Status filter** — press `s` to cycle the enabled/disabled view: **All → Enabled → Disabled → All**. The current state shows as a `Status:` chip next to the tab bar, so in a large list you can instantly narrow down to just the skills disabled via `.skillignore` (or hide them). Composes with the tab and `/` filters.
 - **Keyboard navigation** — arrow keys to browse, `q` to quit
 - **Detail panel** — shows description, disk path, files, and synced targets for the selected skill
 - **Enable/disable toggle** — press `E` to toggle the selected skill's enabled/disabled state. Writes to `.skillignore` immediately without leaving the TUI. Disabled skills show a red **disabled** badge in the detail panel.
@@ -59,9 +68,16 @@ Filter skills without entering the TUI:
 skillshare list react                     # Filter by name/path/source
 skillshare list --type local              # Only local skills
 skillshare list --type github             # Only GitHub-sourced skills
+skillshare list --status disabled         # Only skills disabled via .skillignore
+skillshare list --status enabled --json   # Enabled skills, as JSON
 skillshare list react --sort newest       # Sort by install date
 skillshare list --json | jq '.[].name'   # JSON for scripting
 ```
+
+The default view (`--status all`) includes entries marked disabled. `--status`
+combines with the pattern and `--type` using AND semantics, works in project
+mode and for `list agents` / `list --all`, and seeds the TUI's `Status:` chip
+(you can still press `s` to cycle from there).
 
 :::tip AI Usage
 Use `--json` mode when inspecting skills programmatically:
@@ -214,6 +230,7 @@ Project list uses the same visual format as global list, with `(project)` label 
 | `--json, -j` | Output as JSON (useful for CI/scripts) |
 | `--no-tui` | Disable interactive TUI, use plain text output |
 | `--type, -t <type>` | Filter by type: `tracked`, `local`, `github` |
+| `--status <status>` | Filter by status: `all` (default), `enabled`, `disabled` |
 | `--sort, -s <order>` | Sort order: `name` (default), `newest`, `oldest` |
 | `--project, -p` | List project skills |
 | `--global, -g` | List global skills |

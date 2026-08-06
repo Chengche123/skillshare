@@ -88,6 +88,29 @@ Each target shows sub-items for **skills** and **agents** (when agents are confi
 - Valid include/exclude glob patterns
 - Info-level per-target compatibility hint when applicable (example target priority: `cursor` → `antigravity` → `copilot` → `opencode`; no hint when these targets are absent)
 
+### Path Overlap
+
+Doctor flags two classes of duplicate-skill risk before they reach the runtime picker:
+
+**`shared_target_paths`** — fires when two or more enabled targets resolve to the same primary path. Common cause: enabling both `universal` and a tool that writes to `~/.agents/skills` (e.g. `warp`, `witsy`).
+
+```text
+! Shared path ~/.agents/skills ← universal, warp
+```
+
+Resolution: disable one of the overlapping targets, or set a distinct path with `skillshare target <name> --path <dir>`.
+
+**`cross_target_discovery`** — fires when an enabled target's runtime is documented to also scan a directory another enabled target writes to. For example, Codex Desktop reads `~/.agents/skills` in addition to `~/.codex/skills`, so enabling both `codex` and `universal` causes Codex to see universal's content.
+
+```text
+! codex will see content from: universal
+    ~/.agents/skills ← universal
+```
+
+Resolution: pick one target as the writer for the shared content, or accept the overlap if duplicate listings in the runtime picker are acceptable.
+
+Both checks are pure metadata — they read configured paths and the built-in `also_scans` table, no filesystem probing.
+
 ### Version
 
 - CLI version
@@ -238,6 +261,7 @@ skillshare doctor --json
     { "name": "source", "status": "pass", "message": "Source: ~/.config/skillshare/skills (12 skills)" },
     { "name": "skillignore", "status": "pass", "message": ".skillignore: 3 patterns, 2 skills ignored", "details": ["test-*", "vendor/", "!important", "---", "test-draft", "vendor/lib"] },
     { "name": "sync_drift", "status": "warning", "message": "claude: 1 skill(s) not synced (7/8 linked)", "details": ["new-skill"] },
+    { "name": "shared_target_paths", "status": "warning", "message": "1 shared target path(s) — enabled targets writing to the same directory may produce duplicate skills in runtime pickers", "details": ["~/.agents/skills ← universal, warp"], "suggestions": ["Choose one authoritative target for ~/.agents/skills and disable or reconfigure the rest (currently: universal, warp)"] },
     { "name": "broken_symlinks", "status": "error", "message": "cursor: 1 broken symlink(s)", "details": ["old-skill"] }
   ],
   "summary": { "total": 14, "pass": 12, "warnings": 1, "errors": 1, "info": 0 },
@@ -246,6 +270,8 @@ skillshare doctor --json
 ```
 
 Check statuses: `pass`, `warning`, `error`, `info`. The `info` status is used for informational checks (e.g., `.skillignore` not found) that are neither passing nor failing. Info checks count toward `total` but not toward `pass`, `warnings`, or `errors`.
+
+Some warning checks (e.g. `shared_target_paths`, `cross_target_discovery`) also include an optional `suggestions` array with actionable remediation steps. The field is omitted when there is nothing to suggest.
 
 ### Exit Codes
 

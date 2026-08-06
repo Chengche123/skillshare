@@ -18,11 +18,12 @@ Complete reference for all skillshare commands.
 | Search for community skills | [`search`](./search.md) |
 | Update installed skills | [`check`](./check.md) then [`update`](./update.md) |
 | Temporarily hide a skill without removing it | [`enable` / `disable`](./enable.md) |
-| Sync across machines | [`push`](./push.md) / [`pull`](./pull.md) |
+| Save or sync changes with git | [`commit`](./commit.md) / [`push`](./push.md) / [`pull`](./pull.md) |
 | Manage non-skill resources (rules, commands) | [`extras`](./extras.md) |
 | Manage single-file `.md` agents | Most commands accept `agents` or `--kind agent` — see [Agents](/docs/understand/agents) |
 | See which skills use the most context tokens | [`analyze`](./analyze.md) |
 | Fix something broken | [`doctor`](./doctor.md) |
+| Enable tab-completion in my shell | [`completion`](./completion.md) |
 | Open the web dashboard | [`ui`](./ui.md) |
 
 ---
@@ -35,8 +36,8 @@ Complete reference for all skillshare commands.
 | **Skill Management** | `new`, `check`, `update`, `upgrade`, `enable`, `disable` |
 | **Target Management** | `target`, `diff` |
 | **Extras Management** | `extras` (`init`, `list`, `remove`, `collect`) |
-| **Sync Operations** | `collect`, `backup`, `restore`, `trash`, `push`, `pull` |
-| **Security & Utilities** | `analyze`, `audit`, `hub`, `log`, `doctor`, `tui`, `ui`, `version` |
+| **Sync Operations** | `collect`, `backup`, `restore`, `trash`, `commit`, `push`, `pull` |
+| **Security & Utilities** | `analyze`, `audit`, `hub`, `log`, `doctor`, `tui`, `ui`, `completion`, `version` |
 
 ---
 
@@ -83,7 +84,8 @@ Complete reference for all skillshare commands.
 | [backup](./backup.md) | Create backup of targets |
 | [restore](./restore.md) | Restore targets from backup |
 | [trash](./trash.md) | Manage uninstalled skills in trash |
-| [push](./push.md) | Push to git remote |
+| [commit](./commit.md) | Create a local git commit without pushing |
+| [push](./push.md) | Commit and push to git remote |
 | [pull](./pull.md) | Pull from git remote and sync |
 
 ## Security & Utilities
@@ -97,6 +99,7 @@ Complete reference for all skillshare commands.
 | [tui](./tui.md) | Toggle interactive TUI mode |
 | [ui](./ui.md) | Launch web dashboard |
 | [hub](./hub.md) | Manage skill hub sources |
+| [completion](./completion.md) | Generate shell completion scripts |
 | [version](./version.md) | Show CLI version |
 
 ---
@@ -130,7 +133,8 @@ skillshare new my-skill
 skillshare sync
 skillshare sync --dry-run
 
-# Cross-machine
+# Git checkpoints / cross-machine
+skillshare commit -m "Update skill"
 skillshare push -m "Add skill"
 skillshare pull
 
@@ -170,6 +174,10 @@ skillshare check
 # Trash management
 skillshare trash list
 skillshare trash restore my-skill
+
+# Shell completion
+skillshare completion bash --install
+skillshare completion zsh --install
 
 # Version
 skillshare version

@@ -7,6 +7,28 @@
   "required": ["targets"],
   "additionalProperties": false,
   "properties": {
+    "sources": {
+      "type": "object",
+      "description": "Custom source directories for project resources. Each key overrides the default .skillshare/{key}/ path. Relative paths resolve from the project root.",
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "type": "string",
+          "description": "Custom skills source directory. Default: .skillshare/skills/",
+          "examples": ["./docs/skills", "./ai/skills"]
+        },
+        "agents": {
+          "type": "string",
+          "description": "Custom agents source directory. Default: .skillshare/agents/",
+          "examples": ["./docs/agents"]
+        },
+        "extras": {
+          "type": "string",
+          "description": "Custom extras source directory. Default: .skillshare/extras/",
+          "examples": ["./docs/extras"]
+        }
+      }
+    },
     "target_naming": {
       "type": "string",
       "description": "Default target entry naming strategy for merge/copy sync in this project. 'flat' preserves flattened parent directory prefixes; 'standard' uses the SKILL.md name and enforces the Agent Skills standard.",
@@ -29,8 +51,33 @@
         ]
       ]
     },
+    "skills": {
+      "type": "array",
+      "description": "Remote skills this project depends on. Committed with the project so teammates can run 'skillshare install -p' to install them all.",
+      "items": {
+        "$ref": "#/$defs/skillEntry"
+      },
+      "examples": [
+        [
+          { "name": "pdf", "source": "anthropic/skills/pdf" },
+          { "name": "next-best-practices", "source": "vercel-labs/next-skills/next-best-practices", "group": "frontend" }
+        ]
+      ]
+    },
+    "ignore": {
+      "type": "array",
+      "description": "Glob patterns for artifact files to skip during copy-mode sync.",
+      "items": {
+        "type": "string"
+      },
+      "default": [".DS_Store", ".git/", "__pycache__/"],
+      "examples": [[".DS_Store", ".git/", "__pycache__/", "node_modules/"]]
+    },
     "audit": {
       "$ref": "#/$defs/auditConfig"
+    },
+    "context_budget": {
+      "$ref": "#/$defs/contextBudgetConfig"
     },
     "hub": {
       "$ref": "#/$defs/hubConfig"
@@ -41,6 +88,13 @@
       "items": { "type": "string" },
       "uniqueItems": true,
       "examples": [["git.company.com", "code.internal.io"]]
+    },
+    "azure_hosts": {
+      "type": "array",
+      "description": "Hostnames of self-hosted Azure DevOps Server instances. The built-in patterns for dev.azure.com and *.visualstudio.com are always active.",
+      "items": { "type": "string" },
+      "uniqueItems": true,
+      "examples": [["azuredevops.mycompany.com"]]
     },
     "extras": {
       "type": "array",
@@ -62,6 +116,38 @@
     }
   },
   "$defs": {
+    "skillEntry": {
+      "type": "object",
+      "description": "A remote skill dependency. Declares which skill to install and where it comes from.",
+      "required": ["name", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Skill name (the directory name under .skillshare/skills/).",
+          "examples": ["pdf", "next-best-practices"]
+        },
+        "source": {
+          "type": "string",
+          "description": "Source path for installation (GitHub path, git URL, or local path).",
+          "examples": ["anthropic/skills/pdf", "vercel-labs/next-skills/next-best-practices"]
+        },
+        "tracked": {
+          "type": "boolean",
+          "description": "True if installed with --track (preserves git history).",
+          "default": false
+        },
+        "group": {
+          "type": "string",
+          "description": "Subdirectory group the skill belongs to (set by --into during install).",
+          "examples": ["frontend", "backend"]
+        },
+        "branch": {
+          "type": "string",
+          "description": "Git branch to clone from. Omit for remote default branch."
+        }
+      }
+    },
     "projectTargetEntry": {
       "oneOf": [
         {
@@ -141,7 +227,7 @@
             },
             "agents": {
               "type": "object",
-              "description": "(Reserved — not yet available) Agents-specific target configuration. Will be enabled in a future release.",
+              "description": "Agents-specific target configuration. Controls which agents are synced to this target, the sync mode, and the target path.",
               "additionalProperties": false,
               "properties": {
                 "path": { "type": "string" },
@@ -153,6 +239,25 @@
           }
         }
       ]
+    },
+    "contextBudgetConfig": {
+      "type": "object",
+      "description": "Token budget warning thresholds. Warnings appear after sync and analyze when token count exceeds budget.",
+      "additionalProperties": false,
+      "properties": {
+        "warn_always_loaded_tokens": {
+          "type": "integer",
+          "description": "Warn when always-loaded tokens exceed this value. 0 disables the warning.",
+          "default": 10000,
+          "minimum": 0
+        },
+        "warn_on_demand_tokens": {
+          "type": "integer",
+          "description": "Warn when on-demand tokens exceed this value. 0 disables the warning.",
+          "default": 100000,
+          "minimum": 0
+        }
+      }
     },
     "auditConfig": {
       "type": "object",
@@ -270,6 +375,11 @@
           "type": "boolean",
           "description": "When true, files from subdirectories are synced directly into the target root instead of preserving directory structure.",
           "default": false
+        },
+        "extension": {
+          "type": "string",
+          "description": "Transform each file through an extension before writing it to this target (copy mode only). A bare name resolves under the extensions directory; a path (containing a separator or starting with '.') is used directly.",
+          "examples": ["md2gemini", "./my-converter.js"]
         }
       }
     }

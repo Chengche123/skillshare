@@ -87,6 +87,8 @@ func parseProjectInitArgs(args []string) (projectInitOptions, bool, error) {
 			}
 			i++
 			opts.mode = normalizeSyncMode(args[i])
+		case arg == "--git-root" || arg == "--git" || arg == "--no-git" || arg == "--remote":
+			return opts, false, fmt.Errorf("%s is a global-only flag; project mode has no git integration. Run it in global mode: skillshare init -g %s", arg, arg)
 		case strings.HasPrefix(arg, "-"):
 			return opts, false, fmt.Errorf("unknown option: %s", arg)
 		}
@@ -226,6 +228,11 @@ func performProjectInit(root string, opts projectInitOptions) error {
 
 	cfg := &config.ProjectConfig{
 		Targets: selected,
+		Ignore: []string{
+			".DS_Store",
+			".git/",
+			"__pycache__/",
+		},
 		Audit: config.AuditConfig{
 			BlockThreshold: "CRITICAL",
 		},
@@ -553,7 +560,7 @@ func ensureProjectGitignore(root string, gitignoreConfig bool) error {
 	}
 
 	// Always ignore operational directories to avoid committing noise.
-	if err := install.UpdateGitIgnoreBatch(gitignoreDir, []string{"logs", "trash"}); err != nil {
+	if err := install.UpdateGitIgnoreBatch(gitignoreDir, []string{"logs", "trash", "backups"}); err != nil {
 		return fmt.Errorf("failed to update .skillshare/.gitignore: %w", err)
 	}
 

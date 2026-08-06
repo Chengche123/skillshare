@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"skillshare/internal/install"
@@ -176,6 +177,51 @@ func TestHandleInstallBatch_LocalAgentInstallPreservesNestedPath(t *testing.T) {
 	}
 }
 
+func TestHandleInstall_ProjectRootRejected(t *testing.T) {
+	s, projectRoot := newProjectTargetServer(t, nil)
+
+	for _, tc := range []struct {
+		name     string
+		endpoint string
+		payload  map[string]any
+	}{
+		{
+			name:     "single",
+			endpoint: "/api/install",
+			payload:  map[string]any{"source": projectRoot, "name": "project-root"},
+		},
+		{
+			name:     "batch",
+			endpoint: "/api/install/batch",
+			payload: map[string]any{
+				"source": projectRoot,
+				"skills": []map[string]string{{"name": "project-root", "path": "."}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, err := json.Marshal(tc.payload)
+			if err != nil {
+				t.Fatalf("failed to marshal payload: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, tc.endpoint, bytes.NewReader(payload))
+			rr := httptest.NewRecorder()
+			s.mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d body=%s", rr.Code, rr.Body.String())
+			}
+			if !strings.Contains(rr.Body.String(), "cannot install the project root into itself") {
+				t.Fatalf("expected rejection message, got %s", rr.Body.String())
+			}
+			if _, err := os.Stat(filepath.Join(projectRoot, ".skillshare", "skills", "project-root")); !os.IsNotExist(err) {
+				t.Fatalf("project root install should not create a skill, got err=%v", err)
+			}
+		})
+	}
+}
+
 func TestHandleInstall_TrackPureAgentRepoInstallsIntoAgentsSource(t *testing.T) {
 	s, skillsDir := newTestServer(t)
 
@@ -237,5 +283,38 @@ func TestHandleInstall_TrackPureAgentRepoInstallsIntoAgentsSource(t *testing.T) 
 	}
 	if _, err := os.Stat(filepath.Join(skillsDir, trackedRepoName)); !os.IsNotExist(err) {
 		t.Fatalf("expected no tracked agent repo in skills source, got err=%v", err)
+	}
+}
+
+// TestReloadSkillsStore_PicksUpNewEntry guards the "installed skill shows as
+// Local with empty source" regression: install writes metadata to disk via its
+// own store instance, so the server's cached skillsStore must be reloaded or a
+// freshly installed skill renders with an empty source/type in the UI.
+func TestReloadSkillsStore_PicksUpNewEntry(t *testing.T) {
+	s, sourceDir := newTestServer(t)
+
+	if got := s.skillsStore.GetByPath("frontend/react-best-practices"); got != nil {
+		t.Fatalf("expected empty store at startup, got %+v", got)
+	}
+
+	// Simulate an install persisting metadata through a separate store instance.
+	disk := install.NewMetadataStore()
+	disk.Set("frontend/react-best-practices", &install.MetadataEntry{
+		Source: "https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices",
+		Type:   "github-subdir",
+		Group:  "frontend",
+	})
+	if err := disk.Save(sourceDir); err != nil {
+		t.Fatalf("failed to save metadata: %v", err)
+	}
+
+	s.reloadSkillsStore()
+
+	got := s.skillsStore.GetByPath("frontend/react-best-practices")
+	if got == nil {
+		t.Fatal("reloadSkillsStore did not pick up the on-disk entry (skill would show as Local)")
+	}
+	if got.Type != "github-subdir" {
+		t.Errorf("Type = %q, want github-subdir", got.Type)
 	}
 }

@@ -137,23 +137,23 @@ func resolveUninstallTarget(skillName string, cfg *config.Config) (*uninstallTar
 
 	// Normalize _ prefix for tracked repos
 	if !strings.HasPrefix(skillName, "_") {
-		prefixedPath := filepath.Join(cfg.Source, "_"+skillName)
+		prefixedPath := filepath.Join(cfg.EffectiveSkillsSource(), "_"+skillName)
 		if install.IsGitRepo(prefixedPath) {
 			skillName = "_" + skillName
 		}
 	}
 
-	skillPath := filepath.Join(cfg.Source, skillName)
+	skillPath := filepath.Join(cfg.EffectiveSkillsSource(), skillName)
 	info, err := os.Stat(skillPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Fallback: search by basename in nested directories
-			resolved, resolveErr := resolveNestedSkillDir(cfg.Source, skillName)
+			resolved, resolveErr := resolveNestedSkillDir(cfg.EffectiveSkillsSource(), skillName)
 			if resolveErr != nil {
 				return nil, resolveErr
 			}
 			skillName = resolved
-			skillPath = filepath.Join(cfg.Source, resolved)
+			skillPath = filepath.Join(cfg.EffectiveSkillsSource(), resolved)
 		} else {
 			return nil, fmt.Errorf("cannot access skill: %w", err)
 		}
@@ -171,7 +171,7 @@ func resolveUninstallTarget(skillName string, cfg *config.Config) (*uninstallTar
 // resolveUninstallByGlob scans the source directory for top-level entries
 // whose names match the given glob pattern (e.g. "core-*", "_team-?").
 func resolveUninstallByGlob(pattern string, cfg *config.Config) ([]*uninstallTarget, error) {
-	entries, err := os.ReadDir(cfg.Source)
+	entries, err := os.ReadDir(cfg.EffectiveSkillsSource())
 	if err != nil {
 		return nil, fmt.Errorf("cannot read source directory: %w", err)
 	}
@@ -182,7 +182,7 @@ func resolveUninstallByGlob(pattern string, cfg *config.Config) ([]*uninstallTar
 			continue
 		}
 		if matchGlob(pattern, e.Name()) {
-			skillPath := filepath.Join(cfg.Source, e.Name())
+			skillPath := filepath.Join(cfg.EffectiveSkillsSource(), e.Name())
 			targets = append(targets, &uninstallTarget{
 				name:          e.Name(),
 				path:          skillPath,
@@ -557,7 +557,11 @@ func cmdUninstall(args []string) error {
 
 	if mode == modeProject {
 		if kind == kindAgents {
-			agentsDir := filepath.Join(cwd, ".skillshare", "agents")
+			projectCfg, loadErr := config.LoadProject(cwd)
+			if loadErr != nil {
+				return fmt.Errorf("failed to load project config: %w", loadErr)
+			}
+			agentsDir := projectCfg.EffectiveAgentsSource(cwd)
 			opts, _, _ := parseUninstallArgs(rest)
 			if opts == nil {
 				opts = &uninstallOptions{skillNames: rest}
@@ -580,11 +584,6 @@ func cmdUninstall(args []string) error {
 		return parseErr
 	}
 
-	// --json implies --force (skip confirmation prompts)
-	if opts.jsonOutput {
-		opts.force = true
-	}
-
 	cfg, err := config.Load()
 	if err != nil {
 		if opts.jsonOutput {
@@ -595,13 +594,14 @@ func cmdUninstall(args []string) error {
 
 	// Agent-only uninstall: move .md + sidecar to agent trash, then return.
 	if kind == kindAgents {
+		opts.force = opts.force || opts.jsonOutput
 		agentsDir := cfg.EffectiveAgentsSource()
 		err := cmdUninstallAgents(agentsDir, opts, config.ConfigPath(), trash.AgentTrashDir(), start)
 		return err
 	}
 
 	// Load centralized metadata store for display/reinstall hints.
-	skillsStore, _ := install.LoadMetadataWithMigration(cfg.Source, "")
+	skillsStore, _ := install.LoadMetadataWithMigration(cfg.EffectiveSkillsSource(), "")
 	if skillsStore == nil {
 		skillsStore = install.NewMetadataStore()
 	}
@@ -616,7 +616,7 @@ func cmdUninstall(args []string) error {
 		if !opts.jsonOutput {
 			sp = ui.StartSpinner("Discovering skills...")
 		}
-		discovered, _, err := sync.DiscoverSourceSkillsLite(cfg.Source)
+		discovered, _, err := sync.DiscoverSourceSkillsLite(cfg.EffectiveSkillsSource())
 		if err != nil {
 			if sp != nil {
 				sp.Fail("Discovery failed")
@@ -643,7 +643,7 @@ func cmdUninstall(args []string) error {
 			topDirs[topLevelDir(d.RelPath)] = true
 		}
 		for dir := range topDirs {
-			skillPath := filepath.Join(cfg.Source, dir)
+			skillPath := filepath.Join(cfg.EffectiveSkillsSource(), dir)
 			targets = append(targets, &uninstallTarget{
 				name:          dir,
 				path:          skillPath,
@@ -689,7 +689,7 @@ func cmdUninstall(args []string) error {
 	}
 
 	for _, group := range opts.groups {
-		groupTargets, err := resolveGroupSkills(group, cfg.Source)
+		groupTargets, err := resolveGroupSkills(group, cfg.EffectiveSkillsSource())
 		if err != nil {
 			resolveWarnings = append(resolveWarnings, fmt.Sprintf("--group %s: %v", group, err))
 			continue
@@ -837,11 +837,17 @@ func cmdUninstall(args []string) error {
 			// Repo is dirty
 			if !opts.force {
 				if single {
+					dirtyErr := fmt.Errorf("uncommitted changes detected, use --force to override")
+					if opts.jsonOutput {
+						return writeJSONError(dirtyErr)
+					}
 					ui.Error("Repository has uncommitted changes!")
 					ui.Info("Use --force to uninstall anyway, or commit/stash your changes first")
-					return fmt.Errorf("uncommitted changes detected, use --force to override")
+					return dirtyErr
 				}
-				ui.StepSkip(t.name, "uncommitted changes, use --force")
+				if !opts.jsonOutput {
+					ui.StepSkip(t.name, "uncommitted changes, use --force")
+				}
 				continue
 			}
 			if !opts.jsonOutput {
@@ -860,6 +866,9 @@ func cmdUninstall(args []string) error {
 
 		if len(targets) == 0 {
 			preflightErr := fmt.Errorf("no skills to uninstall after pre-flight checks")
+			if preflightSkipped > 0 {
+				preflightErr = fmt.Errorf("%d tracked repo%s skipped due to uncommitted changes; use --force to override", preflightSkipped, pluralS(preflightSkipped))
+			}
 			if opts.jsonOutput {
 				return writeJSONError(preflightErr)
 			}
@@ -889,7 +898,7 @@ func cmdUninstall(args []string) error {
 		return nil
 	}
 
-	if !opts.force {
+	if !opts.force && !opts.jsonOutput {
 		if single {
 			confirmed, err := confirmUninstall(targets[0])
 			if err != nil {
@@ -945,7 +954,7 @@ func cmdUninstall(args []string) error {
 				}
 			}
 			if len(gitignoreEntries) > 0 {
-				install.RemoveFromGitIgnoreBatch(cfg.Source, gitignoreEntries) //nolint:errcheck
+				install.RemoveFromGitIgnoreBatch(cfg.EffectiveSkillsSource(), gitignoreEntries) //nolint:errcheck
 			}
 		}
 	} else if batch {
@@ -972,7 +981,7 @@ func cmdUninstall(args []string) error {
 				}
 			}
 			if len(gitignoreEntries) > 0 {
-				install.RemoveFromGitIgnoreBatch(cfg.Source, gitignoreEntries) //nolint:errcheck
+				install.RemoveFromGitIgnoreBatch(cfg.EffectiveSkillsSource(), gitignoreEntries) //nolint:errcheck
 			}
 		}
 
@@ -1060,7 +1069,7 @@ func cmdUninstall(args []string) error {
 				}
 			}
 			if len(gitignoreEntries) > 0 {
-				if _, err := install.RemoveFromGitIgnoreBatch(cfg.Source, gitignoreEntries); err != nil {
+				if _, err := install.RemoveFromGitIgnoreBatch(cfg.EffectiveSkillsSource(), gitignoreEntries); err != nil {
 					ui.Warning("Could not update .gitignore: %v", err)
 				}
 			}
@@ -1075,7 +1084,7 @@ func cmdUninstall(args []string) error {
 			removedNames[t.name] = true
 		}
 		skillsStore.RemoveByNames(removedNames)
-		if saveErr := skillsStore.Save(cfg.Source); saveErr != nil {
+		if saveErr := skillsStore.Save(cfg.EffectiveSkillsSource()); saveErr != nil {
 			ui.Warning("Failed to update metadata after uninstall: %v", saveErr)
 		}
 	}
@@ -1174,7 +1183,7 @@ Options:
   --group, -G <name>  Remove all skills in a group (prefix match, repeatable)
   --force, -f         Skip confirmation and ignore uncommitted changes
   --dry-run, -n       Preview without making changes
-  --json              Output results as JSON (implies --force)
+  --json              Global mode: output JSON and skip confirmation
   --project, -p       Use project-level config in current directory
   --global, -g        Use global config (~/.config/skillshare)
   --help, -h          Show this help

@@ -568,7 +568,7 @@ func TestUninstall_AllProject(t *testing.T) {
     source: github.com/org/a
   - name: skill-b
     source: github.com/org/b
-targets: {}
+targets: []
 `)
 
 	result := sb.RunCLIInDir(projectRoot, "uninstall", "--all", "--force", "-p")

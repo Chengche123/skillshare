@@ -13,6 +13,8 @@ import (
 // MetadataFileName is the centralized metadata file stored in each directory.
 const MetadataFileName = ".metadata.json"
 
+const metadataFileMode os.FileMode = 0644
+
 // Metadata kind constants for LoadMetadataWithMigration.
 const (
 	MetadataKindSkill = ""      // default kind for skills directories
@@ -81,6 +83,9 @@ func (s *MetadataStore) Has(name string) bool {
 // It first tries a direct key lookup, then falls back to matching group+basename.
 // This handles the case where entries are stored with basename keys but have a Group field.
 func (s *MetadataStore) GetByPath(relPath string) *MetadataEntry {
+	if s == nil {
+		return nil
+	}
 	// Direct lookup (works for top-level skills where key == relPath)
 	if e := s.Entries[relPath]; e != nil {
 		return e
@@ -439,6 +444,11 @@ func (s *MetadataStore) Save(dir string) error {
 		os.Remove(tmpName)
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
+	if err := tmp.Chmod(metadataFileMode); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to chmod temp file: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpName)
 		return fmt.Errorf("failed to close temp file: %w", err)
@@ -496,4 +506,56 @@ func (s *MetadataStore) RefreshHashes(relPath, skillPath string) {
 		return
 	}
 	entry.FileHashes = hashes
+}
+
+// RefreshTrackedRootSkillHashes recomputes file hashes for tracked repositories
+// that expose a SKILL.md at the repository root.
+func (s *MetadataStore) RefreshTrackedRootSkillHashes(relPath, repoPath string) (bool, error) {
+	if _, err := os.Stat(filepath.Join(repoPath, "SKILL.md")); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	entry := s.GetByPath(relPath)
+	if entry == nil {
+		return false, nil
+	}
+
+	hashes, err := ComputeFileHashes(repoPath)
+	if err != nil {
+		return false, err
+	}
+	if stringMapsEqual(entry.FileHashes, hashes) {
+		return false, nil
+	}
+	entry.FileHashes = hashes
+	return true, nil
+}
+
+// RefreshTrackedRootSkillMetadata loads the metadata store, refreshes hashes
+// for a tracked root-skill repo, and saves only when metadata changed.
+func RefreshTrackedRootSkillMetadata(sourceDir, relPath, repoPath string) error {
+	store, err := LoadMetadataWithMigration(sourceDir, "")
+	if err != nil {
+		return err
+	}
+	changed, err := store.RefreshTrackedRootSkillHashes(filepath.ToSlash(relPath), repoPath)
+	if err != nil || !changed {
+		return err
+	}
+	return store.Save(sourceDir)
+}
+
+func stringMapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, aValue := range a {
+		if b[key] != aValue {
+			return false
+		}
+	}
+	return true
 }

@@ -195,8 +195,13 @@ func cmdCheck(args []string) error {
 	if mode == modeProject {
 		cfgPath = config.ProjectConfigPath(cwd)
 		if kind == kindAgents {
-			agentsDir := filepath.Join(cwd, ".skillshare", "agents")
-			renderAgentCheck(agentsDir, opts.groups, opts.json)
+			projectCfg, loadErr := config.LoadProject(cwd)
+			if loadErr != nil {
+				err := fmt.Errorf("failed to load project config: %w", loadErr)
+				logCheckOp(cfgPath, 0, 0, 0, 0, scope, start, err)
+				return err
+			}
+			renderAgentCheck(projectCfg.EffectiveAgentsSource(cwd), opts.groups, opts.json)
 			logCheckOp(cfgPath, 0, 0, 0, 0, scope, start, nil)
 			return nil
 		}
@@ -220,13 +225,13 @@ func cmdCheck(args []string) error {
 
 	// No names and no groups → check all (existing behavior)
 	if len(opts.names) == 0 && len(opts.groups) == 0 {
-		cmdErr := runCheck(cfg.Source, opts.json, targetNamesFromConfig(cfg.Targets))
+		cmdErr := runCheck(cfg.EffectiveSkillsSource(), opts.json, targetNamesFromConfig(cfg.Targets))
 		logCheckOp(cfgPath, 0, 0, 0, 0, scope, start, cmdErr)
 		return cmdErr
 	}
 
 	// Filtered check: resolve targets then check only those
-	cmdErr := runCheckFiltered(cfg.Source, opts)
+	cmdErr := runCheckFiltered(cfg.EffectiveSkillsSource(), opts)
 	logCheckOp(cfgPath, 0, 0, 0, 0, scope, start, cmdErr)
 	return cmdErr
 }
@@ -261,13 +266,17 @@ func runCheck(sourceDir string, jsonOutput bool, extraTargetNames []string) erro
 	if err != nil {
 		repos = nil
 	}
+	missingRepos, err := install.GetMissingTrackedRepos(sourceDir)
+	if err != nil {
+		missingRepos = nil
+	}
 
 	skills, err := install.GetUpdatableSkills(sourceDir)
 	if err != nil {
 		skills = nil
 	}
 
-	if len(repos) == 0 && len(skills) == 0 {
+	if len(repos) == 0 && len(missingRepos) == 0 && len(skills) == 0 {
 		if scanSpinner != nil {
 			scanSpinner.Stop()
 		}
@@ -339,6 +348,13 @@ func runCheck(sourceDir string, jsonOutput bool, extraTargetNames []string) erro
 
 	// Convert repo outputs
 	repoResults := toRepoResults(repoOutputs)
+	for _, repo := range missingRepos {
+		repoResults = append(repoResults, checkRepoResult{
+			Name:    repo.Name,
+			Status:  "missing",
+			Message: missingTrackedRepoMessage(repo.Name),
+		})
+	}
 
 	// Broadcast URL results to grouped skills (with per-skill tree hash comparison)
 	urlHashMap := make(map[string]check.URLCheckOutput)
@@ -405,6 +421,12 @@ func renderCheckResults(repoResults []checkRepoResult, skillResults []checkSkill
 				hasRepoOutput = true
 			}
 			ui.ListItem("error", r.Name, fmt.Sprintf("error: %s", r.Message))
+		case "missing":
+			if !hasRepoOutput {
+				fmt.Println()
+				hasRepoOutput = true
+			}
+			ui.ListItem("warning", r.Name, r.Message)
 		}
 	}
 

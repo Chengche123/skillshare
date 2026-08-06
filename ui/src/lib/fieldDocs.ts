@@ -23,6 +23,26 @@ export const fieldDocs: Record<string, FieldDoc> = {
     type: 'string',
     example: 'extras_source: ~/.config/skillshare/extras',
   },
+  sources: {
+    description: 'Custom source directories. Each key (skills, agents, extras) overrides the default source path. All keys are optional. Project mode falls back to .skillshare/<type>/; global mode falls back to <base>/<type>/ (or the legacy source / agents_source / extras_source field if present).',
+    type: 'object',
+    example: 'sources:\n  skills: ./docs/skills\n  agents: ./docs/agents\n  extras: ./docs/extras',
+  },
+  'sources.skills': {
+    description: 'Custom skills source directory. Relative paths resolve from the project root (project mode); absolute paths and ~ are supported (both modes). Project mode default: .skillshare/skills/. Global mode default: <base>/skills/ (or the legacy `source` field). Project-mode sync rejects configs where this aliases or nests with a target path.',
+    type: 'string',
+    example: 'sources:\n  skills: ./docs/skills',
+  },
+  'sources.agents': {
+    description: 'Custom agents source directory. Relative paths resolve from the project root (project mode). Project mode default: .skillshare/agents/. Global mode default: <base>/agents/ (or the legacy `agents_source` field).',
+    type: 'string',
+    example: 'sources:\n  agents: ./docs/agents',
+  },
+  'sources.extras': {
+    description: 'Custom extras source directory. Relative paths resolve from the project root (project mode). Project mode default: .skillshare/extras/. Global mode default: the `extras` sibling of the skills source (or the legacy `extras_source` field).',
+    type: 'string',
+    example: 'sources:\n  extras: ./docs/extras',
+  },
   mode: {
     description: 'Default sync mode for all targets. Can be overridden per target.',
     type: 'string',
@@ -34,6 +54,12 @@ export const fieldDocs: Record<string, FieldDoc> = {
     type: 'string',
     allowedValues: ['flat', 'standard'],
     example: 'target_naming: standard',
+  },
+  git_root: {
+    description: 'Directory that "skillshare commit/push/pull" version-controls. "skills" (default) tracks only the skills source; "agents" and "extras" track those sources; "root" tracks the whole skillshare base directory (skills, agents, and extras together, excluding config.yaml). Changing this does NOT move an existing repository — re-run "skillshare init" or move .git yourself.',
+    type: 'string',
+    allowedValues: ['skills', 'agents', 'extras', 'root'],
+    example: 'git_root: root',
   },
   tui: {
     description: 'Enable or disable interactive TUI prompts. Set to false for CI/scripting.',
@@ -49,6 +75,11 @@ export const fieldDocs: Record<string, FieldDoc> = {
     description: 'List of self-hosted GitLab instances for skill installation and search.',
     type: 'string[]',
     example: 'gitlab_hosts:\n  - gitlab.company.com',
+  },
+  azure_hosts: {
+    description: 'List of self-hosted Azure DevOps Server instances for skill installation.',
+    type: 'string[]',
+    example: 'azure_hosts:\n  - azuredevops.mycompany.com',
   },
 
   // --- Targets ---

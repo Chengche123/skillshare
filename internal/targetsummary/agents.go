@@ -42,8 +42,8 @@ func NewGlobalBuilder(cfg *config.Config) (*Builder, error) {
 }
 
 // NewProjectBuilder returns a summary builder for project-mode targets.
-func NewProjectBuilder(projectRoot string) (*Builder, error) {
-	return newBuilder(filepath.Join(projectRoot, ".skillshare", "agents"), projectRoot, config.ProjectAgentTargets())
+func NewProjectBuilder(agentsSourcePath, projectRoot string) (*Builder, error) {
+	return newBuilder(agentsSourcePath, projectRoot, config.ProjectAgentTargets())
 }
 
 func newBuilder(sourcePath, projectRoot string, builtinAgents map[string]config.TargetConfig) (*Builder, error) {
@@ -73,6 +73,8 @@ func (b *Builder) GlobalTarget(name string, tc config.TargetConfig) (*AgentSumma
 	if displayPath == "" {
 		if builtin, ok := b.builtinAgents[name]; ok {
 			displayPath = config.ExpandPath(builtin.Path)
+		} else if builtin, ok := config.LookupGlobalAgentTarget(name); ok {
+			displayPath = config.ExpandPath(builtin.Path)
 		}
 	}
 	if displayPath == "" {
@@ -88,6 +90,8 @@ func (b *Builder) ProjectTarget(entry config.ProjectTargetEntry) (*AgentSummary,
 	displayPath := ac.Path
 	if displayPath == "" {
 		if builtin, ok := b.builtinAgents[entry.Name]; ok {
+			displayPath = builtin.Path
+		} else if builtin, ok := config.LookupProjectAgentTarget(entry.Name); ok {
 			displayPath = builtin.Path
 		}
 	}

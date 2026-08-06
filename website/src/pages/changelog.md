@@ -9,6 +9,619 @@ All notable changes to skillshare are documented here. For the full commit histo
 
 ---
 
+## [0.20.24] - 2026-08-03
+
+### Bug Fixes
+
+- **Gemini CLI and Antigravity are separate targets again** — `gemini` had been folded into `antigravity` as an alias, but the two runtimes read different global skill directories, so one of them was always pointed at the wrong path. Antigravity now resolves to `~/.gemini/config/skills` (global) and `.agents/skills` (project); `gemini` is a target of its own resolving to `~/.gemini/skills` and `.gemini/skills`, with `~/.agents/skills` and `.agents/skills` still scanned as fallbacks. Aliases: `gemini-cli` for Gemini CLI, `antigravity-cli` for Antigravity. Refs: #255.
+
+  ```bash
+  skillshare target add gemini        # Gemini CLI
+  skillshare target add antigravity   # Antigravity
+  skillshare sync
+  ```
+
+  Antigravity's skill scanner also skips symlinked skill directories entirely — silently on macOS and Linux, and as `Incorrect function` on Windows. The troubleshooting docs now cover this along with its two workarounds: switch the target to `copy` mode, or point Antigravity at your skillshare source directory via its Skill Custom Paths setting.
+
+- **`doctor`'s symlink compatibility hint is deterministic** — the hint chose its example target by iterating a map, so the same config produced a different suggestion on each run, and it could name a target whose runtime handles symlinks fine — telling users to switch something that was not broken. The example is now drawn only from the targets known to skip symlinked skill directories, in a fixed order. The sync docs are also corrected: the hint is printed by `doctor`, not `sync`.
+
+### Breaking Changes
+
+- **`gemini` no longer resolves to the Antigravity target** — configs that used `gemini` (or `gemini-cli`) to reach Antigravity now sync to Gemini CLI's own directory instead. Use `antigravity` for Antigravity. Existing `antigravity` targets change global path from `~/.gemini/skills` to `~/.gemini/config/skills`; run `skillshare sync` after upgrading.
+
+## [0.20.23] - 2026-07-30
+
+### New Features
+
+- **`list --status` filters enabled or disabled entries outside the TUI** — the enabled/disabled filter previously existed only inside the list TUI (`s` key, `status:` search tag), so scripts had to know that `disabled` is omitted for enabled entries and filter the JSON themselves. `--status` combines with the pattern and `--type` using AND semantics, and works in project mode and for agents.
+
+  ```bash
+  skillshare list --status disabled
+  skillshare list --status enabled --json
+  ```
+
+  `--status all` is the default and produces output identical to omitting the flag. Refs: #244.
+
+### Bug Fixes
+
+- **Backups no longer copy your source, and old snapshots are pruned automatically** — pre-sync backups followed merge-mode skill symlinks and copied the resolved content, so every snapshot duplicated the source directory, including files kept out of Git but still present on disk such as model weights, `.venv`, and browser profiles. Retention only ran when `backup --cleanup` was invoked by hand, so nothing removed the accumulating snapshots; backup directories could reach hundreds of gigabytes until `sync` failed with `no space left on device`. Snapshots now capture only local target content, and the existing retention policy (10 snapshots, 30 days, 500 MB) runs after every automatic backup. Refs: #252.
+- **`backup --cleanup` keeps the newest snapshot when it exceeds the size cap** — a single snapshot larger than the 500 MB cap previously removed every backup including the most recent one, leaving no restore point at all.
+- **Backup previews and cleanup now agree** — `backup --cleanup --dry-run` no longer reports that it will delete an oversized newest snapshot when the actual cleanup keeps it. Retention also counts only snapshots that remain after cleanup, avoiding unnecessary deletion of older snapshots that still fit.
+- **Failed backups are discarded instead of appearing as restore points** — if a file cannot be copied, the partial snapshot is removed and cannot consume the newest retention slot. Automatic cleanup failures are now shown as warnings instead of being silently ignored.
+- **Targets holding only symlinks no longer produce empty snapshots** — an empty restore point consumed a retention slot and evicted older snapshots that did have content.
+- **`doctor` handles linked target directories correctly** — in project symlink mode the valid link `../.skillshare/skills` was reported as pointing to the wrong location, because relative links were resolved against the current working directory instead of the link's parent. Symlink-mode targets no longer report every source skill as a duplicate target-local copy, while copy-mode targets reached through a symlink still report real duplicate copies. Refs: #251.
+
+### Breaking Changes
+
+- **Backups capture local target content only** — merge-mode skill symlinks are skipped, so restoring a target recovers its local skills and then needs `skillshare sync` to recreate symlinks for synced skills. Copy-mode targets are unaffected because they hold real files. The documented backup location is also corrected to `~/.local/share/skillshare/backups/` (the XDG data directory), which had been listed under `~/.config` in some places.
+
+## [0.20.22] - 2026-07-21
+
+### New Features
+
+- **Grok CLI target** — added xAI's Grok CLI as a built-in target, syncing skills to `~/.grok/skills` (global) and `.grok/skills` (project), with legacy fallback to `~/.agents/skills`. Aliases: `xai`, `grok-cli`.
+
+  ```bash
+  skillshare target add grok
+  skillshare sync
+  ```
+
+### Bug Fixes
+
+- **`collect --json` no longer forces overwrites** — JSON mode previously implied `--force`, silently overwriting existing skills and agents in the source. It now still skips confirmation prompts but keeps the overwrite guard, so existing resources are preserved unless `--force` is passed.
+- **`uninstall --json` no longer bypasses the uncommitted-changes guard** — JSON mode previously implied `--force`, removing tracked skills that had uncommitted changes without warning. Dirty repositories now return a structured error unless `--force` is passed.
+- **Batch uninstall explains all-dirty failures** — uninstalling multiple tracked skills where every repository has uncommitted changes now reports why nothing was removed instead of failing without explanation.
+- **Editing a skill's source no longer rewrites the source directory's Git remote** — in the dashboard, changing a nested skill's source URL could overwrite the `origin` of the skills source directory itself when that directory is a Git repository (for example, backed by Git Sync). Source edits now only affect a tracked skill's own repository.
+- **Freshly installed skills show their correct source instead of "Local"** — after installing a skill from the dashboard, the resource now immediately shows its GitHub source and type, rather than appearing as a local skill with an empty source until the server was restarted.
+
+## [0.20.21] - 2026-06-29
+
+### Bug Fixes
+
+- **Copy-mode sync respects file ignore patterns** — `sync` in `copy` mode now skips configured `ignore:` artifacts, plus default `.DS_Store`, `.git/`, and `__pycache__/` files, across CLI sync, diff, and dashboard sync/diff paths. This prevents ignored cache and build artifacts from being copied into targets or changing copy-mode checksums.
+- **Global sync uses the default skills source when source is omitted** — global configs that only define targets now work with `skillshare sync --global`, using the default `~/.config/skillshare/skills` source instead of failing with `source path is empty`. Refs: #238.
+
+## [0.20.20] - 2026-06-19
+
+### Bug Fixes
+
+- **Self-managed GitLab URLs with deep project paths install correctly** — generic HTTPS sources such as `https://domain.com/dir1/dir2/dir3/dir4` now retry deeper repository boundaries when the initial `dir1/dir2` clone is not a Git repository, so nested GitLab projects can install without adding `.git` or configuring `gitlab_hosts`. Authentication, SSL, branch, and network errors still fail directly instead of retrying unrelated paths.
+
+## [0.20.19] - 2026-06-17
+
+### Bug Fixes
+
+- **`init` shows shared skills directories as a single universal target** — when a detected CLI uses the shared `~/.agents/skills` directory, `skillshare init` now presents the shared directory guidance instead of listing each matching CLI target separately.
+- **Trash restore handles nested entries and current-directory restores again** — nested trashed skills returned by `skillshare trash list` can be restored with their slash-separated names, and restoring to `.` no longer fails the path safety check while sibling-prefix escapes are still rejected.
+
+## [0.20.18] - 2026-06-16
+
+### Bug Fixes
+
+- **Dashboard project-root installs are rejected before copying into themselves** — the web dashboard now rejects project-mode installs where the local source resolves to the project root, matching `skillshare install ./ -p` and returning the same "install a specific skill subdirectory" guidance instead of recursively copying `.skillshare/skills` into itself.
+- **Trash operations reject traversal-style names** — moving skills or agents to trash, restoring from trash, and automatic trash cleanup now validate trash-relative names and destination paths before filesystem writes or removals. Traversal segments, absolute paths, backslashes, NUL-containing names, and empty names are rejected while safe nested names like `org/team-skill` and `demo/my-agent` continue to work.
+
+## [0.20.17] - 2026-06-15
+
+### Bug Fixes
+
+- **`update --all` no longer crashes on unreadable metadata** — when `.metadata.json` is corrupt or unreadable, update now reports a metadata warning and continues scanning local skills instead of panicking with a stack trace.
+- **Project root installs are rejected before copying into themselves** — `skillshare install ./ -p` now fails with a clear message telling users to install a skill subdirectory, preventing `.skillshare/skills` from recursively copying into itself on Windows.
+
+## [0.20.16] - 2026-06-15
+
+### Bug Fixes
+
+- **Repository subdir installs reject traversal paths** — source parsing now rejects repository subdirectories with absolute paths, `.`/`..` segments, backslashes, NUL/control characters, or encoded traversal before install and download flows use them. Inputs such as `github.com/owner/repo/../../etc/passwd` and unsafe blob `SKILL.md` paths now fail instead of resolving outside the repository boundary. Refs: #224.
+- **Metadata files stay readable after atomic saves** — install and update operations now write `.metadata.json` with `0644` permissions, so Git and other tooling can read metadata after Skillshare replaces the file.
+
+## [0.20.15] - 2026-06-14
+
+### Bug Fixes
+
+- **Git branch refreshes now fail visibly when fetch fails** — the dashboard no longer serves stale remote branches or continues a checkout after `git fetch` fails. Branch listing and checkout requests now report the fetch failure so users can fix connectivity, authentication, or remote problems before switching branches.
+- **Source URL edits keep metadata and remotes in sync** — updating a tracked skill or agent source now updates the Git remote before saving metadata. If the remote update fails, the API returns an error and leaves the existing source metadata unchanged instead of reporting success with an old on-disk remote.
+- **Target removal preserves config when cleanup fails** — removing a target from the dashboard now stops if Skillshare cannot inspect the target, remove the target symlink, remove the target manifest, or clean managed symlinks. The target remains configured so users can fix the filesystem issue and retry instead of losing the target entry.
+- **Version checks handle release tag formats correctly** — update checks now accept versions with a leading `v` prefix while still rejecting malformed version segments. Local metadata builds only advertise a release version when built from a clean exact tag; non-release builds stay in `dev` mode so update checks do not compare against commit-describe strings.
+- **JSON-mode automation stays clean during cleanup warnings** — temporary Git clone cleanup failures are still logged for human-readable flows, but cleanup warnings no longer leak into `--json` stderr output.
+- **Skill linting reports rule load failures instead of panicking** — malformed embedded lint rules now return explicit errors through analysis/discovery paths, and repeated lint runs keep the load error instead of losing it after the first attempt.
+- **Audit finding severity dots are vertically centered** — severity indicators in the dashboard Audit findings list now align with their badges and messages.
+
+## [0.20.14] - 2026-06-13
+
+### Bug Fixes
+
+- **Push failures redact token-auth URLs without losing diagnostics** — failed Git push flows now sanitize credential-bearing error output before it reaches CLI/API/UI callers, while still preserving useful Git and pre-push hook diagnostics. Refs: #214.
+
+## [0.20.13] - 2026-06-11
+
+### New Features
+
+#### Web Dashboard
+
+- **Rehydrate missing tracked repos from the dashboard** — the Updates page now shows a warning banner listing tracked repos declared in `.metadata.json` whose clone directories are missing on disk, with a one-click **Rehydrate** button that re-clones them from metadata. The Dashboard's **Update All** also warns about missing repos and points to rehydrate, instead of reporting that there is nothing to update. Refs: #212.
+
+### Bug Fixes
+
+- **`update --all` reports missing tracked repos in batch and project mode** — reporting a missing tracked repo previously only worked when it was the single update target; when `update --all` covered multiple items (the common case) the batch path skipped missing repos silently, and project mode (`-p`) never detected them at all. Both now surface each missing repo with a warning and a one-shot rehydrate hint:
+  ```bash
+  skillshare update --all          # ! _team-skills  clone directory absent
+  skillshare install               # rehydrate from metadata
+  ```
+  `update --all --json` now carries an aggregated `missing_tracked_repos` summary (names + hint), and the per-item error is the concise `clone directory absent`. Refs: #212.
+
+## [0.20.12] - 2026-06-11
+
+### New Features
+
+- **Droid syncs custom droids as agents** — the `droid` target now distributes custom droids (`.md` files with YAML frontmatter) alongside skills, mapping them to `~/.factory/droids` (global) and `.factory/droids` (project) through the existing agents sync. The target also accepts `factory` as an alias:
+  ```bash
+  skillshare target add factory   # same as: skillshare target add droid
+  skillshare sync agents
+  ```
+  Refs: #213.
+
+### Bug Fixes
+
+- **Project-mode agent symlinks are now relative** — `skillshare sync agents` created absolute symlinks in project mode, which broke when the repository was moved or checked out on another machine. Agent symlinks now use relative paths, matching how project skill symlinks already work.
+- **Factory alias syncs Droid agents correctly** — adding the Droid target by its `factory` alias now also resolves the built-in agents path, so `skillshare sync agents` writes custom droids to `~/.factory/droids` or `.factory/droids` instead of skipping the target as agentless.
+- **Web UI sync respects agent filters** — syncing from the dashboard now honors target-level `agents.include` and `agents.exclude` filters, matching the CLI. Agents that become excluded are pruned from target directories on the next sync. Refs: #211.
+
+## [0.20.11] - 2026-06-10
+
+### Bug Fixes
+
+- **Grouped tracked repositories rehydrate at the correct path** — when `.metadata.json` contains tracked repos installed with `--track --into <group>`, `skillshare install` now restores the missing clone at the original grouped path instead of applying the group twice and failing on paths like `anthropics/anthropics/_skills`. Refs: #212.
+
+## [0.20.10] - 2026-06-10
+
+### Bug Fixes
+
+- **Missing tracked repositories are no longer silently ignored** — when `.metadata.json` declares a tracked repo but the local `_repo/` clone is missing (common after a fresh clone on another machine), `status`, `check`, `update --all`, and `doctor` now report it as missing instead of showing no tracked repos. The message points to the existing recovery path:
+  ```bash
+  skillshare install
+  skillshare sync
+  ```
+  `update --all --json` now counts the missing repo as skipped and includes an item explaining the recovery step. Refs: #212.
+
+## [0.20.9] - 2026-06-05
+
+### New Features
+
+- **Batch enable/disable in the web dashboard** — the Resources page now has a selection mode. Click **Select**, tick multiple skills or agents across the grid, folder, or table view (folders offer a select-all checkbox), then enable or disable them all at once from the bottom action bar. Enabling applies immediately; disabling asks for confirmation first. Works for both skills (`.skillignore`) and agents (`.agentignore`). Refs: #203.
+
+### Bug Fixes
+
+- Fixed `enabled: false` being ignored for tier and cross-skill audit rules — disabling one of these rules in `audit-rules.yaml` marked it disabled in the rule listing, but the scan still fired it at full severity. Both the per-skill and single-file scan paths now honor the disabled rule. Refs: #204.
+
+## [0.20.8] - 2026-06-05
+
+### Bug Fixes
+
+- **SSH GitHub Enterprise hub entries inherit the hub SSH login** — when an SSH hub returns same-host GitHub or GitHub Enterprise domain-prefixed sources, search results now install them over SSH using the hub username and host. For example, a hub loaded from `acme@acme.ghe.com:Org/skills.git//hubs/team.json` can return `acme.ghe.com/Org/skills/skills/reviewer`, and Skillshare installs it as `acme@acme.ghe.com:Org/skills.git//skills/reviewer`. Explicit HTTPS/SSH sources, cross-host entries, local paths, and in-memory indexes keep their existing behavior. Refs: #196.
+- **SSH skill previews can read private hub results** — previews for SSH GitHub/GHE sources now fall back to a shallow clone when no token is available or the Contents API rejects the request, so the dashboard can show full `SKILL.md` content for SSH-only private hub results instead of only index metadata.
+
+### Performance
+
+- **Faster `.skillignore` globstar matching** — repeated `**` patterns no longer trigger exponential backtracking, so commands that scan ignored skills stay responsive with complex ignore rules.
+
+## [0.20.7] - 2026-06-03
+
+### Bug Fixes
+
+- Fixed single-skill uninstall for disabled skills in the dashboard — a skill hidden by `.skillignore` still appeared on the Resources page, but uninstalling it from the item menu or detail page could return "skill not found". Single-resource uninstall now resolves disabled skills the same way the list and batch uninstall flows do.
+
+### Performance
+
+- **Trash page virtualization** — the dashboard Trash page now renders long trash lists incrementally, so large skill or agent trash folders stay responsive instead of rendering every trashed item at once.
+
+## [0.20.6] - 2026-06-03
+
+### New Features
+
+- **Clearer hub errors in the web dashboard** — when a hub fails to load, the Search page now names the failing hub and explains the likely cause (malformed URL, missing index file, authentication required, or invalid JSON) instead of showing a bare `HTTP 400`.
+
+### Bug Fixes
+
+- Fixed the skill preview showing only index metadata (name, description, tags) for skills from non-github.com hubs — the web dashboard always fetched `SKILL.md` via `api.github.com`, so GitHub Enterprise, GitLab, and other sources never rendered their full content. The preview now reads from the source's own host (the GHE Contents API, or a shallow clone for other platforms), and degrades with a clear notice when a source genuinely can't be fetched.
+- Fixed the hub selector dropdown being clipped behind the search box on the dashboard's Search page.
+- Fixed `skillshare audit` ignoring `.skillignore` inside tracked hub repos — skills excluded via a tracked repo's `.skillignore` were still scanned and reported. Audit now skips those skills, matching how sync and the rest of the CLI treat them.
+
+## [0.20.5] - 2026-06-03
+
+### New Features
+
+- **Zed editor target** — `zed` is now a supported sync target. Add it, then sync; skills go to `~/.agents/skills` (global) and `.agents/skills` (project):
+  ```bash
+  skillshare target add zed
+  skillshare sync
+  ```
+
+### Bug Fixes
+
+- Fixed disabled skills failing to uninstall from the web dashboard — a skill disabled via `.skillignore` still appeared in the dashboard list but couldn't be removed, reporting "skill not found". Uninstall now resolves disabled skills the same way the list does. The CLI was unaffected.
+
+## [0.20.4] - 2026-06-02
+
+### New Features
+
+#### SSH hub sources
+
+- **Fetch a hub index over SSH** — `skillshare search --hub` and `skillshare hub add` now accept SSH URLs, so a shared hub index can live in a private or GitHub Enterprise repo that teammates reach over SSH without cloning it first. Skillshare shallow-clones the repo with your SSH keys and reads the index from it:
+  ```bash
+  skillshare search react --hub git@ghe.corp.com:team/skills.git
+  skillshare hub add git@ghe.corp.com:team/skills.git//hubs/team.json --label ghe
+  ```
+  The index path inside the repo comes from the `//path` suffix and defaults to `skillshare-hub.json` at the repo root. Both scp-style (`git@host:org/repo.git`) and scheme-style (`ssh://git@host/org/repo.git`) URLs work. In the web dashboard, SSH hub sources must be saved first — the server only clones saved hubs.
+
+#### Extras per-target management
+
+- **Add or remove a single target on an existing extra** — `extras <name> --add-target` and `--remove-target` manage one target without recreating the whole extra. Both update config only; run `skillshare sync extras` afterward to apply:
+  ```bash
+  skillshare extras rules --add-target ~/.cursor/rules --mode copy
+  skillshare extras rules --remove-target ~/.cursor/rules
+  ```
+  Removing a target leaves already-synced files in place by default. Add `--prune` to also delete the skillshare-managed files under that target — in merge mode only symlinks are removed, so your own files are preserved. Removing the last remaining target is rejected (use `extras remove <name>` for the whole extra). The web dashboard's Extras page gains matching per-target add/remove controls.
+
+### Bug Fixes
+
+- Fixed extension downloads in the web dashboard's Config page clearing each other's progress — starting a second download no longer wipes the first one's loading spinner; each download now tracks its own state.
+
+### Breaking Changes
+
+- **Removed the `extras mode` subcommand** — change a target's sync mode or flatten setting with the `extras <name>` shorthand instead (same behavior, one less command):
+  ```bash
+  skillshare extras rules --mode copy --target ~/.claude/rules
+  skillshare extras agents --flatten
+  ```
+
+## [0.20.3] - 2026-06-01
+
+### New Features
+
+- **Copilot CLI agents** — agents now sync to Copilot CLI alongside skills. Copilot uses the same `.agent.md` format Skillshare already manages, so `skillshare sync agents` symlinks your agents into `~/.copilot/agents` (global) and `.github/agents` (project) with no conversion:
+  ```bash
+  skillshare sync agents    # now includes copilot
+  ```
+
+### Bug Fixes
+
+- **Installing a specific skill no longer drags in every agent** — when installing from a repo that contains both skills and agents, `-s`/`--skill` now installs only the named skills (no agents), and `-s` with `-a`/`--agent` installs only the named agents. An unknown `-a` name fails the whole command up front, so automation never sees a half-completed install. `--all`/`--yes` still install everything.
+
+## [0.20.2] - 2026-05-31
+
+### New Features
+
+#### Doctor remediation suggestions
+
+- **`skillshare doctor` now suggests how to fix what it flags** — when doctor detects targets writing to a shared path, or one target's runtime discovering another target's skills, it prints a remediation suggestion next to the warning instead of only reporting the overlap. Suggestions are also included in `doctor --json` under a new `suggestions` field.
+- **Suggestions point at a ready-to-run target removal command** — overlap suggestions now include the exact command to preview removing a duplicate target:
+  ```bash
+  skillshare target remove <name> --global --dry-run
+  ```
+- **Health Check page surfaces suggestions** — the dashboard Health Check page renders each check's remediation suggestions inside its expandable detail block, localized across all supported languages.
+
+### Bug Fixes
+
+- **GitHub Enterprise Cloud data residency hosts are now recognized** — repositories on `*.ghe.com` tenants are detected as GitHub over both HTTPS and SSH, and the GitHub API base is resolved as `https://api.<tenant>.ghe.com`, so installing and updating from data residency accounts works.
+- **SSH remote URLs with a custom username now work** — clone URLs such as `acme@acme.ghe.com:org/repo.git` (any username, not only `git`) are parsed and normalized correctly when installing and updating.
+
+## [0.20.1] - 2026-05-31
+
+### Bug Fixes
+
+- **Codex agent transforms reject incomplete agents** — the bundled `codex-agents` extension now fails clearly when the resolved `name`, `description`, or Markdown body is blank. Missing `name` still falls back to the source filename, and the extension docs link to Codex's custom agent schema for the required fields.
+- **Dashboard Extras sync shows extension errors** — when an extras transform fails, the Extras page toast now shows the first file-level error instead of only an error count, so users can fix the specific source file without opening logs.
+
+## [0.20.0] - 2026-05-30
+
+### New Features
+
+#### Git scope control (`git_root`)
+
+- **`git_root` scope** — choose which directory `skillshare commit`, `push`, and `pull` version. The default stays your skills source, but you can point git at `agents`, `extras`, or `root` (skills + agents + extras together in a single repo). Set it during init, or switch later on an existing setup:
+  ```bash
+  skillshare init --git-root root      # version skills, agents, and extras in one repo
+  skillshare init --git-root agents    # switch scope headlessly later
+  ```
+  A `root`-scope repo automatically keeps `config.yaml` out of version control (it holds machine-specific paths), and nested git repositories are detected and blocked before they would upload as empty submodules. If `git_root` points to a scope whose directory has no repo, `commit`/`push`/`pull` print a "Git root mismatch" error with the exact commands to fix it.
+- **Switch scope from the dashboard** — the Git Sync page can change the `git_root` scope, set the git remote during the switch, and offers a one-click action when the scoped directory isn't a repository yet.
+
+#### Extras extension transforms
+
+- **`extension` field on extras targets** — convert Markdown into a tool's native format during sync, for tools that don't read Markdown. Reference extensions ship for Gemini CLI (TOML commands) and Codex CLI (TOML agents):
+  ```yaml
+  extras:
+    - name: commands
+      targets:
+        - path: .gemini/commands
+          extension: gemini-commands    # transforms .md → .toml during sync
+  ```
+  Transforms run source → target only (`extras collect` skips them), use `copy` semantics, and never overwrite a local file or directory without `--force`. The Codex agents extension maps `name`, `description`, and `model` from frontmatter.
+- **Manage extensions from the dashboard** — the Config page lists installed extensions with descriptions and guards against removing one that is still in use; the Extras page and Add Extra modal include a per-target extension picker.
+
+#### List filtering
+
+- **Filter skills by enabled/disabled status** — press `s` in the `list` TUI to cycle All → Enabled → Disabled, or use the `s:enabled` / `s:disabled` tag to combine status with other filters. The dashboard Resources page gains the same status filter.
+
+### Bug Fixes
+
+- **Hardened git remote handling** — remote URLs beginning with `-` (which git could misinterpret as a flag) are now rejected when setting or adding a remote, including via `skillshare init --remote`.
+- **Dashboard pull keeps skill paths correct with scoped git roots** — pulling from a `root`, `agents`, or `extras` git scope no longer causes the follow-up sync to flatten paths such as `skills/foo` into the wrong skill name.
+- **Transformed extras no longer show false drift** — dashboard diff/status checks now compare transformed filenames (for example `.md` → `.toml`) consistently, and missing extension definitions surface as warnings instead of silently falling back.
+- **Safer reference transforms** — bundled TOML transforms now escape control characters correctly and stop hung transform commands instead of blocking sync indefinitely.
+
+## [0.19.24] - 2026-05-27
+
+### New Features
+
+#### Local skill checkpoints
+
+- **`skillshare commit`** — create a local git commit for source skills without pushing to the remote. This is useful when iterating locally and wanting a restore point before you are ready to share changes across machines. It stages all source changes and commits them with the provided message, and it works even when no git remote is configured.
+  ```bash
+  skillshare commit -m "Update writing skill"
+  skillshare commit --dry-run
+  ```
+- **Dashboard local commit action** — the Git Sync page now has a **Commit locally** button alongside **Push** and **Pull**. It uses the same commit message and dry-run preview area, but only creates the local commit and never pushes.
+
+### Bug Fixes
+
+- **Dashboard update results stay current after updating** — after updating skills from the dashboard, successfully updated or already-current items are now marked **Up to date** and keep their latest check status instead of falling back to **Unchecked**.
+
+## [0.19.23] - 2026-05-26
+
+### Bug Fixes
+
+- **Nested GitHub-installed skills stop reappearing as updateable after update** — `skillshare update` and the dashboard Update page now refresh the stored metadata for skills installed under a subdirectory, so items such as `tools/agent-browser` no longer keep showing **Update available** immediately after a successful update
+- **Dashboard Update checks are remembered between visits** — the Update page now keeps the last completed check status in browser storage and shows the previous check time, so returning to the page no longer resets every item to **Unchecked**
+
+## [0.19.22] - 2026-05-26
+
+### Bug Fixes
+
+- **Web UI install now handles mixed-track repos** — installing a repository that contains both skills and agents with **Track** enabled (for example `github/awesome-copilot`) used to fail with a `tracked install is ambiguous; pass --kind skill or --kind agent` error toast and no way forward. The dashboard now opens a kind picker showing skill and agent counts; choose **Skills** or **Agents** and the install proceeds with the chosen `--kind`. Refs: #167
+
+### Performance
+
+- **One fewer clone when recovering from a mixed-track install** — the install API now reports skill/agent counts in the ambiguity error itself, so the dashboard no longer re-clones the repository via `/api/discover` before showing the kind picker
+
+## [0.19.21] - 2026-05-24
+
+### Bug Fixes
+
+- **Update page checks now finish for nested GitHub-installed skills** — the dashboard now matches check results by relative path as well as display name, so items such as `tools/agent-browser` no longer stay stuck on `Checking` after **Check All** completes
+- **Update Selected now targets nested GitHub-installed skills correctly** — selecting an item installed under a subdirectory now sends its relative path (for example `tools/agent-browser`) to the update endpoint instead of the flattened display name
+- **Remote update checks no longer wait indefinitely on Git prompts** — lightweight `git ls-remote` probes now disable interactive credential prompts and time out after 15 seconds, surfacing an error in the UI/CLI instead of leaving the update check spinner running forever
+
+## [0.19.20] - 2026-05-24
+
+### New Features
+
+#### Web UI process management
+
+- **`skillshare ui start` / `skillshare ui stop`** — run the web dashboard as a managed background process instead of holding a foreground shell. Re-running `start` reuses the existing healthy process; `stop` shuts it down using the remembered host/port. The legacy foreground `skillshare ui` and the `--no-open &` shell-backgrounding workaround keep working unchanged.
+  ```bash
+  skillshare ui start                 # start in background, return to shell
+  skillshare ui start --clear-cache   # clear cached UI assets, then start
+  skillshare ui stop                  # stop the background server
+  ```
+- **`--app` flag** — `skillshare ui start --app` opens the dashboard in a Chromium app-mode window (Chrome, Edge, Brave) so it gets its own Dock/taskbar entry and chrome-less frame on macOS, Windows, and Linux.
+
+#### In-place upgrade from the dashboard
+
+- **Update without leaving the browser** — the Update dialog and the Doctor page's Version card now show an **Update now** button. The dashboard runs `skillshare upgrade` on the host, restarts the local UI server, then auto-reloads the page once the new server reports healthy. Two new endpoints back this flow:
+  ```
+  POST /api/upgrade   # run skillshare upgrade in place
+  POST /api/restart   # restart the UI server (optional { "clearCache": true })
+  ```
+  If the dashboard cannot reconnect on its own, it surfaces a message asking you to run `skillshare ui start` to bring the background server back up.
+- **Doctor Version card redesign** — the version section now leads with a state-coloured icon (blue when an update is available, green when up to date), shows the version delta as `current → latest`, and hides the **Update now** button when there is nothing to upgrade.
+
+#### Installable as a Progressive Web App
+
+- **PWA support** — the dashboard now ships a `site.webmanifest`, app icons (192px / 512px), and a minimal service worker. Browsers that support it (Chrome, Edge, Safari, Brave) let you install Skillshare as a standalone desktop app from the address bar; offline cache covers the static shell so the dashboard opens even before the local server is reachable.
+
+## [0.19.19] - 2026-05-23
+
+### Bug Fixes
+
+- **Tracked root-level `SKILL.md` repos now get integrity hashes** — `skillshare install <repo> --track` for single-skill repos with `SKILL.md` at the repo root now writes `file_hashes` into `.metadata.json`, so `skillshare doctor` can verify them instead of warning that integrity checks are unavailable. Running `skillshare update _repo` also backfills hashes for already-installed tracked root-skill repos that were created by v0.19.18. Refs: #165
+
+## [0.19.18] - 2026-05-22
+
+### Bug Fixes
+
+- **Tracked repos with a root-level `SKILL.md` are fully supported** — installing a single-skill repo with `--track` (where `SKILL.md` sits at the repo root, not nested) used to report `Found 0 skill(s)`, skip metadata persistence, and omit the repo from `skillshare status` and `skillshare list`. Now the install reports the correct count, writes the tracked entry to `.metadata.json`, and the repo appears in status output with `skill_count: 1`. Cross-machine recovery via metadata works again for this layout. The misleading `Run skillshare sync to distribute skills` next-step hint is also suppressed when the install produced zero skills or agents. Refs: #163
+- **GitLab SSH URLs with nested subgroups now produce a clean tracked-repo name** — `skillshare install git@gitlab.example.com:org/subgroup/my-skills.git --track` previously stored the repo under a directory name containing the subgroup path; the resolved name is now just `my-skills`, matching the existing HTTPS subgroup behavior
+
+## [0.19.17] - 2026-05-22
+
+### New Features
+
+- **`doctor` warns on overlapping skill paths** — `skillshare doctor` now flags two classes of duplicate-skill problems before they reach the runtime picker. Refs: #135
+  ```
+  ! Shared path ~/.agents/skills ← universal, warp
+  ! codex will see content from: universal
+      ~/.agents/skills ← universal
+  ```
+  The first warning fires when two enabled targets resolve to the same primary path. The second fires when an enabled target's runtime also scans a directory another enabled target writes to (e.g. Codex Desktop reads `~/.agents/skills` in addition to `~/.codex/skills`). Both checks are pure metadata — no filesystem probing, no runtime calls. `skillshare sync` also prints a one-line hint when overlap is detected, pointing back to `doctor` for the full breakdown:
+  ```
+  ! Skill path overlap across 2 target(s) — run `skillshare doctor` for details
+  ```
+
+### Bug Fixes
+
+- **`cline` target path reverted to `~/.cline/skills`** — the cline target was briefly pointing at the shared `~/.agents/skills` root, which doesn't match the official cline documentation. Restored to the brand-specific `~/.cline/skills` (global) and `.cline/skills` (project). If you synced cline between v0.19.14 and v0.19.16, re-run `skillshare sync` to move skills to the correct location
+
+## [0.19.16] - 2026-05-21
+
+### New Features
+
+- **Global config `sources:` map** — global mode now accepts the same `sources:` map shipped for project mode in v0.19.15. Override skills, agents, or extras source directories from a single place:
+  ```yaml
+  # ~/.config/skillshare/config.yaml
+  sources:
+    skills: ~/work/skills
+    agents: ~/work/agents
+    extras: ~/work/extras
+  ```
+  Each key is optional. Existing top-level `source:` / `agents_source:` / `extras_source:` fields continue to work unchanged; when both formats are set, `sources.<key>` wins. Fresh `skillshare init -g` writes the new `sources:` shape; existing configs are never auto-rewritten
+
+### Behavior Changes
+
+- **`extras init` no longer silently backfills `extras_source:`** — running `skillshare extras init <name>` on a global config without an explicit extras source used to write the derived `extras_source:` path back into your `config.yaml`. The runtime now resolves the extras parent on the fly, so the legacy field stays empty unless you set it yourself. Same change applies to the equivalent server endpoint (`POST /api/extras`)
+- **`extras source <path>` writes to whichever field the user already configured** — if `sources.extras` is already set, the command updates that key; otherwise it falls back to the legacy `extras_source` field. This prevents the new value from being silently shadowed by `sources.extras`
+
+## [0.19.15] - 2026-05-20
+
+### New Features
+
+- **Custom project source directories** — project mode can now read skills, agents, and extras from any directory in your repo. Useful for co-locating skill content with existing project documentation. Refs: #153, #162
+  ```yaml
+  # .skillshare/config.yaml
+  sources:
+    skills: ./docs/skills
+    agents: ./docs/agents
+    extras: ./docs/extras
+  targets:
+    - claude
+  ```
+  Each key is optional — omit to fall back to `.skillshare/<type>/`. Paths are resolved from the project root; absolute paths and `~` work too. `skillshare init -p` still seeds the default `.skillshare/` directories. Trash, backups, and operation logs always stay under `.skillshare/` regardless of `sources` settings
+
+### Behavior Changes
+
+- **Project commands fail closed on malformed `config.yaml`** — `uninstall`, `new`, `enable`/`disable`, and `check` now return `failed to load project config` instead of silently falling back to `.skillshare/skills`. With custom `sources`, the old fallback could have operated on the wrong directory. Fix any YAML errors (e.g. `targets: {}` → `targets: []`) and the command will succeed
+- **Sync rejects source/target path overlap** — `skillshare sync -p` errors when `sources.skills` or `sources.agents` aliases or nests with a target path. Without this check, `sync --force` could delete the configured source directory. Common safe layout: `sources.skills: ./docs/skills` with a `claude` target (no overlap)
+
+## [0.19.14] - 2026-05-20
+
+### Refactoring
+
+- **Unified Gemini and Antigravity targets** — the standalone `gemini` target has been merged into `antigravity`. The shared skill path `~/.gemini/skills` is now served by the `antigravity` target. Old names `gemini`, `gemini-cli`, and `antigravity-cli` continue to work as aliases
+
+### Bug Fixes
+
+- **Audit: Swift files are now scannable** — `.swift` files are included in security audit scans alongside `.go`, `.py`, `.ts`, and other source files
+- **Audit: reduced false positives** — tightened publisher-claim extraction to avoid flagging ordinary phrases like "from CSV data" as organization claims. Bracket placeholders like `[Count] ([Percentage]%)` no longer trigger dangling-link warnings. Common documentation domains (MDN, Apple Developer, etc.) are excluded from external-link findings
+- **Audit: uppercase URI schemes no longer flag as dangling links** — custom URI schemes like `VSCode://` are now correctly recognized as external links
+
+## [0.19.13] - 2026-05-17
+
+### Bug Fixes
+
+- **Tracked skills now retain custom name and branch from config** — previously, `skillshare update` on a tracked repo re-derived the directory name from the clone URL (e.g. `_owner-repo`), ignoring any custom `name:` set in `config.yaml`. Now the resolution priority is: `--name` flag > config `name:` > URL-derived name. Similarly, a non-default `branch:` in config is now respected during clone and update. Refs: #158
+
+## [0.19.12] - 2026-05-14
+
+### Bug Fixes
+
+- **Project `skills:` in config.yaml no longer stripped** — previously, project-mode commands silently removed the `skills:` section from `.skillshare/config.yaml` during an internal migration, leaving no committable record of remote skill dependencies. Now `skills:` stays in `config.yaml` as the declarative source of truth. Teammates can clone the repo and run `skillshare install -p` to install all listed skills. Refs: #157
+  ```yaml
+  # .skillshare/config.yaml — committed to git
+  targets:
+    - claude
+    - cursor
+  skills:
+    - name: pdf
+      source: anthropic/skills/pdf
+    - name: review
+      source: github.com/team/skills/code-review
+      group: frontend
+  ```
+  `skillshare install <source> -p` automatically adds the skill to `config.yaml`. `skillshare uninstall` removes it. Runtime metadata (hashes, timestamps) stays in `.metadata.json` (gitignored)
+
+## [0.19.11] - 2026-05-14
+
+### New Features
+
+- **`preserve_tilde_on_save`** — opt-in config flag that folds `$HOME` prefixes back to `~` when saving `config.yaml`. Keeps the on-disk config portable across machines when shared via dotfiles (stow, chezmoi, yadm, bare git repo). Refs: #155
+  ```yaml
+  preserve_tilde_on_save: true
+  ```
+  Non-home absolute paths (e.g. `/opt/shared/skills`) are passed through unchanged. The in-memory config is unaffected — `Load()` still expands `~` as usual
+
+### Bug Fixes
+
+- Fixed `skillshare init -p` not gitignoring `.skillshare/backups/` — backup artifacts from project-mode agent sync could be accidentally committed
+
+## [0.19.10] - 2026-05-12
+
+### Bug Fixes
+
+- Fixed `skillshare update --all` creating duplicate `.metadata.json` entries with `../../...` relative-path keys when the skills source directory is a symlink or custom location. Existing metadata keys such as `browser/agent-browser` now stay stable during update. Refs: #152
+
+## [0.19.9] - 2026-05-11
+
+### New Features
+
+- **Context cost summary after sync** — `skillshare sync` now displays a one-line token cost summary showing always-loaded and on-demand context usage per target. Targets with identical token counts are grouped on a single line. Refs: #150
+  ```
+  ✔ Synced 47 skill(s) to 4 target(s) in 312ms
+    Context: ~12.4K always-loaded · ~58.2K on-demand (claude, cursor, codex, opencode)
+  ```
+- **Configurable budget warnings** — set token budget thresholds in `config.yaml`. When `sync` or `analyze` detects a target exceeding the budget, a warning shows the top 3 offenders by token count
+  ```yaml
+  context_budget:
+    warn_always_loaded_tokens: 10000   # default; 0 = disabled
+    warn_on_demand_tokens: 100000      # default; 0 = disabled
+  ```
+  Defaults to 10K always-loaded / 100K on-demand. Set to `0` to disable
+- **`--quiet` / `-q` flag for sync** — suppresses the token summary and budget warnings. JSON output (`--json`) always includes `context_cost` regardless of `--quiet`
+- **Context cost in Web UI** — the Sync page now displays token cost groups and budget violation warnings after each sync
+
+### Bug Fixes
+
+- Fixed `skillshare install` failing with `http://` protocol URLs (contributed by @eekryuos)
+
+## [0.19.8] - 2026-05-08
+
+### New Features
+
+- **Shell completion** — new `skillshare completion` command generates tab-completion scripts for bash, zsh, fish, PowerShell, and Nushell. Supports `--install` to auto-write the script to the correct platform path. Refs: #148
+  ```bash
+  skillshare completion bash --install    # one-line setup
+  skillshare completion zsh --install
+  skillshare completion fish --install
+  skillshare completion powershell --install
+  skillshare completion nushell --install
+  ```
+  Covers all commands, subcommands, and per-command flags. Bash, zsh, and PowerShell scripts auto-detect aliases (e.g. `alias ss=skillshare`) and register completions for them
+
+## [0.19.7] - 2026-05-05
+
+### New Features
+
+- **Azure DevOps Server (on-premises) support** — added `azure_hosts` config parameter for self-hosted Azure DevOps Server instances on custom domains. Previously, only `dev.azure.com` and `*.visualstudio.com` were recognized; custom-domain URLs would fail with an incorrect `.git` suffix in the clone URL. Refs: #147
+  ```yaml
+  azure_hosts:
+    - azuredevops.mycompany.com
+  ```
+  ```bash
+  skillshare install https://azuredevops.mycompany.com/Org/Project/_git/Repo
+  ```
+  Works in both global and project configs. For CI/CD, use the `SKILLSHARE_AZURE_HOSTS` environment variable (comma-separated, merged with config file values)
+
+## [0.19.6] - 2026-05-05
+
+### New Features
+
+- **8 new agent targets** — added AiderDesk, CodeArts Agent (Huawei), Code Studio (Syncfusion), Devin for Terminal (Cognition), Dexto, ForgeCode, Rovo Dev (Atlassian), and Tabnine CLI. Total built-in targets: 64+
+- **Cursor project path updated to `.agents/skills`** — Cursor officially supports `.agents/skills` as a project-level skill path alongside `.cursor/skills`. The project path now uses the ecosystem-standard `.agents/skills` convention, matching Cursor's official documentation. The global path (`~/.cursor/skills`) and agents paths are unchanged
+- **Automatic target inference from directory structure** — skills organized under a target's project path are now automatically scoped to that target during sync, without needing `targets:` in SKILL.md frontmatter. For example, placing a skill at `.cursor/skills/my-skill/` in the source directory automatically restricts it to the `cursor` target
+  ```
+  source/
+    .cursor/skills/browse/     → syncs only to cursor
+    .factory/skills/bench/     → syncs only to droid
+    openclaw/skills/investigate/ → syncs only to openclaw
+    shared/my-tool/            → syncs to all targets (no inference)
+  ```
+  Inference matches against the project paths defined in `targets.yaml`. When multiple targets share the same path (e.g. `universal`, `codex`, `amp` all use `.agents/skills`), the skill is correctly scoped to all of them
+
+### Bug Fixes
+
+- Fixed host path inference only returning the canonical target name when multiple targets share the same project path — `.agents/skills/` skills now correctly infer all sharing targets instead of just `universal`
+- Fixed `skillshare update` failing for skills originally installed at the repo root of an orchestrator (multi-skill) repository — the update now correctly detects the repo layout and re-applies subdirectory extraction
+
 ## [0.19.5] - 2026-04-23
 
 ### New Features

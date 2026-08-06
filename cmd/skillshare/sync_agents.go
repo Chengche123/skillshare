@@ -55,7 +55,17 @@ func syncAgentsGlobal(cfg *config.Config, dryRun, force, jsonOutput bool, start 
 
 	// Backup agent targets before sync (non-dry-run only).
 	if !dryRun && !jsonOutput {
-		backupDir, agentTargets, _ := resolveGlobalAgentBackupContextFromCfg(cfg)
+		backupDir, agentTargets, backupErr := resolveGlobalAgentBackupContextFromCfg(cfg)
+		if backupErr != nil {
+			ui.Warning("Failed to resolve agent backup targets: %v", backupErr)
+			agentTargets = nil
+		} else {
+			defer func() {
+				if _, err := backup.CleanupInDir(backupDir, backup.DefaultCleanupConfig()); err != nil {
+					ui.Warning("Failed to clean up old agent backups: %v", err)
+				}
+			}()
+		}
 		backedUp := false
 		for _, at := range agentTargets {
 			entryName := at.name + "-agents"
@@ -97,7 +107,7 @@ func syncAgentsGlobal(cfg *config.Config, dryRun, force, jsonOutput bool, start 
 			syncErr = fmt.Errorf("some agent targets failed to sync")
 			continue
 		}
-		stats, targetErr := syncAgentTarget(name, agentPath, ac.Mode, filtered, agentsSource, dryRun, force, jsonOutput)
+		stats, targetErr := syncAgentTarget(name, agentPath, ac.Mode, filtered, agentsSource, dryRun, force, jsonOutput, "")
 		if targetErr != nil {
 			syncErr = fmt.Errorf("some agent targets failed to sync")
 		}
@@ -135,13 +145,22 @@ func resolveAgentTargetPath(tc config.TargetConfig, builtinAgents map[string]con
 	if builtin, ok := builtinAgents[name]; ok {
 		return config.ExpandPath(builtin.Path)
 	}
+	if builtin, ok := config.LookupGlobalAgentTarget(name); ok {
+		return config.ExpandPath(builtin.Path)
+	}
 	return ""
 }
 
 // syncAgentsProject syncs agents for project mode using .skillshare/agents/ as source
 // and project-level target agent paths.
 func syncAgentsProject(projectRoot string, dryRun, force, jsonOutput bool, start time.Time) error {
-	agentsSource := filepath.Join(projectRoot, ".skillshare", "agents")
+	// Load project config first to resolve agents source path.
+	projCfg, loadErr := config.LoadProject(projectRoot)
+	if loadErr != nil {
+		return fmt.Errorf("cannot load project config: %w", loadErr)
+	}
+
+	agentsSource := projCfg.EffectiveAgentsSource(projectRoot)
 
 	if _, err := os.Stat(agentsSource); err != nil {
 		if os.IsNotExist(err) {
@@ -169,17 +188,16 @@ func syncAgentsProject(projectRoot string, dryRun, force, jsonOutput bool, start
 		}
 	}
 
-	// Load project config for target list
-	projCfg, loadErr := config.LoadProject(projectRoot)
-	if loadErr != nil {
-		return fmt.Errorf("cannot load project config: %w", loadErr)
-	}
-
 	builtinAgents := config.ProjectAgentTargets()
 
 	// Backup agent targets before sync (non-dry-run only).
 	if !dryRun && !jsonOutput {
 		backupDir := filepath.Join(projectRoot, ".skillshare", "backups")
+		defer func() {
+			if _, err := backup.CleanupInDir(backupDir, backup.DefaultCleanupConfig()); err != nil {
+				ui.Warning("Failed to clean up old project agent backups: %v", err)
+			}
+		}()
 		backedUp := false
 		for _, entry := range projCfg.Targets {
 			agentPath := resolveProjectAgentTargetPath(entry, builtinAgents, projectRoot)
@@ -222,7 +240,7 @@ func syncAgentsProject(projectRoot string, dryRun, force, jsonOutput bool, start
 			syncErr = fmt.Errorf("some agent targets failed to sync")
 			continue
 		}
-		stats, targetErr := syncAgentTarget(entry.Name, agentPath, ac.Mode, filtered, agentsSource, dryRun, force, jsonOutput)
+		stats, targetErr := syncAgentTarget(entry.Name, agentPath, ac.Mode, filtered, agentsSource, dryRun, force, jsonOutput, projectRoot)
 		if targetErr != nil {
 			syncErr = fmt.Errorf("some agent targets failed to sync")
 		}
@@ -253,13 +271,13 @@ func syncAgentsProject(projectRoot string, dryRun, force, jsonOutput bool, start
 
 // syncAgentTarget syncs agents to a single target directory.
 // Shared by both global and project sync paths.
-func syncAgentTarget(name, agentPath, modeOverride string, agents []resource.DiscoveredResource, agentsSource string, dryRun, force, jsonOutput bool) (agentSyncStats, error) {
+func syncAgentTarget(name, agentPath, modeOverride string, agents []resource.DiscoveredResource, agentsSource string, dryRun, force, jsonOutput bool, projectRoot string) (agentSyncStats, error) {
 	mode := modeOverride
 	if mode == "" {
 		mode = "merge"
 	}
 
-	result, err := sync.SyncAgents(agents, agentsSource, agentPath, mode, dryRun, force)
+	result, err := sync.SyncAgents(agents, agentsSource, agentPath, mode, dryRun, force, projectRoot)
 	if err != nil {
 		if !jsonOutput {
 			ui.Error("%s: agent sync failed: %v", name, err)
@@ -331,17 +349,17 @@ func collectAgentTargetPathsGlobal(cfg *config.Config) map[string]bool {
 // collectAgentTargetPathsProject returns the set of resolved agent target paths
 // for all targets in the project config. Returns nil when no agents exist.
 func collectAgentTargetPathsProject(projectRoot string) map[string]bool {
-	agentsSource := filepath.Join(projectRoot, ".skillshare", "agents")
+	projCfg, err := config.LoadProject(projectRoot)
+	if err != nil {
+		return nil
+	}
+
+	agentsSource := projCfg.EffectiveAgentsSource(projectRoot)
 	if _, err := os.Stat(agentsSource); err != nil {
 		return nil
 	}
 	agents, err := resource.AgentKind{}.Discover(agentsSource)
 	if err != nil || len(agents) == 0 {
-		return nil
-	}
-
-	projCfg, err := config.LoadProject(projectRoot)
-	if err != nil {
 		return nil
 	}
 

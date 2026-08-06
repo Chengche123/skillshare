@@ -2,9 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"os"
+	"sort"
 	"time"
 
 	"skillshare/internal/config"
@@ -74,15 +76,20 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if involved := config.DetectPathOverlap(s.cfg.Targets, s.IsProjectMode()); len(involved) > 0 {
+		warnings = append(warnings, fmt.Sprintf("Skill path overlap across %d target(s) — see Health Check for details", len(involved)))
+	}
+
 	results := make([]syncTargetResult, 0)
 
 	var ignoreStats *skillignore.IgnoreStats
+	var allSkills []ssync.DiscoveredSkill
+	ignorePatterns := ssync.EffectiveFileIgnorePatterns(s.cfg.Ignore)
 
 	// Skill sync (skip when kind == "agent")
 	if body.Kind != kindAgent {
-		var allSkills []ssync.DiscoveredSkill
 		var err error
-		allSkills, ignoreStats, err = ssync.DiscoverSourceSkillsWithStats(s.cfg.Source)
+		allSkills, ignoreStats, err = ssync.DiscoverSourceSkillsWithStatsAndContext(s.cfg.EffectiveSkillsSource())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to discover skills: "+err.Error())
 			return
@@ -122,7 +129,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 
 			switch mode {
 			case "merge":
-				mergeResult, err := ssync.SyncTargetMergeWithSkills(name, target, allSkills, s.cfg.Source, body.DryRun, body.Force, s.projectRoot)
+				mergeResult, err := ssync.SyncTargetMergeWithSkills(name, target, allSkills, s.cfg.EffectiveSkillsSource(), body.DryRun, body.Force, s.projectRoot)
 				if err != nil {
 					s.writeOpsLog("sync", "error", start, syncErrArgs, err.Error())
 					writeError(w, http.StatusInternalServerError, "sync failed for "+name+": "+err.Error())
@@ -134,7 +141,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 				res.DirCreated = mergeResult.DirCreated
 
 				pruneResult, err := ssync.PruneOrphanLinksWithSkills(ssync.PruneOptions{
-					TargetPath: sc.Path, SourcePath: s.cfg.Source, Skills: allSkills,
+					TargetPath: sc.Path, SourcePath: s.cfg.EffectiveSkillsSource(), Skills: allSkills,
 					Include: sc.Include, Exclude: sc.Exclude, TargetNaming: sc.TargetNaming, TargetName: name,
 					DryRun: body.DryRun, Force: body.Force,
 				})
@@ -143,7 +150,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 				}
 
 			case "copy":
-				copyResult, err := ssync.SyncTargetCopyWithSkills(name, target, allSkills, s.cfg.Source, body.DryRun, body.Force, nil)
+				copyResult, err := ssync.SyncTargetCopyWithSkillsOptions(name, target, allSkills, s.cfg.EffectiveSkillsSource(), body.DryRun, body.Force, nil, ssync.CopyOptions{IgnorePatterns: ignorePatterns})
 				if err != nil {
 					s.writeOpsLog("sync", "error", start, syncErrArgs, err.Error())
 					writeError(w, http.StatusInternalServerError, "sync failed for "+name+": "+err.Error())
@@ -160,7 +167,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 				}
 
 			default:
-				err := ssync.SyncTarget(name, target, s.cfg.Source, body.DryRun, s.projectRoot)
+				err := ssync.SyncTarget(name, target, s.cfg.EffectiveSkillsSource(), body.DryRun, s.projectRoot)
 				if err != nil {
 					s.writeOpsLog("sync", "error", start, syncErrArgs, err.Error())
 					writeError(w, http.StatusInternalServerError, "sync failed for "+name+": "+err.Error())
@@ -181,7 +188,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 			builtinAgents := s.builtinAgentTargets()
 
 			for name, target := range s.cfg.Targets {
-				agentPath := resolveAgentPath(target, builtinAgents, name)
+				agentPath := resolveAgentPath(target, builtinAgents, name, s.IsProjectMode())
 				if agentPath == "" {
 					continue
 				}
@@ -191,7 +198,14 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 					agentMode = "merge"
 				}
 
-				agentResult, err := ssync.SyncAgents(agents, agentsSource, agentPath, agentMode, body.DryRun, body.Force)
+				ac := target.AgentsConfig()
+				filteredAgents, filterErr := ssync.FilterAgents(agents, ac.Include, ac.Exclude)
+				if filterErr != nil {
+					warnings = append(warnings, "agent sync failed for "+name+": invalid agent filter: "+filterErr.Error())
+					continue
+				}
+
+				agentResult, err := ssync.SyncAgents(filteredAgents, agentsSource, agentPath, agentMode, body.DryRun, body.Force, s.projectRoot)
 				if err != nil {
 					warnings = append(warnings, "agent sync failed for "+name+": "+err.Error())
 					continue
@@ -201,9 +215,9 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 				// matches skills and clears previously synced target entries.
 				var pruned []string
 				if agentMode == "merge" {
-					pruned, _ = ssync.PruneOrphanAgentLinks(agentPath, agents, body.DryRun)
+					pruned, _ = ssync.PruneOrphanAgentLinks(agentPath, filteredAgents, body.DryRun)
 				} else if agentMode == "copy" {
-					pruned, _ = ssync.PruneOrphanAgentCopies(agentPath, agents, body.DryRun)
+					pruned, _ = ssync.PruneOrphanAgentCopies(agentPath, filteredAgents, body.DryRun)
 				}
 
 				// Find or create result entry for this target
@@ -245,13 +259,166 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 		"scope":          "ui",
 	}, "")
 
+	var contextCost map[string]any
+	if len(allSkills) > 0 {
+		contextCost = s.computeContextCost(allSkills)
+	}
+
 	resp := map[string]any{
 		"results":  results,
 		"warnings": warnings,
 	}
+	if contextCost != nil {
+		resp["context_cost"] = contextCost
+	}
 	maps.Copy(resp, ignorePayload(ignoreStats))
 	maps.Copy(resp, agentIgnorePayload(s.agentsSource(), nil))
 	writeJSON(w, resp)
+}
+
+func (s *Server) computeContextCost(skills []ssync.DiscoveredSkill) map[string]any {
+	const charsPerToken = 4
+
+	type tokenPair struct{ always, onDemand int }
+	groupMap := make(map[tokenPair][]string)
+
+	type skillToken struct {
+		name       string
+		descTokens int
+		bodyTokens int
+	}
+
+	var maxAlways, maxOnDemand int
+	var worstAlwaysSkills, worstOnDemandSkills []skillToken
+
+	cfgMode := s.cfg.Mode
+	if cfgMode == "" {
+		cfgMode = "merge"
+	}
+
+	for name, target := range s.cfg.Targets {
+		sc := target.SkillsConfig()
+		mode := sc.Mode
+		if mode == "" {
+			mode = cfgMode
+		}
+
+		var filtered []ssync.DiscoveredSkill
+		if mode == "symlink" {
+			filtered = skills
+		} else {
+			var fErr error
+			filtered, fErr = ssync.FilterSkills(skills, sc.Include, sc.Exclude)
+			if fErr != nil {
+				filtered = skills
+			}
+			filtered = ssync.FilterSkillsByTarget(filtered, name)
+		}
+
+		var alwaysChars, onDemandChars int
+		var perSkill []skillToken
+		for _, sk := range filtered {
+			alwaysChars += sk.DescChars
+			onDemandChars += sk.BodyChars
+			perSkill = append(perSkill, skillToken{
+				name:       sk.FlatName,
+				descTokens: sk.DescChars / charsPerToken,
+				bodyTokens: sk.BodyChars / charsPerToken,
+			})
+		}
+		at := alwaysChars / charsPerToken
+		ot := onDemandChars / charsPerToken
+
+		groupMap[tokenPair{at, ot}] = append(groupMap[tokenPair{at, ot}], name)
+
+		if at > maxAlways {
+			maxAlways = at
+			worstAlwaysSkills = perSkill
+		}
+		if ot > maxOnDemand {
+			maxOnDemand = ot
+			worstOnDemandSkills = perSkill
+		}
+	}
+
+	type group struct {
+		Targets            []string `json:"targets"`
+		AlwaysLoadedTokens int      `json:"always_loaded_tokens"`
+		OnDemandTokens     int      `json:"on_demand_tokens"`
+	}
+
+	groups := make([]group, 0, len(groupMap))
+	for pair, names := range groupMap {
+		sort.Strings(names)
+		groups = append(groups, group{
+			Targets:            names,
+			AlwaysLoadedTokens: pair.always,
+			OnDemandTokens:     pair.onDemand,
+		})
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].Targets[0] < groups[j].Targets[0] })
+
+	budget := s.cfg.ContextBudget
+	if s.IsProjectMode() && s.projectCfg != nil {
+		budget = s.projectCfg.ContextBudget
+	}
+
+	result := map[string]any{"groups": groups}
+
+	type offender struct {
+		Name   string `json:"name"`
+		Tokens int    `json:"tokens"`
+	}
+	type warning struct {
+		Type         string     `json:"type"`
+		Actual       int        `json:"actual"`
+		Budget       int        `json:"budget"`
+		TopOffenders []offender `json:"top_offenders"`
+	}
+
+	topN := func(perSkill []skillToken, n int, byDesc bool) []offender {
+		type pair struct {
+			name   string
+			tokens int
+		}
+		pairs := make([]pair, 0, len(perSkill))
+		for _, sk := range perSkill {
+			t := sk.bodyTokens
+			if byDesc {
+				t = sk.descTokens
+			}
+			if t > 0 {
+				pairs = append(pairs, pair{sk.name, t})
+			}
+		}
+		sort.Slice(pairs, func(i, j int) bool { return pairs[i].tokens > pairs[j].tokens })
+		if len(pairs) > n {
+			pairs = pairs[:n]
+		}
+		out := make([]offender, len(pairs))
+		for i, p := range pairs {
+			out[i] = offender{Name: p.name, Tokens: p.tokens}
+		}
+		return out
+	}
+
+	var warns []warning
+	if t := budget.AlwaysLoadedThreshold(); t > 0 && maxAlways > t {
+		warns = append(warns, warning{
+			Type: "always_loaded", Actual: maxAlways, Budget: t,
+			TopOffenders: topN(worstAlwaysSkills, 3, true),
+		})
+	}
+	if t := budget.OnDemandThreshold(); t > 0 && maxOnDemand > t {
+		warns = append(warns, warning{
+			Type: "on_demand", Actual: maxOnDemand, Budget: t,
+			TopOffenders: topN(worstOnDemandSkills, 3, false),
+		})
+	}
+	if len(warns) > 0 {
+		result["warnings"] = warns
+	}
+	return result
 }
 
 type diffItem struct {
@@ -271,9 +438,10 @@ type diffTarget struct {
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before slow I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	agentsSource := s.agentsSource()
 	globalMode := s.cfg.Mode
+	ignorePatterns := ssync.EffectiveFileIgnorePatterns(s.cfg.Ignore)
 	targets := s.cloneTargets()
 	s.mu.RUnlock()
 
@@ -294,7 +462,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		if filterTarget != "" && filterTarget != name {
 			continue
 		}
-		diffs = append(diffs, s.computeTargetDiff(name, target, discovered, globalMode, source))
+		diffs = append(diffs, s.computeTargetDiff(name, target, discovered, globalMode, source, ignorePatterns))
 	}
 
 	diffs = s.appendAgentDiffs(diffs, targets, agentsSource, filterTarget)

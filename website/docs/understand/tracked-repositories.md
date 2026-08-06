@@ -48,8 +48,9 @@ skillshare sync
 **What happens:**
 1. Repo is cloned to `~/.config/skillshare/skills/_team-skills/`
 2. `.git` directory is preserved
-3. Entire repo is security-audited using active install threshold (`audit.block_threshold` or `--threshold`)
-4. Nested skills are flattened for AI CLIs
+3. The clone directory is added to the managed `.gitignore` block so it stays machine-local and is not committed as a nested git repository
+4. Entire repo is security-audited using active install threshold (`audit.block_threshold` or `--threshold`)
+5. Nested skills are flattened for AI CLIs
 
 If findings hit the threshold, install is blocked unless `--force` is used. On block, skillshare removes the cloned repo automatically; if cleanup fails, the command reports the exact path for manual cleanup.
 
@@ -106,6 +107,28 @@ Auto-flattening works for **all skills**, not just tracked repos. You can organi
 
 ---
 
+## Rehydrating After a Fresh Clone
+
+Tracked repo clone directories are intentionally ignored by git because they contain their own `.git` directory. If you clone or pull your skillshare source repo on a new machine, `.metadata.json` may already declare tracked repos while the `_team-skills/` clone directory is still missing.
+
+Run no-argument install to recreate missing tracked repo clones from metadata:
+
+```bash
+skillshare install
+skillshare sync
+```
+
+For project mode, run:
+
+```bash
+skillshare install -p
+skillshare sync -p
+```
+
+`status`, `check`, `update --all`, and `doctor` report missing tracked repo clones and suggest `skillshare install` instead of silently ignoring them.
+
+---
+
 ## Updating Tracked Repos
 
 ### Single repo
@@ -152,7 +175,7 @@ skillshare uninstall _team-skills
 
 ## Project Mode
 
-Tracked repos also work in project mode. The repo is cloned into `.skillshare/skills/` and added to `.skillshare/.gitignore` (so the tracked repo's git history doesn't conflict with your project's git). Project logs (`.skillshare/logs/`) and trash (`.skillshare/trash/`) are also ignored by default.
+Tracked repos also work in project mode. The repo is cloned into `.skillshare/skills/` and added to `.skillshare/.gitignore` (so the tracked repo's git history doesn't conflict with your project's git). Project logs (`.skillshare/logs/`), trash (`.skillshare/trash/`), and backups (`.skillshare/backups/`) are also ignored by default.
 
 Installing a tracked repo auto-records `tracked: true` in `.skillshare/.metadata.json`, so new team members get the correct clone behavior via `skillshare install -p`:
 

@@ -20,7 +20,7 @@ Use project skills when your team needs repo-specific AI instructions (coding st
 | **Project tooling** | CI/CD deployment knowledge, testing patterns, migration scripts specific to this repo |
 | **Onboarding acceleration** | "How does auth work here?" — the AI already knows, from committed project skills |
 | **Open source projects** | Maintainers commit `.skillshare/` so contributors get project-specific AI context on clone |
-| **Community skill curation** | A repo's `.metadata.json` serves as a curated skill list — anyone can `install -p` to get the same setup |
+| **Community skill curation** | A repo's `config.yaml` `skills:` section serves as a curated skill list — anyone can `install -p` to get the same setup |
 
 ---
 
@@ -86,8 +86,8 @@ skillshare sync -g       # Force global mode
 <project-root>/
 ├── .skillshare/
 │   ├── config.yaml              # Targets + settings (incl. extras)
-│   ├── .metadata.json           # Remote skills list (auto-managed)
-│   ├── .gitignore               # Ignores logs/, trash/, and cloned remote/tracked skill dirs
+│   ├── skills/.metadata.json     # Runtime metadata (hashes, timestamps — auto-managed, gitignored)
+│   ├── .gitignore               # Ignores logs/, trash/, backups/, and cloned remote/tracked skill dirs
 │   ├── extras/                  # Extras source directories
 │   │   └── rules/               # e.g. extras init rules --target .claude/rules -p
 │   │       └── coding.md
@@ -139,31 +139,70 @@ targets:
 - **Short**: Just the target name (e.g., `claude`). Uses known default path, merge mode.
 - **Long**: Object with `name`, optional `path`, optional `mode` (`merge`, `copy`, or `symlink`), and optional `include`/`exclude` filters. Supports relative paths (resolved from project root) and `~` expansion.
 
-Remote skill installations are tracked in a separate file, `.skillshare/.metadata.json`:
+Remote skill dependencies are declared in `config.yaml` under `skills:`:
 
-```json
-{
-  "skills": [
-    {
-      "name": "pdf-skill",
-      "source": "anthropic/skills/pdf"
-    },
-    {
-      "name": "_team-skills",
-      "source": "github.com/team/skills",
-      "tracked": true
-    }
-  ]
-}
+```yaml
+targets:
+  - claude
+  - cursor
+
+skills:
+  - name: pdf
+    source: anthropic/skills/pdf
+  - name: _team-skills
+    source: github.com/team/skills
+    tracked: true
+  - name: review
+    source: github.com/team/skills/code-review
+    group: frontend
 ```
 
-**Skills** list tracks remote installations only. Local skills don't need entries here.
+**Skills** list declares remote installations only. Local skills don't need entries here.
 
 - `tracked: true`: Installed with `--track` (git repo with `.git/` preserved). When someone runs `skillshare install -p`, tracked skills are cloned with full git history so `skillshare update` works correctly.
+- `group`: Subdirectory path (corresponds to `--into` during install).
+
+Runtime metadata (install timestamps, file hashes, commit SHAs) is stored separately in `.skillshare/skills/.metadata.json` — this file is auto-managed and gitignored.
 
 :::tip Portable Skill Manifest
-`config.yaml` and `.metadata.json` together form a portable skill manifest in both global and project mode. In a project, commit them to git and anyone can run `skillshare install -p && skillshare sync`. For global mode, copy both files to a new machine and run `skillshare install && skillshare sync`. This works for teams, open source contributors, community templates, and dotfiles across machines.
+`config.yaml` is the declarative skill manifest. In a project, commit it to git and anyone can run `skillshare install -p && skillshare sync`. For global mode, `.metadata.json` serves as the manifest since global config doesn't need to be shared via git.
 :::
+
+---
+
+## Custom Source Directories
+
+By default, project mode reads skills, agents, and extras from `.skillshare/skills/`, `.skillshare/agents/`, and `.skillshare/extras/`. Override these paths with the optional `sources` map when you want to keep skill content alongside other project documentation:
+
+```yaml
+sources:
+  skills: ./docs/skills
+  agents: ./docs/agents
+  extras: ./docs/extras
+targets:
+  - claude
+```
+
+Each key is optional — omitting a key falls back to the default `.skillshare/<type>/` path. Paths are resolved relative to the project root, and absolute paths (including `~`) work too.
+
+**Common layouts:**
+
+```yaml
+# Co-locate skill content with existing project docs
+sources:
+  skills: ./docs/skills
+
+# Keep agents in an AI-focused subdirectory
+sources:
+  agents: ./ai/agents
+```
+
+**Constraints:**
+
+- **No alias with target paths.** `skillshare sync -p` rejects configs where a source resolves to the same directory as a target (or one contains the other). This prevents `sync --force` from wiping the configured source. For example, `sources.skills: .claude/skills` combined with a `claude` target is rejected with an `overlaps` error.
+- **External paths skip gitignore management.** When a source resolves outside the project root (an absolute path elsewhere on disk), skillshare does not add entries to the project's `.gitignore`. Manage ignore rules in the source directory yourself if needed.
+- **Operational dirs stay in `.skillshare/`.** Trash, backups, and operation logs always live under `.skillshare/` regardless of `sources` settings.
+- **`init -p` always seeds `.skillshare/{skills,agents}/`.** Custom sources take effect only after you edit `config.yaml`.
 
 ---
 
@@ -176,7 +215,7 @@ Project mode has some intentional limitations:
 | Merge sync mode | ✓ | Default, per-skill symlinks |
 | Copy sync mode | ✓ | Per-target via `skillshare target <name> --mode copy -p` |
 | Symlink sync mode | ✓ | Per-target via `skillshare target <name> --mode symlink -p` |
-| `--track` repos | ✓ | Cloned to `.skillshare/skills/_repo/`, added to `.gitignore` (`logs/` and `trash/` are also ignored by default) |
+| `--track` repos | ✓ | Cloned to `.skillshare/skills/_repo/`, added to `.gitignore` (`logs/`, `trash/`, and `backups/` are also ignored by default) |
 | `--discover` | ✓ | Detect and add new targets to existing project config |
 | `push` / `pull` | ✗ | Use git directly on the project repo |
 | `collect` | ✓ | Collect local skills from project targets to `.skillshare/skills/` |

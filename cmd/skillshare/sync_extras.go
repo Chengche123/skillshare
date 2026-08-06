@@ -45,7 +45,7 @@ func cmdSyncExtras(args []string) error {
 		return err
 	}
 
-	dryRun, force, jsonOutput := parseSyncFlags(rest)
+	dryRun, force, jsonOutput, _ := parseSyncFlags(rest)
 
 	cwd, _ := os.Getwd()
 	if mode == modeAuto {
@@ -72,7 +72,7 @@ func cmdSyncExtrasGlobal(dryRun, force, jsonOutput bool, start time.Time) error 
 
 	if len(cfg.Extras) == 0 {
 		// Clean up empty extras directory
-		removeEmptyDir(config.ExtrasParentDir(cfg.Source))
+		removeEmptyDir(config.ExtrasParentDir(cfg.EffectiveSkillsSource()))
 
 		if jsonOutput {
 			return writeJSON(&syncExtrasJSONOutput{Extras: []syncExtrasJSONEntry{}, Duration: formatDuration(start)})
@@ -90,7 +90,7 @@ func cmdSyncExtrasGlobal(dryRun, force, jsonOutput bool, start time.Time) error 
 		return nil
 	}
 
-	configDir := filepath.Dir(cfg.Source)
+	configDir := filepath.Dir(cfg.EffectiveSkillsSource())
 
 	// Auto-migrate legacy extras directories (flat → extras/<name>/)
 	if warnings := config.MigrateExtrasDir(configDir, cfg.Extras); len(warnings) > 0 {
@@ -120,7 +120,7 @@ func cmdSyncExtrasGlobal(dryRun, force, jsonOutput bool, start time.Time) error 
 	}
 
 	for _, extra := range cfg.Extras {
-		extraSource := config.ResolveExtrasSourceDir(extra, cfg.ExtrasSource, cfg.Source)
+		extraSource := config.ResolveExtrasSourceDir(extra, cfg.EffectiveExtrasSource(), cfg.EffectiveSkillsSource())
 
 		// Auto-create source directory if it doesn't exist
 		if _, statErr := os.Stat(extraSource); os.IsNotExist(statErr) {
@@ -159,7 +159,35 @@ func cmdSyncExtrasGlobal(dryRun, force, jsonOutput bool, start time.Time) error 
 				continue
 			}
 
-			result, syncErr := sync.SyncExtra(extraSource, targetPath, mode, dryRun, force, target.Flatten, "")
+			var spec *sync.ExtensionSpec
+			if target.Extension != "" {
+				effMode, modeErr := validateExtensionMode(target.Mode)
+				if modeErr != nil {
+					if !jsonOutput {
+						ui.Warning("%s: %v", shortenPath(targetPath), modeErr)
+					}
+					jsonEntry.Targets = append(jsonEntry.Targets, syncExtrasJSONTarget{
+						Path: target.Path, Mode: mode, Error: modeErr.Error(),
+					})
+					totalErrors++
+					continue
+				}
+				mode = effMode
+				var specErr error
+				spec, specErr = resolveExtension(target.Extension, globalExtensionsDir())
+				if specErr != nil {
+					if !jsonOutput {
+						ui.Warning("%s: %v", shortenPath(targetPath), specErr)
+					}
+					jsonEntry.Targets = append(jsonEntry.Targets, syncExtrasJSONTarget{
+						Path: target.Path, Mode: mode, Error: specErr.Error(),
+					})
+					totalErrors++
+					continue
+				}
+			}
+
+			result, syncErr := sync.SyncExtra(extraSource, targetPath, mode, dryRun, force, target.Flatten, "", spec)
 			shortTarget := shortenPath(targetPath)
 
 			jsonTarget := syncExtrasJSONTarget{
@@ -265,7 +293,7 @@ func cmdSyncExtrasProject(cwd string, dryRun, force, jsonOutput bool, start time
 
 	if len(projCfg.Extras) == 0 {
 		// Clean up empty extras directory
-		removeEmptyDir(config.ExtrasParentDirProject(cwd))
+		removeEmptyDir(config.ExtrasParentDirProject(projCfg.EffectiveExtrasSource(cwd)))
 
 		if jsonOutput {
 			return writeJSON(&syncExtrasJSONOutput{Extras: []syncExtrasJSONEntry{}, Duration: formatDuration(start)})
@@ -296,7 +324,7 @@ func cmdSyncExtrasProject(cwd string, dryRun, force, jsonOutput bool, start time
 	}
 
 	for _, extra := range projCfg.Extras {
-		extraSource := config.ExtrasSourceDirProject(cwd, extra.Name)
+		extraSource := config.ExtrasSourceDirProject(projCfg.EffectiveExtrasSource(cwd), extra.Name)
 
 		if _, statErr := os.Stat(extraSource); os.IsNotExist(statErr) {
 			if !jsonOutput {
@@ -332,7 +360,35 @@ func cmdSyncExtrasProject(cwd string, dryRun, force, jsonOutput bool, start time
 				continue
 			}
 
-			result, syncErr := sync.SyncExtra(extraSource, targetPath, mode, dryRun, force, target.Flatten, cwd)
+			var spec *sync.ExtensionSpec
+			if target.Extension != "" {
+				effMode, modeErr := validateExtensionMode(target.Mode)
+				if modeErr != nil {
+					if !jsonOutput {
+						ui.Warning("%s: %v", shortenPath(targetPath), modeErr)
+					}
+					jsonEntry.Targets = append(jsonEntry.Targets, syncExtrasJSONTarget{
+						Path: target.Path, Mode: mode, Error: modeErr.Error(),
+					})
+					totalErrors++
+					continue
+				}
+				mode = effMode
+				var specErr error
+				spec, specErr = resolveExtension(target.Extension, projectExtensionsDir(cwd))
+				if specErr != nil {
+					if !jsonOutput {
+						ui.Warning("%s: %v", shortenPath(targetPath), specErr)
+					}
+					jsonEntry.Targets = append(jsonEntry.Targets, syncExtrasJSONTarget{
+						Path: target.Path, Mode: mode, Error: specErr.Error(),
+					})
+					totalErrors++
+					continue
+				}
+			}
+
+			result, syncErr := sync.SyncExtra(extraSource, targetPath, mode, dryRun, force, target.Flatten, cwd, spec)
 			shortTarget := shortenPath(targetPath)
 
 			jsonTarget := syncExtrasJSONTarget{
@@ -473,7 +529,33 @@ func runExtrasSyncEntries(extras []config.ExtraConfig, sourceFunc func(config.Ex
 				continue
 			}
 
-			result, syncErr := sync.SyncExtra(extraSource, targetPath, mode, dryRun, force, target.Flatten, projectRoot)
+			// Resolve the per-target transform extension so --all --json applies
+			// it like a normal sync instead of copying files verbatim.
+			var spec *sync.ExtensionSpec
+			if target.Extension != "" {
+				effMode, modeErr := validateExtensionMode(target.Mode)
+				if modeErr != nil {
+					entry.Targets = append(entry.Targets, syncExtrasJSONTarget{
+						Path: targetPath, Mode: mode, Error: modeErr.Error(),
+					})
+					continue
+				}
+				mode = effMode
+				extDir := globalExtensionsDir()
+				if projectRoot != "" {
+					extDir = projectExtensionsDir(projectRoot)
+				}
+				var specErr error
+				spec, specErr = resolveExtension(target.Extension, extDir)
+				if specErr != nil {
+					entry.Targets = append(entry.Targets, syncExtrasJSONTarget{
+						Path: targetPath, Mode: mode, Error: specErr.Error(),
+					})
+					continue
+				}
+			}
+
+			result, syncErr := sync.SyncExtra(extraSource, targetPath, mode, dryRun, force, target.Flatten, projectRoot, spec)
 			jt := syncExtrasJSONTarget{Path: targetPath, Mode: mode}
 			if syncErr != nil {
 				jt.Error = syncErr.Error()

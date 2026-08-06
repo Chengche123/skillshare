@@ -253,19 +253,91 @@ func PruneStaleSkills(skills []SkillEntry, live map[string]bool, skillsOnly bool
 	return pruned, changed
 }
 
+// ProjectSources overrides default source directories for project resources.
+// Relative paths resolve from the project root, not from .skillshare/.
+type ProjectSources struct {
+	Skills string `yaml:"skills,omitempty"`
+	Agents string `yaml:"agents,omitempty"`
+	Extras string `yaml:"extras,omitempty"`
+}
+
 // ProjectConfig holds project-level config (.skillshare/config.yaml).
 type ProjectConfig struct {
-	Targets      []ProjectTargetEntry `yaml:"targets"`
-	TargetNaming string               `yaml:"target_naming,omitempty"`
-	Extras       []ExtraConfig        `yaml:"extras,omitempty"`
-	Audit        AuditConfig          `yaml:"audit,omitempty"`
-	Hub          HubConfig            `yaml:"hub,omitempty"`
-	GitLabHosts  []string             `yaml:"gitlab_hosts,omitempty"`
+	Sources       ProjectSources       `yaml:"sources,omitempty"`
+	Targets       []ProjectTargetEntry `yaml:"targets"`
+	Skills        []SkillEntry         `yaml:"skills,omitempty"`
+	TargetNaming  string               `yaml:"target_naming,omitempty"`
+	Extras        []ExtraConfig        `yaml:"extras,omitempty"`
+	Ignore        []string             `yaml:"ignore,omitempty"`
+	Audit         AuditConfig          `yaml:"audit,omitempty"`
+	ContextBudget ContextBudgetConfig  `yaml:"context_budget,omitempty"`
+	Hub           HubConfig            `yaml:"hub,omitempty"`
+	GitLabHosts   []string             `yaml:"gitlab_hosts,omitempty"`
+	AzureHosts    []string             `yaml:"azure_hosts,omitempty"`
+}
+
+// EffectiveSkillsSource returns the resolved skills source directory.
+func (c *ProjectConfig) EffectiveSkillsSource(projectRoot string) string {
+	if c.Sources.Skills != "" {
+		return resolveProjectSourcePath(projectRoot, c.Sources.Skills)
+	}
+	return filepath.Join(projectRoot, ".skillshare", "skills")
+}
+
+// EffectiveAgentsSource returns the resolved agents source directory.
+func (c *ProjectConfig) EffectiveAgentsSource(projectRoot string) string {
+	if c.Sources.Agents != "" {
+		return resolveProjectSourcePath(projectRoot, c.Sources.Agents)
+	}
+	return filepath.Join(projectRoot, ".skillshare", "agents")
+}
+
+// EffectiveExtrasSource returns the resolved extras parent directory.
+func (c *ProjectConfig) EffectiveExtrasSource(projectRoot string) string {
+	if c.Sources.Extras != "" {
+		return resolveProjectSourcePath(projectRoot, c.Sources.Extras)
+	}
+	return filepath.Join(projectRoot, ".skillshare", "extras")
+}
+
+// ProjectGitignoreTarget returns the directory containing the .gitignore to
+// manage and the entry prefix for skills inside sourcePath. When sourcePath is
+// under .skillshare/, it returns (.skillshare/, "skills"). When sourcePath is
+// elsewhere inside projectRoot, it returns (projectRoot, relative-path).
+// When sourcePath is outside projectRoot (e.g. absolute external path),
+// both return values are empty — callers must skip gitignore management.
+func ProjectGitignoreTarget(projectRoot, sourcePath string) (gitignoreDir, entryPrefix string) {
+	skillshareDir := filepath.Join(projectRoot, ".skillshare")
+	if rel, err := filepath.Rel(skillshareDir, sourcePath); err == nil && !strings.HasPrefix(rel, "..") {
+		if rel == "." {
+			return skillshareDir, ""
+		}
+		return skillshareDir, filepath.ToSlash(rel)
+	}
+	if rel, err := filepath.Rel(projectRoot, sourcePath); err == nil && !strings.HasPrefix(rel, "..") {
+		if rel == "." {
+			return projectRoot, ""
+		}
+		return projectRoot, filepath.ToSlash(rel)
+	}
+	return "", ""
+}
+
+func resolveProjectSourcePath(projectRoot, path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Join(projectRoot, filepath.FromSlash(path))
 }
 
 // EffectiveGitLabHosts returns GitLabHosts merged with SKILLSHARE_GITLAB_HOSTS env var.
 func (c *ProjectConfig) EffectiveGitLabHosts() []string {
 	return mergeGitLabHostsFromEnv(c.GitLabHosts)
+}
+
+// EffectiveAzureHosts returns AzureHosts merged with SKILLSHARE_AZURE_HOSTS env var.
+func (c *ProjectConfig) EffectiveAzureHosts() []string {
+	return mergeAzureHostsFromEnv(c.AzureHosts)
 }
 
 // ProjectConfigPath returns the project config path for the given root.
@@ -276,9 +348,6 @@ func ProjectConfigPath(projectRoot string) string {
 // LoadProject loads the project config from the given root.
 func LoadProject(projectRoot string) (*ProjectConfig, error) {
 	path := ProjectConfigPath(projectRoot)
-
-	// Migrate skills[] to registry.yaml (one-time, silent)
-	_ = migrateProjectSkillsToRegistry(path, projectRoot)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -305,6 +374,13 @@ func LoadProject(projectRoot string) (*ProjectConfig, error) {
 		return nil, fmt.Errorf("project config: %w", err)
 	}
 	cfg.GitLabHosts = hosts
+
+	// Validate and normalize azure_hosts
+	azureHosts, err := normalizeAzureHosts(cfg.AzureHosts)
+	if err != nil {
+		return nil, fmt.Errorf("project config: %w", err)
+	}
+	cfg.AzureHosts = azureHosts
 
 	for _, target := range cfg.Targets {
 		if strings.TrimSpace(target.Name) == "" {
@@ -358,51 +434,6 @@ func (c *ProjectConfig) Save(projectRoot string) error {
 	return nil
 }
 
-// migrateProjectSkillsToRegistry extracts skills[] from project config.yaml into registry.yaml.
-// Uses raw YAML parsing because ProjectConfig struct no longer has a Skills field.
-func migrateProjectSkillsToRegistry(configPath, projectRoot string) error {
-	registryDir := filepath.Join(projectRoot, ".skillshare")
-	registryPath := RegistryPath(registryDir)
-
-	if _, err := os.Stat(registryPath); err == nil {
-		return nil
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil
-	}
-
-	var legacy struct {
-		Skills []SkillEntry `yaml:"skills,omitempty"`
-	}
-	if err := yaml.Unmarshal(data, &legacy); err != nil {
-		return nil
-	}
-
-	if len(legacy.Skills) == 0 {
-		return nil
-	}
-
-	reg := &Registry{Skills: legacy.Skills}
-	if err := reg.Save(registryDir); err != nil {
-		return fmt.Errorf("failed to create registry.yaml during project migration: %w", err)
-	}
-
-	// Strip skills from project config.yaml
-	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil
-	}
-	delete(raw, "skills")
-	cleaned, err := marshalYAML(raw)
-	if err != nil {
-		return nil
-	}
-	cleaned = append(projectSchemaComment, cleaned...)
-	return os.WriteFile(configPath, cleaned, 0644)
-}
-
 // needsTargetMigration detects if a project config still uses legacy flat
 // target format by re-parsing targets and checking for flat fields.
 
@@ -449,7 +480,7 @@ func ResolveProjectTargets(projectRoot string, cfg *ProjectConfig) (map[string]T
 		ac := entry.AgentsConfig()
 		agentPath := strings.TrimSpace(ac.Path)
 		if agentPath == "" {
-			if builtin, ok := ProjectAgentTargets()[name]; ok {
+			if builtin, ok := LookupProjectAgentTarget(name); ok {
 				agentPath = builtin.Path
 			}
 		}

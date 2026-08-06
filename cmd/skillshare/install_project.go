@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"skillshare/internal/config"
 	"skillshare/internal/install"
 	"skillshare/internal/ui"
 	appversion "skillshare/internal/version"
@@ -60,12 +59,15 @@ func cmdInstallProjectParsed(parsed *installArgs, root string) (installLogSummar
 		return installFromProjectConfig(runtime, parsed.opts)
 	}
 
-	cfg := &config.Config{Source: runtime.sourcePath, AgentsSource: runtime.agentsSourcePath, GitLabHosts: runtime.config.GitLabHosts}
+	cfg := configFromProjectRuntime(runtime)
 	source, resolvedFromMeta, err := resolveInstallSource(parsed.sourceArg, parsed.opts, cfg)
 	if err == nil && parsed.opts.Branch != "" {
 		source.Branch = parsed.opts.Branch
 	}
 	if err != nil {
+		return summary, err
+	}
+	if err := install.RejectProjectRootLocalInstall(source, root); err != nil {
 		return summary, err
 	}
 

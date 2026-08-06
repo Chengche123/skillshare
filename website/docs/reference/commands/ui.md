@@ -7,10 +7,20 @@ sidebar_position: 1
 Launch the web dashboard for visual skill management.
 
 ```bash
-skillshare ui
+skillshare ui                  # Run in the foreground
+skillshare ui start            # Start (or reuse) a background server
+skillshare ui stop             # Stop the background server
 ```
 
 Opens `http://127.0.0.1:19420` in your default browser.
+
+## Modes
+
+| Mode | Behavior |
+|------|----------|
+| `skillshare ui` (default) | Runs the UI server in the foreground; `Ctrl+C` stops it |
+| `skillshare ui start` | Starts the UI server as a background process and returns control to the shell. Re-running `start` reuses the existing process if it's still healthy |
+| `skillshare ui stop` | Stops the background UI server started by `skillshare ui start` |
 
 ## When to Use
 
@@ -29,7 +39,8 @@ Opens `http://127.0.0.1:19420` in your default browser.
 | `--host <host>` | `127.0.0.1` | Bind address (use `0.0.0.0` for Docker) |
 | `-b`, `--base-path <path>` | | Sub-path for reverse proxy (e.g., `/skillshare`) |
 | `--no-open` | `false` | Don't open browser automatically |
-| `--clear-cache` | | Clear downloaded UI cache and exit |
+| `--app` | `false` | Open the dashboard as a desktop-style Chromium app window when available (`start` mode only) |
+| `--clear-cache` | | In the foreground form: clear cached UI assets and exit. Combined with `start`: clear cache, then start in the background |
 
 :::tip Auto-Detection
 If `.skillshare/config.yaml` exists in the current directory, the dashboard automatically starts in project mode. Use `-g` to force global mode.
@@ -38,7 +49,7 @@ If `.skillshare/config.yaml` exists in the current directory, the dashboard auto
 ## Examples
 
 ```bash
-# Default: opens browser on localhost:19420
+# Default: opens browser on localhost:19420 (foreground)
 skillshare ui
 
 # Project mode (manage .skillshare/ skills)
@@ -50,8 +61,17 @@ skillshare ui --port 8080
 # Docker / remote access
 skillshare ui --host 0.0.0.0 --no-open
 
-# Background mode
-skillshare ui --no-open &
+# Start in the background and return to the shell
+skillshare ui start
+
+# Start as a chrome-less desktop-style app window
+skillshare ui start --app
+
+# Stop the background server (uses the remembered host/port)
+skillshare ui stop
+
+# Clear the cached UI assets, then start fresh in the background
+skillshare ui start --clear-cache
 ```
 
 ## Dashboard Pages
@@ -66,7 +86,7 @@ skillshare ui --no-open &
 | **Sync** | Sync controls with scope selector (Skills / Agents / Both), dry-run toggle, and diff preview with kind-separated summary |
 | **Collect** | Scan targets and collect selected skills back to source. Agent collect remains CLI-only. |
 | **Backup** | View backup list, restore snapshots, and clean up entries |
-| **Git Sync** | Push/pull source repo with dirty-state checks and force pull |
+| **Git Sync** | Commit locally, push/pull source repo with dirty-state checks, dry-run previews, and force pull |
 | **Search** | GitHub skill search with one-click install |
 | **Audit** | Security scan all skills, view findings by severity |
 | **Audit Rules** | Create and edit custom `audit-rules.yaml` with YAML editor |
@@ -126,6 +146,7 @@ The web dashboard exposes a REST API at `/api/`. All endpoints return JSON.
 | POST | `/api/targets` | Add a target |
 | DELETE | `/api/targets/{name}` | Remove a target |
 | POST | `/api/sync` | Run sync (supports `dryRun`, `force`, `kind`) |
+| POST | `/api/git/commit` | Create a local git commit from the source repo without pushing |
 | GET | `/api/diff` | Diff between source and targets |
 | GET | `/api/search?q=` | Search GitHub for skills |
 | POST | `/api/install` | Install a skill from source |
@@ -139,6 +160,22 @@ The web dashboard exposes a REST API at `/api/`. All endpoints return JSON.
 | GET | `/api/skillignore` | Get `.skillignore` content + ignore stats |
 | PUT | `/api/skillignore` | Update `.skillignore` content |
 | GET | `/api/doctor` | Run all health checks (JSON) |
+| GET | `/api/health` | Liveness probe; returns `200` once the server is ready |
+| GET | `/api/version` | Current/latest version + whether an upgrade is available |
+| POST | `/api/upgrade` | Run `skillshare upgrade` in place (returns `devMode: true` when the binary is a dev build) |
+| POST | `/api/restart` | Restart the local UI server; optional `{ "clearCache": true }` body clears cached UI assets first |
+
+## In-place Upgrade
+
+When the dashboard detects that a newer CLI release is available, the **Update** dialog and the **Doctor** page's *Version* card both expose an **Update now** button:
+
+1. The UI calls `POST /api/upgrade`, which runs `skillshare upgrade` on the host.
+2. Once the new binary is in place, the UI calls `POST /api/restart` to restart the local server.
+3. The browser polls `GET /api/health` and reloads automatically once the new server is ready.
+
+If the running binary is a development build (`version == "dev"`), the upgrade endpoint returns `devMode: true` and the UI simulates a restart without modifying anything on disk.
+
+If the auto-reload doesn't complete, the dialog tells you to run `skillshare ui start` to bring the background server back up.
 
 ## Reverse Proxy
 

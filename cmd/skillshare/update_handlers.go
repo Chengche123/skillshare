@@ -162,6 +162,9 @@ func updateTrackedRepo(uc *updateContext, repoName string) (updateResult, error)
 
 	if info.UpToDate {
 		spinner.Stop()
+		if err := refreshTrackedRootSkillMetadata(uc, repoName, repoPath); err != nil {
+			ui.Warning("Failed to refresh metadata for %s: %v", repoName, err)
+		}
 		ui.StepResult("success", "Already up to date", time.Since(startUpdate))
 		return updateResult{skipped: 1}, nil
 	}
@@ -201,6 +204,10 @@ func updateTrackedRepo(uc *updateContext, repoName string) (updateResult, error)
 	scanFn := uc.auditScanFn()
 	if _, err := auditGateAfterPull(repoPath, info.BeforeHash, uc.opts.skipAudit, uc.opts.threshold, scanFn); err != nil {
 		return updateResult{securityFailed: 1}, err
+	}
+
+	if err := refreshTrackedRootSkillMetadata(uc, repoName, repoPath); err != nil {
+		ui.Warning("Failed to refresh metadata for %s: %v", repoName, err)
 	}
 
 	ui.SuccessMsg("Updated %s", repoName)
@@ -335,6 +342,7 @@ func updateTrackedRepoQuick(uc *updateContext, repoPath string) (bool, *audit.Re
 	}
 
 	if info.UpToDate {
+		_ = refreshTrackedRootSkillMetadata(uc, "", repoPath)
 		return false, nil, nil
 	}
 
@@ -344,7 +352,21 @@ func updateTrackedRepoQuick(uc *updateContext, repoPath string) (bool, *audit.Re
 		return false, auditResult, auditErr
 	}
 
+	_ = refreshTrackedRootSkillMetadata(uc, "", repoPath)
+
 	return true, auditResult, nil
+}
+
+func refreshTrackedRootSkillMetadata(uc *updateContext, repoName, repoPath string) error {
+	relPath := repoName
+	if relPath == "" {
+		rel, err := filepath.Rel(uc.sourcePath, repoPath)
+		if err != nil {
+			return err
+		}
+		relPath = rel
+	}
+	return install.RefreshTrackedRootSkillMetadata(uc.sourcePath, filepath.ToSlash(relPath), repoPath)
 }
 
 // updateSkillFromMeta updates a skill using its metadata in batch mode.

@@ -34,7 +34,7 @@ func TestGroupedProjectTargets_UniversalGrouped(t *testing.T) {
 		memberSet[m] = true
 	}
 
-	expectedMembers := []string{"amp", "codex", "kimi", "replit"}
+	expectedMembers := []string{"amp", "codex", "cursor", "dexto", "kimi", "replit"}
 	for _, name := range expectedMembers {
 		if !memberSet[name] {
 			t.Errorf("expected %q in universal group members, got %v", name, universalGroup.Members)
@@ -50,17 +50,17 @@ func TestGroupedProjectTargets_UniversalGrouped(t *testing.T) {
 func TestGroupedProjectTargets_SinglePathNotGrouped(t *testing.T) {
 	grouped := GroupedProjectTargets()
 
-	// cursor has a unique path (.cursor/skills), should not have members
+	// copilot has a unique path (.github/skills), should not have members
 	for _, g := range grouped {
-		if g.Name == "cursor" {
+		if g.Name == "copilot" {
 			if len(g.Members) != 0 {
-				t.Errorf("cursor should have no members, got %v", g.Members)
+				t.Errorf("copilot should have no members, got %v", g.Members)
 			}
 			return
 		}
 	}
 
-	t.Error("cursor not found in GroupedProjectTargets result")
+	t.Error("copilot not found in GroupedProjectTargets result")
 }
 
 func TestGroupedProjectTargets_NoDuplicatePaths(t *testing.T) {
@@ -138,8 +138,10 @@ func TestDefaultAgentTargets_V1TargetsHaveAgentPaths(t *testing.T) {
 func TestDefaultAgentTargets_NonV1Excluded(t *testing.T) {
 	agents := DefaultAgentTargets()
 
-	// copilot, codex, etc. should NOT have agent paths in v1
-	for _, name := range []string{"copilot", "codex", "windsurf"} {
+	// codex requires Markdown->TOML conversion (handled via extension), windsurf
+	// has no native agent format. These should NOT have agent paths.
+	// copilot uses .agent.md natively, so it DOES have an agent path (see #184).
+	for _, name := range []string{"codex", "windsurf"} {
 		if _, ok := agents[name]; ok {
 			t.Errorf("%q should not be in DefaultAgentTargets (not v1 agent target)", name)
 		}
@@ -165,10 +167,29 @@ func TestProjectAgentTargets_V1TargetsHaveAgentPaths(t *testing.T) {
 func TestProjectAgentTargets_NonV1Excluded(t *testing.T) {
 	agents := ProjectAgentTargets()
 
-	for _, name := range []string{"copilot", "codex", "windsurf"} {
+	// copilot uses .agent.md natively and now has a project agent path (see #184).
+	for _, name := range []string{"codex", "windsurf"} {
 		if _, ok := agents[name]; ok {
 			t.Errorf("%q should not be in ProjectAgentTargets", name)
 		}
+	}
+}
+
+func TestLookupAgentTarget_Alias(t *testing.T) {
+	global, ok := LookupGlobalAgentTarget("factory")
+	if !ok {
+		t.Fatal("LookupGlobalAgentTarget should find alias 'factory'")
+	}
+	if global.Path == "" {
+		t.Fatal("expected non-empty global agent path for factory")
+	}
+
+	project, ok := LookupProjectAgentTarget("factory")
+	if !ok {
+		t.Fatal("LookupProjectAgentTarget should find alias 'factory'")
+	}
+	if project.Path != ".factory/droids" {
+		t.Fatalf("factory project agent path = %q, want %q", project.Path, ".factory/droids")
 	}
 }
 

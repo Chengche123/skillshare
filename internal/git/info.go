@@ -3,6 +3,7 @@ package git
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"skillshare/internal/install"
 )
@@ -444,6 +446,14 @@ func IsRepo(dir string) bool {
 	return cmd.Run() == nil
 }
 
+// IsInstalled reports whether the git executable is available on PATH. Every
+// other helper shells out to git, so callers can use this to surface a clear
+// "git is not installed" message instead of a raw exec error.
+func IsInstalled() bool {
+	_, err := exec.LookPath("git")
+	return err == nil
+}
+
 // HasRemote checks if the repo has at least one remote configured
 func HasRemote(dir string) bool {
 	cmd := exec.Command("git", "remote")
@@ -485,16 +495,21 @@ func PushRemoteWithAuth(dir string) error {
 }
 
 // PushRemoteWithEnv pushes to the default remote with additional environment
-// variables.
+// variables. Error output is sanitized of credential values via WrapGitError.
 func PushRemoteWithEnv(dir string, extraEnv []string) error {
 	cmd := exec.Command("git", "push")
 	cmd.Dir = dir
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
 	}
-	out, err := cmd.CombinedOutput()
+
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &outBuf
+
+	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("git push failed: %s", strings.TrimSpace(string(out)))
+		return install.WrapGitError(outBuf.String(), err, install.UsedTokenAuth(extraEnv))
 	}
 	return nil
 }
@@ -638,26 +653,16 @@ func GetRemoteHeadHashWithAuth(repoURL string) (string, error) {
 	return GetRemoteHeadHashWithEnv(repoURL, install.AuthEnvForURL(repoURL))
 }
 
+// remoteHashTimeout bounds lightweight remote probes used by check/status flows.
+var remoteHashTimeout = 15 * time.Second
+
 // GetRemoteHeadHashWithEnv is like GetRemoteHeadHash but with additional env vars.
 func GetRemoteHeadHashWithEnv(repoURL string, extraEnv []string) (string, error) {
-	cmd := exec.Command("git", "ls-remote", repoURL, "HEAD")
-	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
-	}
-	out, err := cmd.Output()
+	out, err := runRemoteLsRemote([]string{repoURL, "HEAD"}, extraEnv)
 	if err != nil {
 		return "", err
 	}
-	// Format: "a1b2c3d4e5f6...\tHEAD\n"
-	parts := strings.Fields(strings.TrimSpace(string(out)))
-	if len(parts) == 0 {
-		return "", fmt.Errorf("no HEAD ref found")
-	}
-	hash := parts[0]
-	if len(hash) > 7 {
-		hash = hash[:7]
-	}
-	return hash, nil
+	return parseRemoteHash(out, "")
 }
 
 // GetRemoteRefHash returns the hash of a specific branch on a remote repo.
@@ -679,16 +684,42 @@ func GetRemoteRefHashWithEnv(repoURL, branch string, extraEnv []string) (string,
 		ref = "refs/heads/" + branch
 	}
 
-	cmd := exec.Command("git", "ls-remote", repoURL, ref)
-	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
-	}
-	out, err := cmd.Output()
+	out, err := runRemoteLsRemote([]string{repoURL, ref}, extraEnv)
 	if err != nil {
 		return "", err
 	}
 
-	parts := strings.Fields(strings.TrimSpace(string(out)))
+	return parseRemoteHash(out, branch)
+}
+
+func runRemoteLsRemote(args []string, extraEnv []string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), remoteHashTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", append([]string{"ls-remote"}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=",
+		"SSH_ASKPASS=",
+	)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(cmd.Env, extraEnv...)
+	}
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("git ls-remote timed out after %s", remoteHashTimeout)
+	}
+	if err != nil {
+		return "", install.WrapGitError(stderr.String(), err, install.UsedTokenAuth(extraEnv))
+	}
+	return string(out), nil
+}
+
+func parseRemoteHash(out, branch string) (string, error) {
+	parts := strings.Fields(strings.TrimSpace(out))
 	if len(parts) == 0 {
 		if branch != "" {
 			return "", fmt.Errorf("remote branch %q not found", branch)
@@ -786,9 +817,41 @@ func GetRemoteURL(repoPath string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// validRemoteArg rejects values that git could parse as an option flag. A
+// remote URL beginning with "-" enables argv flag smuggling (e.g. "--upload-pack=…"),
+// so reject it; a legitimate remote URL never starts with a dash.
+func validRemoteArg(url string) error {
+	if url == "" {
+		return fmt.Errorf("empty remote URL")
+	}
+	if strings.HasPrefix(url, "-") {
+		return fmt.Errorf("invalid remote URL %q: must not start with '-'", url)
+	}
+	return nil
+}
+
 // SetRemoteURL updates the fetch/push URL for the "origin" remote.
 func SetRemoteURL(repoPath, newURL string) error {
-	cmd := exec.Command("git", "remote", "set-url", "origin", newURL)
+	if err := validRemoteArg(newURL); err != nil {
+		return err
+	}
+	cmd := exec.Command("git", "remote", "set-url", "--", "origin", newURL)
+	cmd.Dir = repoPath
+	return cmd.Run()
+}
+
+// SetOrAddRemote points the "origin" remote at url: it updates the URL when
+// origin already exists and adds the remote otherwise. ("git remote set-url"
+// fails when origin is absent and "git remote add" fails when it exists, so the
+// correct command depends on the current state.)
+func SetOrAddRemote(repoPath, url string) error {
+	if err := validRemoteArg(url); err != nil {
+		return err
+	}
+	if _, err := GetRemoteURL(repoPath); err == nil {
+		return SetRemoteURL(repoPath, url)
+	}
+	cmd := exec.Command("git", "remote", "add", "--", "origin", url)
 	cmd.Dir = repoPath
 	return cmd.Run()
 }

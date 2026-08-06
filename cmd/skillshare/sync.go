@@ -38,6 +38,7 @@ type syncJSONOutput struct {
 	Duration      string                 `json:"duration"`
 	Details       []syncJSONTargetDetail `json:"details"`
 	Extras        []syncExtrasJSONEntry  `json:"extras,omitempty"`
+	ContextCost   *contextCostJSON       `json:"context_cost,omitempty"`
 }
 
 type syncJSONTargetDetail struct {
@@ -103,7 +104,7 @@ func cmdSync(args []string) error {
 	// Extract kind filter (e.g. "skillshare sync agents").
 	kind, rest := parseKindArg(rest)
 
-	dryRun, force, jsonOutput := parseSyncFlags(rest)
+	dryRun, force, jsonOutput, quiet := parseSyncFlags(rest)
 
 	prevDiagOutput := sync.DiagOutput
 	if jsonOutput {
@@ -128,7 +129,7 @@ func cmdSync(args []string) error {
 			}()
 		}
 
-		stats, results, projIgnoreStats, err := cmdSyncProject(cwd, dryRun, force, jsonOutput)
+		stats, results, projIgnoreStats, projCtxCost, err := cmdSyncProject(cwd, dryRun, force, jsonOutput, quiet)
 		stats.ProjectScope = true
 		logSyncOp(config.ProjectConfigPath(cwd), stats, start, err)
 
@@ -145,12 +146,12 @@ func cmdSync(args []string) error {
 				if loadErr == nil && len(projCfg.Extras) > 0 {
 					agentPaths := collectAgentTargetPathsProject(cwd)
 					extrasEntries := runExtrasSyncEntries(projCfg.Extras, func(extra config.ExtraConfig) string {
-						return config.ExtrasSourceDirProject(cwd, extra.Name)
+						return config.ExtrasSourceDirProject(projCfg.EffectiveExtrasSource(cwd), extra.Name)
 					}, dryRun, force, cwd, agentPaths)
-					return syncOutputJSON(results, dryRun, start, projIgnoreStats, err, extrasEntries)
+					return syncOutputJSON(results, dryRun, start, projIgnoreStats, err, projCtxCost, extrasEntries)
 				}
 			}
-			return syncOutputJSON(results, dryRun, start, projIgnoreStats, err)
+			return syncOutputJSON(results, dryRun, start, projIgnoreStats, err, projCtxCost)
 		}
 		return err
 	}
@@ -189,7 +190,7 @@ func cmdSync(args []string) error {
 	if !jsonOutput {
 		spinner = ui.StartSpinner("Discovering skills")
 	}
-	discoveredSkills, ignoreStats, discoverErr := sync.DiscoverSourceSkillsWithStats(cfg.Source)
+	discoveredSkills, ignoreStats, discoverErr := sync.DiscoverSourceSkillsWithStatsAndContext(cfg.EffectiveSkillsSource())
 	if discoverErr != nil {
 		if spinner != nil {
 			spinner.Fail("Discovery failed")
@@ -225,9 +226,9 @@ func cmdSync(args []string) error {
 	var results []syncTargetResult
 	var failedTargets int
 	if jsonOutput {
-		results, failedTargets = runParallelSyncQuiet(entries, cfg.Source, discoveredSkills, dryRun, force, "")
+		results, failedTargets = runParallelSyncQuiet(entries, cfg.EffectiveSkillsSource(), discoveredSkills, sync.EffectiveFileIgnorePatterns(cfg.Ignore), dryRun, force, "")
 	} else {
-		results, failedTargets = runParallelSync(entries, cfg.Source, discoveredSkills, dryRun, force, "")
+		results, failedTargets = runParallelSync(entries, cfg.EffectiveSkillsSource(), discoveredSkills, sync.EffectiveFileIgnorePatterns(cfg.Ignore), dryRun, force, "")
 	}
 
 	var syncErr error
@@ -256,6 +257,9 @@ func cmdSync(args []string) error {
 		// Show ignored skills from .skillignore
 		printIgnoredSkills(ignoreStats)
 
+		// One-liner path-overlap hint — points users at `doctor` for details.
+		printSyncOverlapHint(cfg.Targets, false, jsonOutput)
+
 		// Opportunistic cleanup of expired trash items
 		if !dryRun {
 			if n, _ := trash.Cleanup(trash.TrashDir(), 0); n > 0 {
@@ -268,6 +272,16 @@ func cmdSync(args []string) error {
 	// Sync only manages symlinks — it must not prune registry entries
 	// for installed skills whose files may be missing from disk.
 
+	// Compute token cost once — used by both text summary and JSON output
+	analyzeEntries, analyzeErr := buildAnalyzeEntries(discoveredSkills, cfg.Targets, cfg.Mode, "")
+
+	if !jsonOutput && !quiet && analyzeErr == nil && len(analyzeEntries) > 0 {
+		printTokenSummary(analyzeEntries)
+		if violations := checkBudget(analyzeEntries, cfg.ContextBudget); len(violations) > 0 {
+			printBudgetWarning(violations, true)
+		}
+	}
+
 	logSyncOp(config.ConfigPath(), syncLogStats{
 		Targets: len(cfg.Targets),
 		Failed:  failedTargets,
@@ -276,14 +290,18 @@ func cmdSync(args []string) error {
 	}, start, syncErr)
 
 	if jsonOutput {
+		var ctxCost *contextCostJSON
+		if analyzeErr == nil && len(analyzeEntries) > 0 {
+			ctxCost = buildContextCostJSON(analyzeEntries, cfg.ContextBudget)
+		}
 		if hasAll && len(cfg.Extras) > 0 {
 			agentPaths := collectAgentTargetPathsGlobal(cfg)
 			extrasEntries := runExtrasSyncEntries(cfg.Extras, func(extra config.ExtraConfig) string {
-				return config.ResolveExtrasSourceDir(extra, cfg.ExtrasSource, cfg.Source)
+				return config.ResolveExtrasSourceDir(extra, cfg.EffectiveExtrasSource(), cfg.EffectiveSkillsSource())
 			}, dryRun, force, "", agentPaths)
-			return syncOutputJSON(results, dryRun, start, ignoreStats, syncErr, extrasEntries)
+			return syncOutputJSON(results, dryRun, start, ignoreStats, syncErr, ctxCost, extrasEntries)
 		}
-		return syncOutputJSON(results, dryRun, start, ignoreStats, syncErr)
+		return syncOutputJSON(results, dryRun, start, ignoreStats, syncErr, ctxCost)
 	}
 
 	// Agent sync when kind=all or --all (after skill sync)
@@ -302,7 +320,7 @@ func cmdSync(args []string) error {
 	return syncErr
 }
 
-func parseSyncFlags(args []string) (dryRun, force, jsonOutput bool) {
+func parseSyncFlags(args []string) (dryRun, force, jsonOutput, quiet bool) {
 	for _, arg := range args {
 		switch arg {
 		case "--dry-run", "-n":
@@ -311,9 +329,11 @@ func parseSyncFlags(args []string) (dryRun, force, jsonOutput bool) {
 			force = true
 		case "--json":
 			jsonOutput = true
+		case "--quiet", "-q":
+			quiet = true
 		}
 	}
-	return dryRun, force, jsonOutput
+	return dryRun, force, jsonOutput, quiet
 }
 
 func logSyncOp(cfgPath string, stats syncLogStats, start time.Time, cmdErr error) {
@@ -385,7 +405,7 @@ func printIgnoredSkills(stats *skillignore.IgnoreStats) {
 
 // syncOutputJSON converts sync results to JSON and writes to stdout.
 // extras is optional and included when --all is used.
-func syncOutputJSON(results []syncTargetResult, dryRun bool, start time.Time, iStats *skillignore.IgnoreStats, syncErr error, extras ...[]syncExtrasJSONEntry) error {
+func syncOutputJSON(results []syncTargetResult, dryRun bool, start time.Time, iStats *skillignore.IgnoreStats, syncErr error, ctxCost *contextCostJSON, extras ...[]syncExtrasJSONEntry) error {
 	var totals syncModeStats
 	var details []syncJSONTargetDetail
 	for _, r := range results {
@@ -422,10 +442,19 @@ func syncOutputJSON(results []syncTargetResult, dryRun bool, start time.Time, iS
 	if len(extras) > 0 && extras[0] != nil {
 		output.Extras = extras[0]
 	}
+	output.ContextCost = ctxCost
 	return writeJSONResult(&output, syncErr)
 }
 
 func backupTargetsBeforeSync(cfg *config.Config) {
+	// Pre-sync backups are automatic, so retention must be too — otherwise
+	// every sync adds a snapshot that nothing ever removes.
+	defer func() {
+		if _, err := backup.Cleanup(backup.DefaultCleanupConfig()); err != nil {
+			ui.Warning("Failed to clean up old backups: %v", err)
+		}
+	}()
+
 	backedUp := false
 	for name, target := range cfg.Targets {
 		backupPath, err := backup.Create(name, target.SkillsConfig().Path)
@@ -442,7 +471,11 @@ func backupTargetsBeforeSync(cfg *config.Config) {
 
 	// Also backup agent targets if any exist.
 	backupDir, agentTargets, err := resolveGlobalAgentBackupContextFromCfg(cfg)
-	if err != nil || len(agentTargets) == 0 {
+	if err != nil {
+		ui.Warning("Failed to resolve agent backup targets: %v", err)
+		return
+	}
+	if len(agentTargets) == 0 {
 		return
 	}
 	for _, at := range agentTargets {
@@ -473,11 +506,11 @@ func syncTarget(name string, target config.TargetConfig, cfg *config.Config, dry
 
 	switch mode {
 	case "merge":
-		return syncMergeMode(name, target, cfg.Source, dryRun, force)
+		return syncMergeMode(name, target, cfg.EffectiveSkillsSource(), dryRun, force)
 	case "copy":
-		return syncCopyMode(name, target, cfg.Source, dryRun, force)
+		return syncCopyMode(name, target, cfg.EffectiveSkillsSource(), sync.EffectiveFileIgnorePatterns(cfg.Ignore), dryRun, force)
 	default:
-		return syncSymlinkMode(name, target, cfg.Source, dryRun, force)
+		return syncSymlinkMode(name, target, cfg.EffectiveSkillsSource(), dryRun, force)
 	}
 }
 
@@ -498,11 +531,11 @@ func syncTargetWithSkillsStats(name string, target config.TargetConfig, cfg *con
 
 	switch mode {
 	case "merge":
-		return syncMergeModeWithSkills(name, target, cfg.Source, skills, dryRun, force)
+		return syncMergeModeWithSkills(name, target, cfg.EffectiveSkillsSource(), skills, dryRun, force)
 	case "copy":
-		return syncCopyModeWithSkills(name, target, cfg.Source, skills, dryRun, force)
+		return syncCopyModeWithSkills(name, target, cfg.EffectiveSkillsSource(), skills, sync.EffectiveFileIgnorePatterns(cfg.Ignore), dryRun, force)
 	default:
-		err := syncSymlinkMode(name, target, cfg.Source, dryRun, force)
+		err := syncSymlinkMode(name, target, cfg.EffectiveSkillsSource(), dryRun, force)
 		return syncModeStats{}, err
 	}
 }
@@ -585,9 +618,9 @@ func reportMergeResult(name string, target config.TargetConfig, result *sync.Mer
 	}
 }
 
-func syncCopyMode(name string, target config.TargetConfig, source string, dryRun, force bool) error {
+func syncCopyMode(name string, target config.TargetConfig, source string, ignorePatterns []string, dryRun, force bool) error {
 	sc := target.SkillsConfig()
-	result, err := sync.SyncTargetCopy(name, target, source, dryRun, force)
+	result, err := sync.SyncTargetCopyWithOptions(name, target, source, dryRun, force, sync.CopyOptions{IgnorePatterns: ignorePatterns})
 	if err != nil {
 		return err
 	}
@@ -601,14 +634,14 @@ func syncCopyMode(name string, target config.TargetConfig, source string, dryRun
 	return nil
 }
 
-func syncCopyModeWithSkills(name string, target config.TargetConfig, source string, skills []sync.DiscoveredSkill, dryRun, force bool) (syncModeStats, error) {
+func syncCopyModeWithSkills(name string, target config.TargetConfig, source string, skills []sync.DiscoveredSkill, ignorePatterns []string, dryRun, force bool) (syncModeStats, error) {
 	// Copy mode is slow (checksum + file copy per skill) — show a spinner with progress
 	spinner := ui.StartSpinner(fmt.Sprintf("%s: copying skills", name))
 	onProgress := func(cur, total int, skill string) {
 		spinner.Update(fmt.Sprintf("%s: %d/%d %s", name, cur, total, skill))
 	}
 
-	result, err := sync.SyncTargetCopyWithSkills(name, target, skills, source, dryRun, force, onProgress)
+	result, err := sync.SyncTargetCopyWithSkillsOptions(name, target, skills, source, dryRun, force, onProgress, sync.CopyOptions{IgnorePatterns: ignorePatterns})
 	if err != nil {
 		spinner.Fail(fmt.Sprintf("%s: copy failed", name))
 		return syncModeStats{}, err
@@ -825,6 +858,7 @@ Options:
   --dry-run, -n     Preview changes without applying
   --force, -f       Force sync (overwrite local changes)
   --json            Output results as JSON
+  --quiet, -q       Suppress token summary and budget warnings
   --project, -p     Use project-level config
   --global, -g      Use global config
   --help, -h        Show this help

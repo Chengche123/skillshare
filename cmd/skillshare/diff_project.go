@@ -99,6 +99,7 @@ func cmdDiffProject(root, targetName string, kind resourceKindFilter, opts diffR
 	}
 
 	results := make([]targetDiffResult, len(resolved))
+	ignorePatterns := sync.EffectiveFileIgnorePatterns(runtime.config.Ignore)
 	sem := make(chan struct{}, 8)
 	var wg gosync.WaitGroup
 	for i, rt := range resolved {
@@ -108,7 +109,7 @@ func cmdDiffProject(root, targetName string, kind resourceKindFilter, opts diffR
 			defer wg.Done()
 			defer func() { <-sem }()
 			progress.startTarget(rt.name)
-			r := collectTargetDiff(rt.name, rt.target, runtime.sourcePath, rt.mode, rt.filtered, progress)
+			r := collectTargetDiff(rt.name, rt.target, runtime.sourcePath, rt.mode, rt.filtered, ignorePatterns, progress)
 			progress.doneTarget(rt.name, r)
 			results[idx] = r
 		}(i, rt)
@@ -121,7 +122,7 @@ func cmdDiffProject(root, targetName string, kind resourceKindFilter, opts diffR
 	var extrasResults []extraDiffResult
 	if len(runtime.config.Extras) > 0 {
 		extrasResults = collectExtrasDiff(runtime.config.Extras, func(extra config.ExtraConfig) string {
-			return config.ExtrasSourceDirProject(root, extra.Name)
+			return config.ExtrasSourceDirProject(runtime.config.EffectiveExtrasSource(root), extra.Name)
 		})
 	}
 

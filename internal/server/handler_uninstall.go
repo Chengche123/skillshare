@@ -144,7 +144,10 @@ func (s *Server) handleBatchUninstallAgents(w http.ResponseWriter, body batchUni
 }
 
 func (s *Server) handleBatchUninstallSkills(w http.ResponseWriter, body batchUninstallRequest, start time.Time) {
-	discovered, err := sync.DiscoverSourceSkills(s.cfg.Source)
+	// Use DiscoverSourceSkillsAll (not DiscoverSourceSkills) so disabled skills
+	// — those listed in .skillignore — are also resolvable. The list handler
+	// shows disabled skills, so uninstall must be able to find them too (#190).
+	discovered, err := sync.DiscoverSourceSkillsAll(s.cfg.EffectiveSkillsSource())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to discover skills: "+err.Error())
 		return
@@ -167,7 +170,7 @@ func (s *Server) handleBatchUninstallSkills(w http.ResponseWriter, body batchUni
 		res := batchUninstallItemResult{Name: name, Kind: "skill"}
 
 		if strings.HasPrefix(name, "_") {
-			repoPath := filepath.Join(s.cfg.Source, name)
+			repoPath := filepath.Join(s.cfg.EffectiveSkillsSource(), name)
 			if !install.IsGitRepo(repoPath) {
 				res.Success = false
 				res.Error = "not a tracked repository: " + name
@@ -257,15 +260,18 @@ func (s *Server) handleBatchUninstallSkills(w http.ResponseWriter, body batchUni
 
 	if len(repoEntriesToRemove) > 0 {
 		gitDir := s.gitignoreDir()
-		entries := repoEntriesToRemove
-		if s.IsProjectMode() {
-			entries = make([]string, len(repoEntriesToRemove))
-			for i, e := range repoEntriesToRemove {
-				entries[i] = filepath.Join("skills", e)
+		if gitDir != "" {
+			entries := repoEntriesToRemove
+			if s.IsProjectMode() {
+				prefix := s.projectGitignorePrefix()
+				entries = make([]string, len(repoEntriesToRemove))
+				for i, e := range repoEntriesToRemove {
+					entries[i] = prefix + "/" + e
+				}
 			}
-		}
-		if _, err := install.RemoveFromGitIgnoreBatch(gitDir, entries); err != nil {
-			log.Printf("warning: failed to clean .gitignore: %v", err)
+			if _, err := install.RemoveFromGitIgnoreBatch(gitDir, entries); err != nil {
+				log.Printf("warning: failed to clean .gitignore: %v", err)
+			}
 		}
 	}
 
@@ -300,13 +306,13 @@ func (s *Server) handleBatchUninstallSkills(w http.ResponseWriter, body batchUni
 			}
 		}
 
-		if err := s.skillsStore.Save(s.cfg.Source); err != nil {
+		if err := s.skillsStore.Save(s.cfg.EffectiveSkillsSource()); err != nil {
 			log.Printf("warning: failed to save metadata: %v", err)
 		}
 
 		if s.IsProjectMode() {
 			if rErr := config.ReconcileProjectSkills(
-				s.projectRoot, s.projectCfg, s.skillsStore, s.cfg.Source); rErr != nil {
+				s.projectRoot, s.projectCfg, s.skillsStore, s.cfg.EffectiveSkillsSource()); rErr != nil {
 				log.Printf("warning: failed to reconcile project skills config: %v", rErr)
 			}
 		} else {

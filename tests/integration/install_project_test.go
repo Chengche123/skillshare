@@ -30,6 +30,23 @@ func TestInstallProject_LocalPath(t *testing.T) {
 	}
 }
 
+func TestInstallProject_CurrentDirectoryRejected(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+	projectRoot := sb.SetupProjectDir("claude")
+
+	os.WriteFile(filepath.Join(projectRoot, "SKILL.md"), []byte("---\nname: project-root\n---\n# Project"), 0644)
+
+	result := sb.RunCLIInDir(projectRoot, "install", "./", "--name", "project-root", "-p", "--skip-audit")
+	result.AssertFailure(t)
+	result.AssertAnyOutputContains(t, "cannot install the project root into itself")
+	result.AssertAnyOutputContains(t, "skillshare install ./my-skill -p")
+
+	if sb.FileExists(filepath.Join(projectRoot, ".skillshare", "skills", "project-root")) {
+		t.Fatal("project root install should not create a skill")
+	}
+}
+
 func TestInstallProject_CustomName(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
@@ -101,6 +118,9 @@ func TestInstallProject_FromConfig_SkipsExisting(t *testing.T) {
 
 	sb.WriteProjectConfig(projectRoot, `targets:
   - claude
+skills:
+  - name: already-here
+    source: someone/skills/already-here
 `)
 
 	// install (no args) → should skip existing

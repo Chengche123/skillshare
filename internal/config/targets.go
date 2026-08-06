@@ -17,11 +17,22 @@ type targetPathPair struct {
 	Project string `yaml:"project"`
 }
 
+// targetAlsoScans lists additional filesystem paths a target's runtime is
+// known to scan beyond its primary skills path. Sourced from each tool's
+// official documentation. Used by `skillshare doctor` to warn about
+// cross-target discovery overlap (e.g. Codex's runtime scans ~/.agents/skills
+// even though its primary skillshare path is ~/.codex/skills).
+type targetAlsoScans struct {
+	Global  []string `yaml:"global,omitempty"`
+	Project []string `yaml:"project,omitempty"`
+}
+
 type targetSpec struct {
-	Name    string         `yaml:"name"`
-	Skills  targetPathPair `yaml:"skills"`
-	Agents  targetPathPair `yaml:"agents,omitempty"`
-	Aliases []string       `yaml:"aliases,omitempty"`
+	Name      string          `yaml:"name"`
+	Skills    targetPathPair  `yaml:"skills"`
+	Agents    targetPathPair  `yaml:"agents,omitempty"`
+	AlsoScans targetAlsoScans `yaml:"also_scans,omitempty"`
+	Aliases   []string        `yaml:"aliases,omitempty"`
 }
 
 type targetsFile struct {
@@ -128,6 +139,86 @@ func ProjectAgentTargets() map[string]TargetConfig {
 	return targets
 }
 
+// LookupGlobalAgentTarget returns the known global agent target config for a
+// target name or alias.
+func LookupGlobalAgentTarget(name string) (TargetConfig, bool) {
+	return lookupAgentTarget(name, false)
+}
+
+// LookupProjectAgentTarget returns the known project agent target config for a
+// target name or alias.
+func LookupProjectAgentTarget(name string) (TargetConfig, bool) {
+	return lookupAgentTarget(name, true)
+}
+
+func lookupAgentTarget(name string, project bool) (TargetConfig, bool) {
+	specs, err := loadTargetSpecs()
+	if err != nil {
+		return TargetConfig{}, false
+	}
+	for _, spec := range specs {
+		if !targetSpecMatchesName(spec, name) {
+			continue
+		}
+		path := spec.Agents.Global
+		if project {
+			path = spec.Agents.Project
+		}
+		if spec.Name == "" || path == "" {
+			return TargetConfig{}, false
+		}
+		return TargetConfig{Path: normalizeTargetPath(path)}, true
+	}
+	return TargetConfig{}, false
+}
+
+// AlsoScansGlobal returns the additional filesystem paths a target's runtime
+// scans in global mode beyond its primary skills path. Paths are tilde-expanded
+// and OS-normalised. Returns nil for unknown targets or targets without
+// also_scans metadata.
+func AlsoScansGlobal(name string) []string {
+	specs, err := loadTargetSpecs()
+	if err != nil {
+		return nil
+	}
+	for _, spec := range specs {
+		if spec.Name != name {
+			continue
+		}
+		if len(spec.AlsoScans.Global) == 0 {
+			return nil
+		}
+		paths := make([]string, len(spec.AlsoScans.Global))
+		for i, p := range spec.AlsoScans.Global {
+			paths[i] = normalizeTargetPath(p)
+		}
+		return paths
+	}
+	return nil
+}
+
+// AlsoScansProject returns the project-mode equivalent of AlsoScansGlobal.
+func AlsoScansProject(name string) []string {
+	specs, err := loadTargetSpecs()
+	if err != nil {
+		return nil
+	}
+	for _, spec := range specs {
+		if spec.Name != name {
+			continue
+		}
+		if len(spec.AlsoScans.Project) == 0 {
+			return nil
+		}
+		paths := make([]string, len(spec.AlsoScans.Project))
+		for i, p := range spec.AlsoScans.Project {
+			paths[i] = normalizeTargetPath(p)
+		}
+		return paths
+	}
+	return nil
+}
+
 // LookupProjectTarget returns the known project target config for a name.
 // It first checks canonical project names, then falls back to aliases.
 func LookupProjectTarget(name string) (TargetConfig, bool) {
@@ -142,10 +233,8 @@ func LookupProjectTarget(name string) (TargetConfig, bool) {
 		return TargetConfig{}, false
 	}
 	for _, spec := range specs {
-		for _, alias := range spec.Aliases {
-			if alias == name && spec.Name != "" && spec.Skills.Project != "" {
-				return targets[spec.Name], true
-			}
+		if targetSpecMatchesName(spec, name) && spec.Name != "" && spec.Skills.Project != "" {
+			return TargetConfig{Path: normalizeTargetPath(spec.Skills.Project)}, true
 		}
 	}
 	return TargetConfig{}, false
@@ -310,17 +399,7 @@ func resolveTargetPaths(specs []targetSpec, name string) []string {
 	var paths []string
 	seen := make(map[string]bool)
 	for _, spec := range specs {
-		allNames := make([]string, 0, 1+len(spec.Aliases))
-		allNames = append(allNames, spec.Name)
-		allNames = append(allNames, spec.Aliases...)
-		match := false
-		for _, n := range allNames {
-			if n == name {
-				match = true
-				break
-			}
-		}
-		if !match {
+		if !targetSpecMatchesName(spec, name) {
 			continue
 		}
 		for _, p := range []string{spec.Skills.Project, spec.Skills.Global} {
@@ -331,6 +410,18 @@ func resolveTargetPaths(specs []targetSpec, name string) []string {
 		}
 	}
 	return paths
+}
+
+func targetSpecMatchesName(spec targetSpec, name string) bool {
+	if spec.Name == name {
+		return true
+	}
+	for _, alias := range spec.Aliases {
+		if alias == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ProjectTargetDotDirs returns the set of hidden directory names (e.g. ".claude",

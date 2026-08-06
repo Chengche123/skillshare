@@ -16,10 +16,11 @@ const (
 
 // doctorCheck represents a single health check result for JSON output.
 type doctorCheck struct {
-	Name    string   `json:"name"`
-	Status  string   `json:"status"` // checkPass, checkWarning, checkError
-	Message string   `json:"message"`
-	Details []string `json:"details,omitempty"`
+	Name        string   `json:"name"`
+	Status      string   `json:"status"` // checkPass, checkWarning, checkError
+	Message     string   `json:"message"`
+	Details     []string `json:"details,omitempty"`
+	Suggestions []string `json:"suggestions,omitempty"`
 }
 
 type doctorOutput struct {
@@ -40,6 +41,7 @@ type doctorVersion struct {
 	Current         string `json:"current"`
 	Latest          string `json:"latest,omitempty"`
 	UpdateAvailable bool   `json:"update_available"`
+	DevMode         bool   `json:"dev_mode,omitempty"`
 }
 
 // buildDoctorOutput assembles the final JSON from collected checks.
@@ -81,6 +83,11 @@ func finalizeDoctorJSON(restoreUI func(), result *doctorResult, updateCh <-chan 
 	output.Version = &doctorVersion{Current: version}
 	if updateResult != nil && updateResult.UpdateAvailable {
 		output.Version.Latest = updateResult.LatestVersion
+		output.Version.UpdateAvailable = true
+	}
+	if version == "" || version == "dev" {
+		output.Version.DevMode = true
+		output.Version.Latest = "dev-ui-flow"
 		output.Version.UpdateAvailable = true
 	}
 	if result.errors > 0 {

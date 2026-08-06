@@ -22,7 +22,7 @@ func handleTrackedRepoInstall(source *install.Source, cfg *config.Config, opts i
 	}
 	opts.Kind = trackedKind
 
-	trackSourceDir := cfg.Source
+	trackSourceDir := cfg.EffectiveSkillsSource()
 	if trackedKind == "agent" {
 		trackSourceDir = cfg.EffectiveAgentsSource()
 	}
@@ -106,14 +106,20 @@ func handleTrackedRepoInstall(source *install.Source, cfg *config.Config, opts i
 		logSummary.InstalledSkills = append(logSummary.InstalledSkills, result.Skills...)
 	}
 
-	// Show next steps
+	// Show next steps. Skip the sync hint when the tracked repo had nothing
+	// to discover — suggesting "Run sync to distribute skills" when no skill
+	// was found is misleading.
 	if !opts.DryRun {
 		ui.SectionLabel("Next Steps")
 		if trackedKind == "agent" {
-			ui.Info("Run 'skillshare sync agents' to distribute agents to all targets")
+			if result.AgentCount > 0 {
+				ui.Info("Run 'skillshare sync agents' to distribute agents to all targets")
+			}
 			ui.Info("Run 'skillshare update agents --all' to update tracked agent repos later")
 		} else {
-			ui.Info("Run 'skillshare sync' to distribute skills to all targets")
+			if result.SkillCount > 0 {
+				ui.Info("Run 'skillshare sync' to distribute skills to all targets")
+			}
 			ui.Info("Run 'skillshare update %s' to update this repo later", result.RepoName)
 		}
 	}
@@ -180,8 +186,18 @@ func handleGitInstall(source *install.Source, cfg *config.Config, opts install.I
 	// Cross-path duplicate detection: block if same repo is already installed
 	// at a different location (e.g. user forgot they used --into before).
 	if !opts.Force && source.CloneURL != "" {
-		if err := install.CheckCrossPathDuplicate(cfg.Source, source.CloneURL, opts.Into); err != nil {
+		if err := install.CheckCrossPathDuplicate(cfg.EffectiveSkillsSource(), source.CloneURL, opts.Into); err != nil {
 			return logSummary, err
+		}
+	}
+
+	// Validate -a/--agent names up front so an unknown agent fails before any
+	// skill is installed, instead of leaving a half-success (skill installed,
+	// agent filter silently dropped). Applies even when the repo has no agents
+	// at all — -a asserts the agent exists. (issue #183)
+	if opts.HasAgentFilter() {
+		if _, notFound := filterAgentsByName(discovery.Agents, opts.AgentNames); len(notFound) > 0 {
+			return logSummary, fmt.Errorf("agents not found: %s", strings.Join(notFound, ", "))
 		}
 	}
 
@@ -203,8 +219,8 @@ func handleGitInstall(source *install.Source, cfg *config.Config, opts install.I
 
 		renderSkillMeta(skill, displayPath)
 
-		destPath := destWithInto(cfg.Source, opts, skill.Name)
-		if err := ensureIntoDirExists(cfg.Source, opts); err != nil {
+		destPath := destWithInto(cfg.EffectiveSkillsSource(), opts, skill.Name)
+		if err := ensureIntoDirExists(cfg.EffectiveSkillsSource(), opts); err != nil {
 			return logSummary, fmt.Errorf("failed to create --into directory: %w", err)
 		}
 
@@ -296,8 +312,8 @@ func handleGitInstall(source *install.Source, cfg *config.Config, opts install.I
 
 		renderSkillMeta(skill, displayPath)
 
-		destPath := destWithInto(cfg.Source, opts, skill.Name)
-		if err := ensureIntoDirExists(cfg.Source, opts); err != nil {
+		destPath := destWithInto(cfg.EffectiveSkillsSource(), opts, skill.Name)
+		if err := ensureIntoDirExists(cfg.EffectiveSkillsSource(), opts); err != nil {
 			return logSummary, fmt.Errorf("failed to create --into directory: %w", err)
 		}
 		fmt.Println()
@@ -417,7 +433,7 @@ func installSelectedSkills(selected []install.SkillInfo, discovery *install.Disc
 
 	// Ensure Into directory exists for batch installs
 	if opts.Into != "" {
-		if err := ensureIntoDirExists(cfg.Source, opts); err != nil {
+		if err := ensureIntoDirExists(cfg.EffectiveSkillsSource(), opts); err != nil {
 			if installSpinner != nil {
 				installSpinner.Fail("Failed to create --into directory")
 			}
@@ -444,7 +460,7 @@ func installSelectedSkills(selected []install.SkillInfo, discovery *install.Disc
 		// at the top level (or under --into if specified). Root orchestrator
 		// skills (Path=".") get only their SKILL.md copied (handled in
 		// install_apply.go), so no nesting is needed.
-		destPath := destWithInto(cfg.Source, opts, skill.Name)
+		destPath := destWithInto(cfg.EffectiveSkillsSource(), opts, skill.Name)
 		skillOpts := opts
 
 		installResult, err := install.InstallFromDiscovery(discovery, skill, destPath, skillOpts)
@@ -806,16 +822,16 @@ func handleDirectInstall(source *install.Source, cfg *config.Config, opts instal
 	source.Name = skillName
 
 	// Determine destination path
-	destPath := destWithInto(cfg.Source, opts, skillName)
+	destPath := destWithInto(cfg.EffectiveSkillsSource(), opts, skillName)
 
 	// Ensure Into directory exists
-	if err := ensureIntoDirExists(cfg.Source, opts); err != nil {
+	if err := ensureIntoDirExists(cfg.EffectiveSkillsSource(), opts); err != nil {
 		return logSummary, fmt.Errorf("failed to create --into directory: %w", err)
 	}
 
 	// Cross-path duplicate detection (same as handleGitInstall)
 	if !opts.Force && source.CloneURL != "" {
-		if err := install.CheckCrossPathDuplicate(cfg.Source, source.CloneURL, opts.Into); err != nil {
+		if err := install.CheckCrossPathDuplicate(cfg.EffectiveSkillsSource(), source.CloneURL, opts.Into); err != nil {
 			return logSummary, err
 		}
 	}
@@ -892,7 +908,7 @@ func installFromGlobalConfig(cfg *config.Config, opts install.InstallOptions) (i
 		AuditVerbose: opts.AuditVerbose,
 	}
 
-	store, storeErr := install.LoadMetadataWithMigration(cfg.Source, "")
+	store, storeErr := install.LoadMetadataWithMigration(cfg.EffectiveSkillsSource(), "")
 	if storeErr != nil {
 		return summary, fmt.Errorf("failed to load metadata: %w", storeErr)
 	}
@@ -1106,7 +1122,22 @@ func installDiscoveredAgents(discovery *install.DiscoveryResult, cfg *config.Con
 	if len(discovery.Agents) == 0 {
 		return
 	}
-	if opts.Kind == "skill" {
+	// Don't auto-install the repo's agents when the user scoped the install to
+	// specific skills (--kind skill or -s/--skill) without also requesting
+	// agents via -a. Agents only come along on --all/--yes or an explicit
+	// agent request. (issue #183)
+	if opts.Kind == "skill" || (opts.HasSkillFilter() && !opts.HasAgentFilter()) {
+		return
+	}
+
+	// Honor agent selection: -a/--agent installs only the named agents,
+	// --all/--yes installs all, otherwise prompt. (issue #183)
+	selected, err := selectAgents(discovery.Agents, opts)
+	if err != nil {
+		ui.ErrorMsg("%v", err)
+		return
+	}
+	if len(selected) == 0 {
 		return
 	}
 
@@ -1117,7 +1148,7 @@ func installDiscoveredAgents(discovery *install.DiscoveryResult, cfg *config.Con
 	fmt.Println()
 	ui.Header("Installing agents")
 
-	for _, agent := range discovery.Agents {
+	for _, agent := range selected {
 		spinner := ui.StartSpinner(fmt.Sprintf("Installing agent %s...", agent.Name))
 		result, err := install.InstallAgentFromDiscovery(discovery, agent, agentsDir, agentOpts)
 		spinner.Stop()

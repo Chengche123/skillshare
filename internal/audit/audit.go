@@ -305,7 +305,7 @@ func ScanSkill(skillPath string) (*Result, error) {
 
 // ScanFile scans a single file using global rules.
 func ScanFile(filePath string) (*Result, error) {
-	return ScanFileWithRules(filePath, nil)
+	return scanFileImpl(filePath, nil, disabledIDsGlobal())
 }
 
 // ScanFileForProject scans a single file using project-mode rules.
@@ -314,7 +314,7 @@ func ScanFileForProject(filePath, projectRoot string) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load project rules: %w", err)
 	}
-	return ScanFileWithRules(filePath, rules)
+	return scanFileImpl(filePath, rules, disabledIDsForProject(projectRoot))
 }
 
 // ScanSkillForProject scans a skill using project-mode rules
@@ -753,7 +753,13 @@ func rulePrefilterAllows(r rule, line string, lineLower *string, lineLowerReady 
 
 // ScanFileWithRules scans a single file using the given rules.
 // If activeRules is nil, the default global rules are used.
+// Synthetic tier findings are not filtered by audit-rules.yaml here; use
+// ScanFile / ScanFileForProject to honour disabled tier rules.
 func ScanFileWithRules(filePath string, activeRules []rule) (*Result, error) {
+	return scanFileImpl(filePath, activeRules, nil)
+}
+
+func scanFileImpl(filePath string, activeRules []rule, disabled map[string]bool) (*Result, error) {
 	info, err := os.Stat(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot access file path: %w", err)
@@ -830,7 +836,8 @@ func ScanFileWithRules(filePath string, activeRules []rule) (*Result, error) {
 	result.Findings = append(result.Findings,
 		DeduplicateDataflow(dfFindings, result.Findings)...)
 
-	result.Findings = append(result.Findings, TierCombinationFindings(result.TierProfile)...)
+	result.Findings = append(result.Findings,
+		filterDisabledFindings(TierCombinationFindings(result.TierProfile), disabled)...)
 	StampFingerprints(result.Findings)
 	result.updateRisk()
 	return result, nil
@@ -981,7 +988,7 @@ func isScannable(name string) bool {
 	switch ext {
 	case ".md", ".txt", ".yaml", ".yml", ".json", ".toml",
 		".sh", ".bash", ".zsh", ".fish",
-		".py", ".js", ".ts", ".rb", ".go", ".rs":
+		".py", ".js", ".ts", ".rb", ".go", ".rs", ".swift":
 		return true
 	}
 	// Also scan files without extension (e.g. Makefile, Dockerfile)
@@ -1282,9 +1289,6 @@ func extractInlineLinksFromLine(line string, lineNum int, codeSpans []span) []ma
 		}
 
 		j := labelEnd + 1
-		for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
-			j++
-		}
 		if j >= len(line) || line[j] != '(' {
 			i = labelEnd
 			continue
@@ -1624,13 +1628,35 @@ func isLikelyTutorialPath(path string) bool {
 func isExternalOrAnchor(target string) bool {
 	lower := strings.ToLower(target)
 	for _, prefix := range []string{
-		"http://", "https://", "mailto:", "tel:", "data:", "ftp://", "//",
+		"http://", "https://", "mailto:", "tel:", "data:", "ftp://", "file:", "//",
 	} {
 		if strings.HasPrefix(lower, prefix) {
 			return true
 		}
 	}
+	if idx := strings.IndexByte(target, ':'); idx > 0 {
+		scheme := strings.ToLower(target[:idx])
+		if isURLScheme(scheme) {
+			return true
+		}
+	}
 	return strings.HasPrefix(target, "#")
+}
+
+func isURLScheme(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if i > 0 && ((r >= '0' && r <= '9') || r == '+' || r == '-' || r == '.') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // checkContentIntegrity compares files on disk against pinned hashes in the

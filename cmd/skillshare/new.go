@@ -83,13 +83,17 @@ func cmdNew(args []string) error {
 	// Resolve source directory
 	var sourceDir string
 	if mode == modeProject {
-		sourceDir = filepath.Join(cwd, ".skillshare", "skills")
+		projectCfg, loadErr := config.LoadProject(cwd)
+		if loadErr != nil {
+			return fmt.Errorf("failed to load project config: %w", loadErr)
+		}
+		sourceDir = projectCfg.EffectiveSkillsSource(cwd)
 	} else {
 		cfg, err := config.Load()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w (run 'skillshare init' first)", err)
 		}
-		sourceDir = cfg.Source
+		sourceDir = cfg.EffectiveSkillsSource()
 	}
 
 	// Create skill directory path

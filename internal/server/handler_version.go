@@ -10,7 +10,7 @@ import (
 func (s *Server) handleVersionCheck(w http.ResponseWriter, r *http.Request) {
 	// Snapshot config under RLock, then release before I/O.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	projectRoot := s.projectRoot
 	s.mu.RUnlock()
 
@@ -19,9 +19,15 @@ func (s *Server) handleVersionCheck(w http.ResponseWriter, r *http.Request) {
 	cliVersion := versioncheck.Version
 	cliUpdateAvailable := false
 	var cliLatest *string
+	cliDevMode := cliVersion == "" || cliVersion == "dev"
 
-	// CLI version check (uses 24h cache)
-	if result := versioncheck.Check(cliVersion, versioncheck.InstallDirect); result != nil {
+	// Dev builds expose a simulated update so the browser update/restart flow can be tested.
+	if cliDevMode {
+		latest := "dev-ui-flow"
+		cliUpdateAvailable = true
+		cliLatest = &latest
+	} else if result := versioncheck.Check(cliVersion, versioncheck.InstallDirect); result != nil {
+		// CLI version check (uses 24h cache)
 		cliUpdateAvailable = result.UpdateAvailable
 		cliLatest = &result.LatestVersion
 	}
@@ -49,6 +55,7 @@ func (s *Server) handleVersionCheck(w http.ResponseWriter, r *http.Request) {
 		"cliVersion":           cliVersion,
 		"cliLatest":            cliLatest,
 		"cliUpdateAvailable":   cliUpdateAvailable,
+		"cliDevMode":           cliDevMode,
 		"skillVersion":         skillVersion,
 		"skillLatest":          skillLatest,
 		"skillUpdateAvailable": skillUpdateAvailable,

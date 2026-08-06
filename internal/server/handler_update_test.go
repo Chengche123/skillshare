@@ -1,6 +1,8 @@
 package server
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +10,7 @@ import (
 	"testing"
 
 	"skillshare/internal/config"
+	"skillshare/internal/install"
 )
 
 // initGitRepo creates a minimal git repo with an initial commit.
@@ -36,6 +39,47 @@ func initGitRepo(t *testing.T, dir string) {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v failed: %s %v", args, out, err)
 		}
+	}
+}
+
+// TestMissingTrackedRepos_ReportedFromMetadata verifies the server detects tracked
+// repos declared in metadata whose clone dirs are absent (issue #212).
+func TestMissingTrackedRepos_ReportedFromMetadata(t *testing.T) {
+	s, src := newTestServer(t)
+
+	store := install.LoadMetadataOrNew(src)
+	store.Set("_team-skills", &install.MetadataEntry{
+		Source:  "https://github.com/example/team-skills",
+		Branch:  "main",
+		Tracked: true,
+	})
+	if err := store.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+
+	missing := s.missingTrackedRepos()
+	if len(missing) != 1 {
+		t.Fatalf("expected 1 missing repo, got %d (%+v)", len(missing), missing)
+	}
+	if missing[0].Name != "_team-skills" || missing[0].Branch != "main" {
+		t.Fatalf("unexpected missing repo: %+v", missing[0])
+	}
+}
+
+// TestHandleRehydrate_NoMissing_OK verifies the rehydrate endpoint succeeds with
+// an empty result set when nothing is missing.
+func TestHandleRehydrate_NoMissing_OK(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/update/rehydrate", nil)
+	rr := httptest.NewRecorder()
+	s.handleRehydrateTrackedRepos(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "results") {
+		t.Fatalf("expected results field, got %s", rr.Body.String())
 	}
 }
 
@@ -83,6 +127,77 @@ func TestUpdateSingle_NotFound(t *testing.T) {
 	if !strings.Contains(result.Message, "not found") && !strings.Contains(result.Message, "no update source") {
 		t.Fatalf("expected not-found message, got %q", result.Message)
 	}
+}
+
+func TestUpdateRegularSkill_NestedSkillRefreshesRootMetadataStore(t *testing.T) {
+	s, src := newTestServer(t)
+
+	remote := t.TempDir()
+	initGitRepo(t, remote)
+	remoteSkill := filepath.Join(remote, "skills", "agent-browser")
+	if err := os.MkdirAll(remoteSkill, 0755); err != nil {
+		t.Fatalf("create remote skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(remoteSkill, "SKILL.md"), []byte("---\nname: agent-browser\n---\n# Agent Browser\n"), 0644); err != nil {
+		t.Fatalf("write remote skill: %v", err)
+	}
+	runGit(t, remote, "add", ".")
+	runGit(t, remote, "commit", "-m", "add skill")
+	latestCommit := strings.TrimSpace(string(runGit(t, remote, "rev-parse", "--short", "HEAD")))
+
+	localSkill := filepath.Join(src, "tools", "agent-browser")
+	if err := os.MkdirAll(localSkill, 0755); err != nil {
+		t.Fatalf("create local skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localSkill, "SKILL.md"), []byte("---\nname: agent-browser\n---\n# Old\n"), 0644); err != nil {
+		t.Fatalf("write local skill: %v", err)
+	}
+
+	store := install.NewMetadataStore()
+	store.Set("tools/agent-browser", &install.MetadataEntry{
+		Source:  "file://" + remote + "//skills/agent-browser",
+		RepoURL: "file://" + remote,
+		Subdir:  "skills/agent-browser",
+		Version: "old-version",
+	})
+	if err := store.Save(src); err != nil {
+		t.Fatalf("save metadata: %v", err)
+	}
+	s.skillsStore = store
+
+	result := s.updateRegularSkill("tools/agent-browser", localSkill, true)
+	if result.Action != "updated" {
+		t.Fatalf("expected updated action, got %q: %s", result.Action, result.Message)
+	}
+
+	rootStore, err := install.LoadMetadata(src)
+	if err != nil {
+		t.Fatalf("load root metadata: %v", err)
+	}
+	entry := rootStore.GetByPath("tools/agent-browser")
+	if entry == nil {
+		t.Fatal("expected root metadata entry for nested skill")
+	}
+	if entry.Version != latestCommit {
+		t.Fatalf("root metadata version = %q, want %q", entry.Version, latestCommit)
+	}
+	if cached := s.skillsStore.GetByPath("tools/agent-browser"); cached == nil || cached.Version != latestCommit {
+		t.Fatalf("server metadata cache was not refreshed, got %#v", cached)
+	}
+	if _, err := os.Stat(filepath.Join(src, "tools", install.MetadataFileName)); !os.IsNotExist(err) {
+		t.Fatalf("expected no nested metadata store, stat err=%v", err)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) []byte {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %s %v", args, out, err)
+	}
+	return out
 }
 
 func TestUpdateSingle_RegularSkillPriority(t *testing.T) {
@@ -206,5 +321,28 @@ func TestAuditGateTrackedRepo_Clean_ReturnsNil(t *testing.T) {
 	}
 	if auditResult.RiskLabel != "clean" {
 		t.Errorf("expected riskLabel=clean, got %q", auditResult.RiskLabel)
+	}
+}
+
+func TestUpdateAgent_AzureOnPrem_UsesParseOpts(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.cfg.AzureHosts = []string{"azuredevops.corp.com"}
+
+	// Verify that server.parseOpts() + ParseSourceWithOptions produces
+	// the correct CloneURL for an on-prem Azure agent source.
+	// This is the exact parse path used inside updateAgent.
+	source, err := install.ParseSourceWithOptions(
+		"https://azuredevops.corp.com/Org/Project/_git/Repo/agents/my-agent.md",
+		s.parseOpts(),
+	)
+	if err != nil {
+		t.Fatalf("ParseSourceWithOptions error: %v", err)
+	}
+	wantURL := "https://azuredevops.corp.com/Org/Project/_git/Repo"
+	if source.CloneURL != wantURL {
+		t.Errorf("CloneURL = %q, want %q", source.CloneURL, wantURL)
+	}
+	if source.Subdir != "agents/my-agent.md" {
+		t.Errorf("Subdir = %q, want %q", source.Subdir, "agents/my-agent.md")
 	}
 }

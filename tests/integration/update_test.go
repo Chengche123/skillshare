@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"skillshare/internal/install"
@@ -84,6 +85,72 @@ func TestUpdate_MultipleNames_PartialNotFound(t *testing.T) {
 	result.AssertAnyOutputContains(t, "ghost")
 }
 
+// writeMissingTrackedRepoMeta declares a tracked repo in .metadata.json without
+// creating its clone directory, simulating a fresh machine where metadata is
+// committed but the gitignored clone dirs are absent (issue #212).
+func writeMissingTrackedRepoMeta(t *testing.T, sourceDir, name string) {
+	t.Helper()
+	store, err := install.LoadMetadata(sourceDir)
+	if err != nil {
+		t.Fatalf("failed to load metadata: %v", err)
+	}
+	store.Set(name, &install.MetadataEntry{
+		Source:  "https://github.com/example/" + strings.TrimPrefix(name, "_"),
+		RepoURL: "https://github.com/example/" + strings.TrimPrefix(name, "_") + ".git",
+		Tracked: true,
+	})
+	if err := store.Save(sourceDir); err != nil {
+		t.Fatalf("failed to save metadata: %v", err)
+	}
+}
+
+// TestUpdate_All_MissingTrackedRepos_BatchWarns verifies that `update --all`
+// surfaces a warning (not a silent skip) when multiple tracked repos are
+// declared in metadata but their clone directories are missing. Regression
+// test for issue #212.
+func TestUpdate_All_MissingTrackedRepos_BatchWarns(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+	setupGlobalConfig(sb)
+
+	// Placeholder skill (no metadata) just ensures the source dir exists; it is
+	// not an update target since it has no metadata entry.
+	sb.CreateSkill("placeholder", map[string]string{"SKILL.md": "# Placeholder"})
+
+	// Two missing tracked repos → two targets → batch path (not single-target).
+	writeMissingTrackedRepoMeta(t, sb.SourcePath, "_repo-a")
+	writeMissingTrackedRepoMeta(t, sb.SourcePath, "_repo-b")
+
+	result := sb.RunCLI("update", "--all")
+	result.AssertSuccess(t)
+	result.AssertAnyOutputContains(t, "missing on disk")
+	result.AssertAnyOutputContains(t, "_repo-a")
+	result.AssertAnyOutputContains(t, "_repo-b")
+	result.AssertAnyOutputContains(t, "skillshare install")
+}
+
+// TestUpdate_All_MissingTrackedRepos_JSON verifies the JSON output reports each
+// missing tracked repo as a skipped item carrying the rehydration hint.
+func TestUpdate_All_MissingTrackedRepos_JSON(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+	setupGlobalConfig(sb)
+
+	sb.CreateSkill("placeholder", map[string]string{"SKILL.md": "# Placeholder"})
+	writeMissingTrackedRepoMeta(t, sb.SourcePath, "_repo-a")
+	writeMissingTrackedRepoMeta(t, sb.SourcePath, "_repo-b")
+
+	result := sb.RunCLI("update", "--all", "--json")
+	result.AssertSuccess(t)
+	// Aggregated summary carries the names + one-shot rehydration hint.
+	result.AssertOutputContains(t, "missing_tracked_repos")
+	result.AssertOutputContains(t, "_repo-a")
+	result.AssertOutputContains(t, "_repo-b")
+	result.AssertOutputContains(t, "rehydrate tracked repositories")
+	// Per-item error is concise (not the repeated long sentence).
+	result.AssertOutputContains(t, "clone directory absent")
+}
+
 func TestUpdate_Group_DryRun(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
@@ -114,6 +181,86 @@ func TestUpdate_Group_SkipsLocal(t *testing.T) {
 	result.AssertSuccess(t)
 	result.AssertAnyOutputContains(t, "api")
 	result.AssertOutputNotContains(t, "local-only")
+}
+
+func TestUpdateAll_SymlinkedSourcePreservesMetadataKeys(t *testing.T) {
+	sb := testutil.NewSandbox(t)
+	defer sb.Cleanup()
+
+	realSource := filepath.Join(sb.Root, "dotfiles", "skillshare", "skills")
+	if err := os.MkdirAll(realSource, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(sb.SourcePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realSource, sb.SourcePath); err != nil {
+		t.Fatal(err)
+	}
+	setupGlobalConfig(sb)
+
+	workClones := map[string]string{}
+	remoteRepos := map[string]string{}
+	for _, name := range []string{"agent-browser", "context7-mcp"} {
+		remoteRepo := filepath.Join(sb.Root, name+".git")
+		workClone := filepath.Join(sb.Root, name+"-work")
+		gitInit(t, remoteRepo, true)
+		gitClone(t, remoteRepo, workClone)
+		remoteRepos[name] = remoteRepo
+		workClones[name] = workClone
+
+		dir := filepath.Join(workClone, "skills", name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\n---\n# "+name+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		gitAddCommit(t, workClone, "add skill")
+		gitPush(t, workClone)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		group string
+	}{
+		{name: "agent-browser", group: "browser"},
+		{name: "context7-mcp", group: "docs"},
+	} {
+		result := sb.RunCLI("install", "file://"+remoteRepos[tc.name]+"//skills/"+tc.name, "--into", tc.group, "--skip-audit")
+		result.AssertSuccess(t)
+	}
+
+	for _, name := range []string{"agent-browser", "context7-mcp"} {
+		workClone := workClones[name]
+		path := filepath.Join(workClone, "skills", name, "SKILL.md")
+		if err := os.WriteFile(path, []byte("---\nname: "+name+"\n---\n# "+name+" updated\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		gitAddCommit(t, workClone, "update skill")
+		gitPush(t, workClone)
+	}
+
+	result := sb.RunCLI("update", "--all", "--skip-audit")
+	result.AssertSuccess(t)
+
+	store, err := install.LoadMetadata(realSource)
+	if err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	if len(store.Entries) != 2 {
+		t.Fatalf("expected 2 metadata entries, got %d: %v", len(store.Entries), store.List())
+	}
+	for _, key := range []string{"browser/agent-browser", "docs/context7-mcp"} {
+		if entry := store.Get(key); entry == nil {
+			t.Fatalf("expected metadata key %q, got %v", key, store.List())
+		}
+	}
+	for _, key := range store.List() {
+		if strings.HasPrefix(key, "..") {
+			t.Fatalf("metadata key should stay source-relative, got %q", key)
+		}
+	}
 }
 
 func TestUpdate_Group_NotFound(t *testing.T) {

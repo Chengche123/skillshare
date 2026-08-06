@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"skillshare/internal/config"
 	"skillshare/internal/install"
 	"skillshare/internal/sync"
 	"skillshare/internal/trash"
@@ -85,8 +86,13 @@ func cmdUninstallProject(args []string, root string) error {
 		}
 	}
 
-	sourceDir := filepath.Join(root, ".skillshare", "skills")
+	projectCfg, loadErr := config.LoadProject(root)
+	if loadErr != nil {
+		return fmt.Errorf("failed to load project config: %w", loadErr)
+	}
+	sourceDir := projectCfg.EffectiveSkillsSource(root)
 	trashDir := trash.ProjectTrashDir(root)
+	gitignoreDir, gitignorePrefix := config.ProjectGitignoreTarget(root, sourceDir)
 
 	// Load centralized metadata store for display/reinstall hints.
 	skillsStore, _ := install.LoadMetadataWithMigration(sourceDir, "")
@@ -304,12 +310,12 @@ func cmdUninstallProject(args []string, root string) error {
 		}
 
 		// Batch-remove .gitignore entries (one read/write pass for all succeeded targets).
-		if len(succeeded) > 0 {
+		if len(succeeded) > 0 && gitignoreDir != "" {
 			entries := make([]string, len(succeeded))
 			for i, t := range succeeded {
-				entries[i] = filepath.Join("skills", t.name)
+				entries[i] = gitignorePrefix + "/" + t.name
 			}
-			install.RemoveFromGitIgnoreBatch(filepath.Join(root, ".skillshare"), entries) //nolint:errcheck
+			install.RemoveFromGitIgnoreBatch(gitignoreDir, entries) //nolint:errcheck
 		}
 
 		// Spinner end state
@@ -402,13 +408,13 @@ func cmdUninstallProject(args []string, root string) error {
 		}
 
 		// Batch-remove .gitignore entries after all targets processed.
-		if len(succeeded) > 0 {
+		if len(succeeded) > 0 && gitignoreDir != "" {
 			entries := make([]string, len(succeeded))
 			for i, t := range succeeded {
-				entries[i] = filepath.Join("skills", t.name)
+				entries[i] = gitignorePrefix + "/" + t.name
 			}
-			if _, err := install.RemoveFromGitIgnoreBatch(filepath.Join(root, ".skillshare"), entries); err != nil {
-				ui.Warning("Could not update .skillshare/.gitignore: %v", err)
+			if _, err := install.RemoveFromGitIgnoreBatch(gitignoreDir, entries); err != nil {
+				ui.Warning("Could not update .gitignore: %v", err)
 			}
 		}
 	}

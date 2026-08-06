@@ -67,7 +67,7 @@ func (s *Server) handleBatchSetTargets(w http.ResponseWriter, r *http.Request) {
 
 	// Snapshot config under read lock, then discover without holding the lock.
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	s.mu.RUnlock()
 
 	discovered, err := ssync.DiscoverSourceSkillsAll(source)
@@ -156,7 +156,7 @@ func (s *Server) handleSetSkillTargets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.RLock()
-	source := s.cfg.Source
+	source := s.cfg.EffectiveSkillsSource()
 	s.mu.RUnlock()
 
 	discovered, err := ssync.DiscoverSourceSkillsAll(source)

@@ -777,7 +777,7 @@ extras:
 `)
 
 	// Change mode from merge (default) to copy
-	result := sb.RunCLI("extras", "mode", "rules", "--mode", "copy", "-g")
+	result := sb.RunCLI("extras", "rules", "--mode", "copy", "-g")
 
 	result.AssertSuccess(t)
 	result.AssertAnyOutputContains(t, "copy")
@@ -824,7 +824,7 @@ extras:
 	}
 }
 
-// TestExtras_Mode_WithTarget verifies that "extras mode" with --target
+// TestExtras_Mode_WithTarget verifies that "extras <name> --mode" with --target
 // changes the mode on a specific target when multiple targets exist.
 func TestExtras_Mode_WithTarget(t *testing.T) {
 	sb := testutil.NewSandbox(t)
@@ -851,7 +851,7 @@ extras:
 `)
 
 	// Change mode of second target only
-	result := sb.RunCLI("extras", "mode", "rules", "--target", rulesTarget2, "--mode", "copy", "-g")
+	result := sb.RunCLI("extras", "rules", "--target", rulesTarget2, "--mode", "copy", "-g")
 
 	result.AssertSuccess(t)
 
@@ -862,7 +862,7 @@ extras:
 	}
 }
 
-// TestExtras_Mode_MultipleTargets_NoTarget verifies that "extras mode" errors
+// TestExtras_Mode_MultipleTargets_NoTarget verifies that "extras <name> --mode" errors
 // when the extra has multiple targets and --target is not specified.
 func TestExtras_Mode_MultipleTargets_NoTarget(t *testing.T) {
 	sb := testutil.NewSandbox(t)
@@ -885,7 +885,7 @@ extras:
       - path: ` + rulesTarget2 + `
 `)
 
-	result := sb.RunCLI("extras", "mode", "rules", "--mode", "copy", "-g")
+	result := sb.RunCLI("extras", "rules", "--mode", "copy", "-g")
 
 	result.AssertFailure(t)
 	result.AssertAnyOutputContains(t, "--target")
@@ -910,7 +910,7 @@ extras:
       - path: ` + rulesTarget + `
 `)
 
-	result := sb.RunCLI("extras", "mode", "rules", "--mode", "invalid", "-g")
+	result := sb.RunCLI("extras", "rules", "--mode", "invalid", "-g")
 
 	result.AssertFailure(t)
 	result.AssertAnyOutputContains(t, "invalid")
@@ -928,15 +928,18 @@ targets:
     path: ` + claudeTarget + `
 `)
 
-	result := sb.RunCLI("extras", "mode", "nonexistent", "--mode", "copy", "-g")
+	result := sb.RunCLI("extras", "nonexistent", "--mode", "copy", "-g")
 
 	result.AssertFailure(t)
 	result.AssertAnyOutputContains(t, "not found")
 }
 
-// TestInit_SetsExtrasSource verifies that "init" sets extras_source in the config
-// to the default extras directory (sibling of source).
-func TestInit_SetsExtrasSource(t *testing.T) {
+// TestInit_WritesSourcesMap verifies that fresh "init" emits the new
+// `sources:` map (v0.19.16+) with skills and agents entries, and does NOT
+// write the legacy top-level source / agents_source / extras_source fields.
+// The extras parent directory is provided at runtime by
+// Config.EffectiveExtrasSource() — it does not need to be persisted.
+func TestInit_WritesSourcesMap(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
@@ -947,22 +950,38 @@ func TestInit_SetsExtrasSource(t *testing.T) {
 	result := sb.RunCLI("init", "--no-copy", "--no-targets", "--no-git", "--no-skill")
 	result.AssertSuccess(t)
 
-	// Verify config contains extras_source
 	configContent := sb.ReadFile(sb.ConfigPath)
-	if !strings.Contains(configContent, "extras_source:") {
-		t.Errorf("expected config to contain 'extras_source:', got:\n%s", configContent)
+
+	// New format: must contain `sources:` map with skills/agents entries.
+	if !strings.Contains(configContent, "sources:") {
+		t.Errorf("expected config to contain 'sources:' map, got:\n%s", configContent)
+	}
+	if !strings.Contains(configContent, "skills: "+sb.SourcePath) {
+		t.Errorf("expected sources.skills to point to %s, got:\n%s", sb.SourcePath, configContent)
+	}
+	expectedAgents := filepath.Join(filepath.Dir(sb.SourcePath), "agents")
+	if !strings.Contains(configContent, "agents: "+expectedAgents) {
+		t.Errorf("expected sources.agents to point to %s, got:\n%s", expectedAgents, configContent)
 	}
 
-	// Verify it points to the extras dir (sibling of skills source)
-	expected := filepath.Join(filepath.Dir(sb.SourcePath), "extras")
-	if !strings.Contains(configContent, expected) {
-		t.Errorf("expected extras_source to contain %s, got:\n%s", expected, configContent)
+	// Legacy fields must NOT be written by fresh init.
+	if strings.Contains(configContent, "\nsource:") {
+		t.Errorf("expected no legacy 'source:' field, got:\n%s", configContent)
+	}
+	if strings.Contains(configContent, "extras_source:") {
+		t.Errorf("expected no legacy 'extras_source:' field, got:\n%s", configContent)
+	}
+	if strings.Contains(configContent, "agents_source:") {
+		t.Errorf("expected no legacy 'agents_source:' field, got:\n%s", configContent)
 	}
 }
 
-// TestExtrasInit_BackfillsExtrasSource verifies that "extras init" backfills
-// extras_source when it is missing from an existing config.
-func TestExtrasInit_BackfillsExtrasSource(t *testing.T) {
+// TestExtrasInit_PreservesEmptyExtrasSource verifies that "extras init" does
+// NOT silently backfill the legacy extras_source field when it was absent.
+// Config.EffectiveExtrasSource() handles the runtime fallback, so writing the
+// derived path into the user's config would surprise them with an unexpected
+// diff. The extras source directory must still be created on disk.
+func TestExtrasInit_PreservesEmptyExtrasSource(t *testing.T) {
 	sb := testutil.NewSandbox(t)
 	defer sb.Cleanup()
 
@@ -983,14 +1002,17 @@ func TestExtrasInit_BackfillsExtrasSource(t *testing.T) {
 	result := sb.RunCLI("extras", "init", "rules", "--target", rulesTarget, "-g")
 	result.AssertSuccess(t)
 
-	// Verify extras_source was backfilled
+	// Verify extras_source was NOT silently backfilled.
 	configAfter := sb.ReadFile(sb.ConfigPath)
-	if !strings.Contains(configAfter, "extras_source:") {
-		t.Errorf("expected extras_source to be backfilled after extras init, got:\n%s", configAfter)
+	if strings.Contains(configAfter, "extras_source:") {
+		t.Errorf("expected no extras_source backfill, got:\n%s", configAfter)
 	}
-	expected := filepath.Join(filepath.Dir(sb.SourcePath), "extras")
-	if !strings.Contains(configAfter, expected) {
-		t.Errorf("expected extras_source %s, got:\n%s", expected, configAfter)
+
+	// But the derived extras source directory must still exist on disk so
+	// the new extra has somewhere to live.
+	expected := filepath.Join(filepath.Dir(sb.SourcePath), "extras", "rules")
+	if _, err := os.Stat(expected); err != nil {
+		t.Errorf("expected extras source directory %s to exist: %v", expected, err)
 	}
 }
 
