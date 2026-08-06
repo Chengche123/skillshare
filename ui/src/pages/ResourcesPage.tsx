@@ -713,13 +713,16 @@ interface SelectionApi {
 /** Presentational checkbox mirroring the shared Checkbox (square, blue) so the
  *  selection visual is identical across grid / tree / table. The parent
  *  row/card owns the click handler. */
-function SelectBox({ checked, indeterminate = false, className = '' }: { checked: boolean; indeterminate?: boolean; className?: string }) {
+function SelectBox({ checked, indeterminate = false, className = '', ariaLabel }: { checked: boolean; indeterminate?: boolean; className?: string; ariaLabel?: string }) {
   const active = checked || indeterminate;
   return (
     <span
       className={`w-4 h-4 flex items-center justify-center border shrink-0 transition-colors ${active ? 'bg-blue border-blue' : 'bg-surface border-muted-dark'} ${className}`}
       style={{ borderRadius: radius.sm }}
-      aria-hidden="true"
+      aria-hidden={ariaLabel ? undefined : 'true'}
+      aria-label={ariaLabel}
+      aria-checked={ariaLabel ? checked : undefined}
+      role={ariaLabel ? 'checkbox' : undefined}
     >
       {indeterminate ? <Minus size={12} strokeWidth={3} className="text-white" /> : checked ? <Check size={12} strokeWidth={3} className="text-white" /> : null}
     </span>
@@ -743,6 +746,7 @@ const SkillPostit = memo(function SkillPostit({
   isSelected?: boolean;
   onToggleSelect?: (flatName: string) => void;
 }) {
+  const t = useT();
   // Extract repo name from relPath (e.g., "_awesome-skillshare-skills/frontend-dugong" -> "awesome-skillshare-skills")
   const repoName = skill.isInRepo && skill.relPath.startsWith('_')
     ? formatTrackedRepoName(skill.relPath.split('/')[0])
@@ -768,7 +772,10 @@ const SkillPostit = memo(function SkillPostit({
       >
         {selectionMode && (
           <span className="absolute top-3 right-3 z-10">
-            <SelectBox checked={isSelected} />
+            <SelectBox
+              checked={isSelected}
+              ariaLabel={t('resources.bulk.selectSkill', { name: skill.name }, `Select ${skill.name}`)}
+            />
           </span>
         )}
         {/* Skill name row */}
@@ -1081,15 +1088,21 @@ export default function SkillsPage() {
   const skillItems = useMemo(() => filtered.filter((s) => s.kind !== 'agent'), [filtered]);
   const agentItems = useMemo(() => filtered.filter((s) => s.kind === 'agent'), [filtered]);
   const tabFiltered = activeTab === 'agents' ? agentItems : skillItems;
+  const [nonGridVisibleNames, setNonGridVisibleNames] = useState<string[]>([]);
+  const visibleNames = useMemo(
+    () => viewType === 'grid' ? tabFiltered.map((skill) => skill.flatName) : nonGridVisibleNames,
+    [nonGridVisibleNames, tabFiltered, viewType],
+  );
+  const visibleNameSet = useMemo(() => new Set(visibleNames), [visibleNames]);
   const selectedVisibleSkills = useMemo<BulkSkillGroupTarget[]>(
     () => tabFiltered
-      .filter((skill) => skill.kind === 'skill' && selected.has(skill.flatName))
+      .filter((skill) => skill.kind === 'skill' && visibleNameSet.has(skill.flatName) && selected.has(skill.flatName))
       .map((skill) => ({
         flatName: skill.flatName,
         name: skill.name,
         groups: skill.groups ?? [],
       })),
-    [tabFiltered, selected],
+    [tabFiltered, visibleNameSet, selected],
   );
 
   useEffect(() => {
@@ -1200,11 +1213,11 @@ export default function SkillsPage() {
 
   const selectedNames = useMemo(() => Array.from(selected), [selected]);
   const selectedInView = useMemo(
-    () => tabFiltered.filter((s) => selected.has(s.flatName)).length,
-    [tabFiltered, selected],
+    () => visibleNames.filter((name) => selected.has(name)).length,
+    [visibleNames, selected],
   );
-  const allInViewSelected = tabFiltered.length > 0 && selectedInView === tabFiltered.length;
-  const selectAllInView = () => setSelected(new Set(tabFiltered.map((s) => s.flatName)));
+  const allInViewSelected = visibleNames.length > 0 && selectedInView === visibleNames.length;
+  const selectAllInView = () => setSelected(new Set(visibleNames));
 
   if (isPending) return <PageSkeleton />;
   if (error) {
@@ -1375,8 +1388,8 @@ export default function SkillsPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={allInViewSelected ? () => toggleMany(tabFiltered.map((s) => s.flatName), false) : selectAllInView}
-                  disabled={tabFiltered.length === 0}
+                  onClick={allInViewSelected ? () => toggleMany(visibleNames, false) : selectAllInView}
+                  disabled={visibleNames.length === 0}
                 >
                   <CheckSquare size={16} strokeWidth={2.5} />
                   {allInViewSelected ? t('resources.select.clear') : t('resources.select.selectAll')}
@@ -1463,6 +1476,7 @@ export default function SkillsPage() {
             stickyTop={toolbarH}
             allGroupNames={groupNames}
             selection={{ selectionMode, selected, onToggleSelect: toggleSelect, onToggleMany: toggleMany }}
+            onVisibleNamesChange={setNonGridVisibleNames}
             onClearFilters={hasActiveFilters ? () => { setFilterType('all'); setStatusFilter('all'); setSelectedGroup(''); setSearch(''); } : undefined}
           />
         ) : (
@@ -1472,6 +1486,7 @@ export default function SkillsPage() {
             search={search}
             allGroupNames={groupNames}
             selection={{ selectionMode, selected, onToggleSelect: toggleSelect, onToggleMany: toggleMany }}
+            onVisibleNamesChange={setNonGridVisibleNames}
           />
         )
       ) : (
@@ -1674,7 +1689,7 @@ export default function SkillsPage() {
 const INDENT_PX = 24;
 
 
-function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, allGroupNames, selection, onClearFilters }: {
+function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching, stickyTop = 0, allGroupNames, selection, onVisibleNamesChange, onClearFilters }: {
   skills: Skill[];
   resourceKind: Skill['kind'];
   totalCount: number;
@@ -1683,6 +1698,7 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
   stickyTop?: number;
   allGroupNames: string[];
   selection?: SelectionApi;
+  onVisibleNamesChange?: (names: string[]) => void;
   onClearFilters?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
@@ -1767,6 +1783,14 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
     () => flattenTree(tree, collapsed, isSearching),
     [tree, collapsed, isSearching],
   );
+
+  useEffect(() => {
+    onVisibleNamesChange?.(
+      rows
+        .filter((row): row is TreeNode & { type: 'skill'; skill: Skill } => row.type === 'skill' && !!row.skill)
+        .map((row) => row.skill.flatName),
+    );
+  }, [rows, onVisibleNamesChange]);
 
   const folderCount = useMemo(() => {
     let count = 0;
@@ -2214,12 +2238,13 @@ function FolderTreeView({ skills, resourceKind, totalCount, search, isSearching,
 
 const TABLE_PAGE_SIZES = [10, 25, 50] as const;
 
-function SkillsTable({ skills, resourceKind, search, allGroupNames, selection }: {
+function SkillsTable({ skills, resourceKind, search, allGroupNames, selection, onVisibleNamesChange }: {
   skills: Skill[];
   resourceKind: Skill['kind'];
   search: string;
   allGroupNames: string[];
   selection?: SelectionApi;
+  onVisibleNamesChange?: (names: string[]) => void;
 }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(() => {
@@ -2279,7 +2304,11 @@ function SkillsTable({ skills, resourceKind, search, allGroupNames, selection }:
 
   const totalPages = Math.max(1, Math.ceil(skills.length / pageSize));
   const start = page * pageSize;
-  const visible = skills.slice(start, start + pageSize);
+  const visible = useMemo(() => skills.slice(start, start + pageSize), [pageSize, skills, start]);
+
+  useEffect(() => {
+    onVisibleNamesChange?.(visible.map((skill) => skill.flatName));
+  }, [onVisibleNamesChange, visible]);
 
   // Build action menu items
   const actionItems: ContextMenuItem[] = actionMenu

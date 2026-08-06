@@ -172,6 +172,7 @@ describe('ResourcesPage skill groups', () => {
       makeSkill({ name: 'Gamma', flatName: 'Gamma', groups: ['Unused'] }),
     ]);
 
+    await user.click(await screen.findByRole('button', { name: 'Select' }));
     await screen.findByRole('checkbox', { name: 'Select Alpha' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
@@ -192,6 +193,7 @@ describe('ResourcesPage skill groups', () => {
       makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Reference'] }),
     ]);
 
+    await user.click(await screen.findByRole('button', { name: 'Select' }));
     await screen.findByRole('checkbox', { name: 'Select Alpha' });
     await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
     await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
@@ -214,6 +216,7 @@ describe('ResourcesPage skill groups', () => {
       makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Cold', 'Reference'] }),
     ]);
 
+    await user.click(await screen.findByRole('button', { name: 'Select' }));
     await screen.findByRole('checkbox', { name: 'Select Alpha' });
     await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
     await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
@@ -242,6 +245,7 @@ describe('ResourcesPage skill groups', () => {
       makeSkill({ name: 'Gamma', flatName: 'gamma' }),
     ]);
 
+    await user.click(await screen.findByRole('button', { name: 'Select' }));
     await screen.findByRole('checkbox', { name: 'Select Alpha' });
     await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
     await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
@@ -265,6 +269,7 @@ describe('ResourcesPage skill groups', () => {
       makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Reference'] }),
     ]);
 
+    await user.click(await screen.findByRole('button', { name: 'Select' }));
     await screen.findByRole('checkbox', { name: 'Select Alpha' });
     await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
     await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
@@ -289,6 +294,7 @@ describe('ResourcesPage skill groups', () => {
       makeSkill({ name: 'Beta', flatName: 'Beta', groups: ['Reference'] }),
     ]);
 
+    await user.click(await screen.findByRole('button', { name: 'Select' }));
     await screen.findByRole('checkbox', { name: 'Select Alpha' });
     await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
     await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
@@ -324,6 +330,7 @@ describe('ResourcesPage skill groups', () => {
 
     renderResourcesWithMocks({ listSkills });
 
+    await user.click(await screen.findByRole('button', { name: 'Select' }));
     await screen.findByRole('checkbox', { name: 'Select Alpha' });
     await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
     await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
@@ -346,10 +353,11 @@ describe('ResourcesPage skill groups', () => {
       makeSkill({ name: 'Gamma', flatName: 'Gamma', groups: ['Reference'] }),
     ]);
 
+    await user.click(await screen.findByRole('button', { name: 'Select' }));
     await screen.findByRole('checkbox', { name: 'Select Alpha' });
     await user.click(screen.getByText('All groups'));
     await user.click(screen.getByRole('option', { name: /Archive \(2\)/ }));
-    await user.click(screen.getByRole('button', { name: 'Select all visible' }));
+    await user.click(screen.getByRole('button', { name: 'Select all' }));
 
     expect(screen.getByText('2 selected')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Select Gamma', checked: true })).not.toBeInTheDocument();
@@ -364,9 +372,10 @@ describe('ResourcesPage skill groups', () => {
       makeSkill({ name: 'Gamma', flatName: 'Gamma', relPath: 'Gamma' }),
     ]);
 
+    await user.click(await screen.findByRole('button', { name: 'Select' }));
     await screen.findByText('nested');
     await user.click(screen.getByText('nested'));
-    await user.click(screen.getByRole('button', { name: 'Select all visible' }));
+    await user.click(screen.getByRole('button', { name: 'Select all' }));
 
     expect(screen.getByText('1 selected')).toBeInTheDocument();
   });
