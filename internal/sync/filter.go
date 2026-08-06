@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"skillshare/internal/config"
 	"skillshare/internal/resource"
 )
 
@@ -118,9 +119,21 @@ func shouldSyncFlatName(name string, includePatterns, excludePatterns []string) 
 	return true
 }
 
-// FilterSkillsByTarget treats declared Targets as passthrough metadata.
-func FilterSkillsByTarget(skills []DiscoveredSkill, _ string) []DiscoveredSkill {
-	filtered := make([]DiscoveredSkill, len(skills))
-	copy(filtered, skills)
+// FilterSkillsByTarget applies target restrictions inferred from host-style
+// paths. Explicit targets declared in SKILL.md remain passthrough metadata.
+func FilterSkillsByTarget(skills []DiscoveredSkill, targetName string) []DiscoveredSkill {
+	filtered := make([]DiscoveredSkill, 0, len(skills))
+	for _, skill := range skills {
+		if len(skill.PathTargets) == 0 {
+			filtered = append(filtered, skill)
+			continue
+		}
+		for _, target := range skill.PathTargets {
+			if config.MatchesTargetName(target, targetName) {
+				filtered = append(filtered, skill)
+				break
+			}
+		}
+	}
 	return filtered
 }

@@ -22,7 +22,8 @@ type DiscoveredSkill struct {
 	RelPath     string      // Relative path from source: _team/frontend/ui
 	FlatName    string      // Flat name for target: _team__frontend__ui
 	IsInRepo    bool        // Whether this skill is inside a tracked repo (_-prefixed directory)
-	Targets     []string    // From SKILL.md frontmatter; nil = all targets
+	Targets     []string    // From SKILL.md frontmatter or inferred from RelPath; nil = all targets
+	PathTargets []string    // Inferred from RelPath; nil = no path-based target restriction
 	DescChars   int         // Rune count of name + description (populated when collectContext)
 	BodyChars   int         // Rune count of body after frontmatter (populated when collectContext)
 	Description string      // Frontmatter description text (populated when collectContext)
@@ -46,7 +47,8 @@ func isSkillIgnored(parts []string, walkRoot string, ignoreMatchers map[string]*
 }
 
 // DiscoverSourceSkillsLite recursively scans the source directory for skills
-// without parsing SKILL.md frontmatter. Targets is always nil for each skill.
+// without parsing SKILL.md frontmatter or inferring host path targets.
+// Targets and PathTargets are always nil for each skill.
 // It also collects tracked repo paths (directories starting with _ that contain
 // .git) during the same walk, eliminating the need for a separate GetTrackedRepos call.
 //

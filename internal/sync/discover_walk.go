@@ -249,18 +249,20 @@ func discoverSourceSkillsInternal(sourcePath string, opts discoverOptions) ([]Di
 					stats.IgnoredSkills = append(stats.IgnoredSkills, relPath)
 				}
 				if opts.includeIgnored {
+					pathTargets := inferSkillTargetsFromRelPath(relPath)
 					inRepo := false
 					igParts := strings.Split(relPath, "/")
 					if len(igParts) > 0 && utils.IsTrackedRepoDir(igParts[0]) {
 						inRepo = true
 					}
 					skills = append(skills, DiscoveredSkill{
-						SourcePath: filepath.Join(sourcePath, relPath),
-						RelPath:    relPath,
-						FlatName:   utils.PathToFlatName(relPath),
-						IsInRepo:   inRepo,
-						Targets:    inferSkillTargetsFromRelPath(relPath),
-						Disabled:   true,
+						SourcePath:  filepath.Join(sourcePath, relPath),
+						RelPath:     relPath,
+						FlatName:    utils.PathToFlatName(relPath),
+						IsInRepo:    inRepo,
+						Targets:     pathTargets,
+						PathTargets: pathTargets,
+						Disabled:    true,
 					})
 				}
 				return nil
@@ -277,13 +279,15 @@ func discoverSourceSkillsInternal(sourcePath string, opts discoverOptions) ([]Di
 					stats.IgnoredSkills = append(stats.IgnoredSkills, relPath)
 				}
 				if opts.includeIgnored {
+					pathTargets := inferSkillTargetsFromRelPath(relPath)
 					skills = append(skills, DiscoveredSkill{
-						SourcePath: filepath.Join(sourcePath, relPath),
-						RelPath:    relPath,
-						FlatName:   utils.PathToFlatName(relPath),
-						IsInRepo:   true,
-						Targets:    inferSkillTargetsFromRelPath(relPath),
-						Disabled:   true,
+						SourcePath:  filepath.Join(sourcePath, relPath),
+						RelPath:     relPath,
+						FlatName:    utils.PathToFlatName(relPath),
+						IsInRepo:    true,
+						Targets:     pathTargets,
+						PathTargets: pathTargets,
+						Disabled:    true,
 					})
 				}
 				return nil
@@ -322,8 +326,12 @@ func discoverSourceSkillsInternal(sourcePath string, opts discoverOptions) ([]Di
 				targets = utils.ParseFrontmatterList(skillFile, "targets")
 			}
 
-			if len(targets) == 0 && (opts.parseFrontmatter || opts.collectContext) {
-				targets = inferSkillTargetsFromRelPath(relPath)
+			var pathTargets []string
+			if opts.parseFrontmatter || opts.collectContext {
+				pathTargets = inferSkillTargetsFromRelPath(relPath)
+				if len(targets) == 0 {
+					targets = pathTargets
+				}
 			}
 
 			// Use original sourcePath (not walkRoot) so SourcePath preserves
@@ -334,6 +342,7 @@ func discoverSourceSkillsInternal(sourcePath string, opts discoverOptions) ([]Di
 				FlatName:    utils.PathToFlatName(relPath),
 				IsInRepo:    isInRepo,
 				Targets:     targets,
+				PathTargets: pathTargets,
 				DescChars:   descChars,
 				BodyChars:   bodyChars,
 				Description: description,

@@ -46,3 +46,36 @@ func TestFilterSkillsByTarget_MixedDeclaredTargetsStillPassThrough(t *testing.T)
 		}
 	}
 }
+
+func TestFilterSkillsByTarget_PathTargetsRestrictSync(t *testing.T) {
+	skills := []DiscoveredSkill{
+		{FlatName: "shared"},
+		{FlatName: "cursor-only", Targets: []string{"cursor"}, PathTargets: []string{"cursor"}},
+		{FlatName: "droid-only", Targets: []string{"droid"}, PathTargets: []string{"droid"}},
+	}
+
+	result := FilterSkillsByTarget(skills, "cursor")
+	if len(result) != 2 {
+		t.Fatalf("expected shared and cursor path skills, got %d", len(result))
+	}
+	if result[0].FlatName != "shared" || result[1].FlatName != "cursor-only" {
+		t.Fatalf("unexpected result order/content: %+v", result)
+	}
+}
+
+func TestFilterSkillsByTarget_PathTargetsOverrideDeclaredMetadata(t *testing.T) {
+	skills := []DiscoveredSkill{
+		{
+			FlatName:    "cursor-hosted",
+			Targets:     []string{"droid"},
+			PathTargets: []string{"cursor"},
+		},
+	}
+
+	if result := FilterSkillsByTarget(skills, "cursor"); len(result) != 1 {
+		t.Fatalf("expected path-inferred cursor target to pass, got %d", len(result))
+	}
+	if result := FilterSkillsByTarget(skills, "droid"); len(result) != 0 {
+		t.Fatalf("declared target should not override path inference, got %d", len(result))
+	}
+}

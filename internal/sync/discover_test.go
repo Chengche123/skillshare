@@ -160,6 +160,9 @@ func TestDiscoverSourceSkills_InfersTargetsFromHostPaths(t *testing.T) {
 	if len(cursorSkill.Targets) != 1 || cursorSkill.Targets[0] != "cursor" {
 		t.Errorf("expected cursor host skill to target [cursor], got %v", cursorSkill.Targets)
 	}
+	if len(cursorSkill.PathTargets) != 1 || cursorSkill.PathTargets[0] != "cursor" {
+		t.Errorf("expected cursor host skill path target [cursor], got %v", cursorSkill.PathTargets)
+	}
 
 	openclawSkill := byRel["openclaw/skills/gstack-openclaw-investigate"]
 	if openclawSkill.RelPath == "" {
@@ -207,6 +210,28 @@ func TestDiscoverSourceSkills_InfersTargetsFromHostPaths(t *testing.T) {
 	}
 	if genericSkill.Targets != nil {
 		t.Errorf("expected generic skill targets to be nil, got %v", genericSkill.Targets)
+	}
+	if genericSkill.PathTargets != nil {
+		t.Errorf("expected generic skill path targets to be nil, got %v", genericSkill.PathTargets)
+	}
+}
+
+func TestDiscoverSourceSkills_PathTargetsDoNotYieldToFrontmatter(t *testing.T) {
+	src := t.TempDir()
+	writeSkillMD(t, filepath.Join(src, ".cursor", "skills", "declared-elsewhere"), "---\nname: declared-elsewhere\ntargets:\n  - droid\n---\n# Cursor")
+
+	skills, err := DiscoverSourceSkills(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if len(skills[0].Targets) != 1 || skills[0].Targets[0] != "droid" {
+		t.Fatalf("expected declared targets metadata [droid], got %v", skills[0].Targets)
+	}
+	if len(skills[0].PathTargets) != 1 || skills[0].PathTargets[0] != "cursor" {
+		t.Fatalf("expected path targets [cursor], got %v", skills[0].PathTargets)
 	}
 }
 
